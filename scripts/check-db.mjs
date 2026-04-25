@@ -13,7 +13,7 @@ const output = execFileSync(
     "-d",
     "defense_coach",
     "-tAc",
-    "select count(*) from pg_tables where schemaname='public' and tablename in ('Project','FileAsset','ProcessingTask','Artifact','KnowledgeChunk'); select extname from pg_extension where extname='vector';",
+    "select count(*) from pg_tables where schemaname='public' and tablename in ('Project','FileAsset','ProcessingTask','Artifact','KnowledgeChunk','DefensePracticeTurn'); select extname from pg_extension where extname='vector';",
   ],
   {
     cwd: new URL("..", import.meta.url),
@@ -21,7 +21,7 @@ const output = execFileSync(
   },
 ).trim();
 
-if (!output.includes("5") || !output.includes("vector")) {
+if (!output.includes("6") || !output.includes("vector")) {
   throw new Error(`Database smoke check failed:\n${output}`);
 }
 

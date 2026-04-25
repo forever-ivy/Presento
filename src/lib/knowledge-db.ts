@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import type { KnowledgeChunkRecord } from "./knowledge-chunks.ts";
+import { createTextEmbedding, formatEmbeddingForPgvector } from "./text-embedding.ts";
 
 export type KnowledgePsqlRunner = (sql: string) => Promise<string>;
 
@@ -7,6 +8,20 @@ export function createKnowledgeDatabase(runPsql: KnowledgePsqlRunner = runDocker
   return {
     async readProjectKnowledgeChunks(projectId: string) {
       const output = (await runPsql(readProjectKnowledgeChunksSql(projectId))).trim();
+      if (!output) return [];
+      return JSON.parse(output) as KnowledgeChunkRecord[];
+    },
+
+    async retrieveRelevantKnowledgeChunks({
+      projectId,
+      query,
+      limit = 6,
+    }: {
+      projectId: string;
+      query: string;
+      limit?: number;
+    }) {
+      const output = (await runPsql(retrieveRelevantKnowledgeChunksSql(projectId, query, limit))).trim();
       if (!output) return [];
       return JSON.parse(output) as KnowledgeChunkRecord[];
     },
@@ -19,6 +34,22 @@ export function createKnowledgeDatabase(runPsql: KnowledgePsqlRunner = runDocker
 
 export async function readProjectKnowledgeChunks(projectId: string) {
   return createKnowledgeDatabase().readProjectKnowledgeChunks(projectId);
+}
+
+export async function retrieveRelevantKnowledgeChunks({
+  projectId,
+  query,
+  limit,
+}: {
+  projectId: string;
+  query: string;
+  limit?: number;
+}) {
+  return createKnowledgeDatabase().retrieveRelevantKnowledgeChunks({
+    projectId,
+    query,
+    limit,
+  });
 }
 
 export async function replaceArtifactKnowledgeChunks(
@@ -65,16 +96,47 @@ WHERE "projectId" = ${sqlText(projectId)};
 `;
 }
 
+function retrieveRelevantKnowledgeChunksSql(projectId: string, query: string, limit: number) {
+  const queryVector = formatEmbeddingForPgvector(createTextEmbedding(query));
+  return `
+SELECT COALESCE(
+  json_agg(
+    json_build_object(
+      'id', "id",
+      'projectId', "projectId",
+      'artifactId', "artifactId",
+      'fileId', "fileId",
+      'content', "content",
+      'source', "source",
+      'metadata', "metadata",
+      'createdAt', to_json("createdAt")
+    )
+    ORDER BY distance
+  ),
+  '[]'::json
+)::text
+FROM (
+  SELECT *, "embedding" <=> ${sqlVector(queryVector)}::vector AS distance
+  FROM "KnowledgeChunk"
+  WHERE "projectId" = ${sqlText(projectId)}
+    AND "embedding" IS NOT NULL
+  ORDER BY "embedding" <=> ${sqlVector(queryVector)}::vector
+  LIMIT ${sqlNumber(limit)}
+) ranked_chunks;
+`;
+}
+
 function insertKnowledgeChunksSql(chunks: KnowledgeChunkRecord[]) {
   if (chunks.length === 0) return "";
 
   return `
 INSERT INTO "KnowledgeChunk" (
-  "id", "projectId", "artifactId", "fileId", "content", "source", "metadata", "createdAt"
+  "id", "projectId", "artifactId", "fileId", "content", "source", "metadata", "embedding", "createdAt"
 ) VALUES
 ${chunks
-  .map(
-    (chunk) => `(
+  .map((chunk) => {
+    const embedding = formatEmbeddingForPgvector(createTextEmbedding(chunk.content));
+    return `(
   ${sqlText(chunk.id)},
   ${sqlText(chunk.projectId)},
   ${sqlText(chunk.artifactId)},
@@ -82,9 +144,10 @@ ${chunks
   ${sqlText(chunk.content)},
   ${sqlText(chunk.source)},
   ${sqlJson(chunk.metadata)},
+  ${sqlVector(embedding)}::vector,
   ${sqlTimestamp(chunk.createdAt)}
-)`,
-  )
+)`;
+  })
   .join(",\n")};`;
 }
 
@@ -100,6 +163,15 @@ function sqlTimestamp(value: string | null | undefined) {
 
 function sqlJson(value: unknown) {
   return `${sqlText(JSON.stringify(value))}::jsonb`;
+}
+
+function sqlVector(value: string) {
+  return sqlText(value);
+}
+
+function sqlNumber(value: number) {
+  if (!Number.isFinite(value)) return "0";
+  return String(Math.max(1, Math.trunc(value)));
 }
 
 async function runDockerComposePsql(sql: string) {

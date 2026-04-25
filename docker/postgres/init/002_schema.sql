@@ -67,6 +67,23 @@ CREATE TABLE IF NOT EXISTS "KnowledgeChunk" (
   "createdAt" timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS "DefensePracticeTurn" (
+  "id" text PRIMARY KEY,
+  "projectId" text NOT NULL REFERENCES "Project"("id") ON DELETE CASCADE,
+  "slideIndex" integer NOT NULL,
+  "slideTitle" text NOT NULL,
+  "teacherRole" text NOT NULL,
+  "userAnswer" text NOT NULL,
+  "aiMessage" text NOT NULL,
+  "score" integer NOT NULL,
+  "strengths" jsonb NOT NULL,
+  "risks" jsonb NOT NULL,
+  "improvedAnswer" text NOT NULL,
+  "followUps" jsonb NOT NULL,
+  "citations" jsonb NOT NULL,
+  "createdAt" timestamptz NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS "FileAsset_projectId_idx" ON "FileAsset"("projectId");
 CREATE INDEX IF NOT EXISTS "FileAsset_kind_idx" ON "FileAsset"("kind");
 CREATE INDEX IF NOT EXISTS "ProcessingTask_projectId_status_idx" ON "ProcessingTask"("projectId", "status");
@@ -77,3 +94,4 @@ CREATE INDEX IF NOT EXISTS "Artifact_fileId_idx" ON "Artifact"("fileId");
 CREATE INDEX IF NOT EXISTS "KnowledgeChunk_projectId_idx" ON "KnowledgeChunk"("projectId");
 CREATE INDEX IF NOT EXISTS "KnowledgeChunk_artifactId_idx" ON "KnowledgeChunk"("artifactId");
 CREATE INDEX IF NOT EXISTS "KnowledgeChunk_fileId_idx" ON "KnowledgeChunk"("fileId");
+CREATE INDEX IF NOT EXISTS "DefensePracticeTurn_projectId_createdAt_idx" ON "DefensePracticeTurn"("projectId", "createdAt");

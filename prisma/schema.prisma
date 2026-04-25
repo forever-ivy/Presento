@@ -19,6 +19,27 @@ model Project {
   processingTasks ProcessingTask[]
   artifacts      Artifact[]
   knowledgeChunks KnowledgeChunk[]
+  practiceTurns  DefensePracticeTurn[]
+}
+
+model DefensePracticeTurn {
+  id             String   @id
+  projectId      String
+  slideIndex     Int
+  slideTitle     String
+  teacherRole    String
+  userAnswer     String
+  aiMessage      String
+  score          Int
+  strengths      Json
+  risks          Json
+  improvedAnswer String
+  followUps      Json
+  citations      Json
+  createdAt      DateTime
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
 }
 
 model FileAsset {

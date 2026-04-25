@@ -36,6 +36,8 @@ test("writes knowledge chunks by replacing chunks for the same artifact", async 
   assert.match(calls[0], /BEGIN;/);
   assert.match(calls[0], /DELETE FROM "KnowledgeChunk" WHERE "artifactId" = 'artifact-readme';/);
   assert.match(calls[0], /INSERT INTO "KnowledgeChunk"/);
+  assert.match(calls[0], /"embedding"/);
+  assert.match(calls[0], /::vector/);
   assert.match(calls[0], /README\.md · document/);
   assert.match(calls[0], /"lineStart":1/);
   assert.match(calls[0], /COMMIT;/);
@@ -68,4 +70,23 @@ test("returns no project knowledge chunks when database query is empty", async (
   const storedChunks = await database.readProjectKnowledgeChunks("project-defense");
 
   assert.deepEqual(storedChunks, []);
+});
+
+test("retrieves relevant project chunks with pgvector distance", async () => {
+  let sql = "";
+  const database = createKnowledgeDatabase(async (query) => {
+    sql = query;
+    return JSON.stringify(chunks);
+  });
+
+  const results = await database.retrieveRelevantKnowledgeChunks({
+    projectId: "project-defense",
+    query: "订单状态如何设计",
+    limit: 3,
+  });
+
+  assert.deepEqual(results, chunks);
+  assert.match(sql, /ORDER BY "embedding" <=> '\[/);
+  assert.match(sql, /::vector/);
+  assert.match(sql, /LIMIT 3/);
 });

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { generateDefenseCoachTurn, type DefenseTeacherRole } from "@/lib/defense-chat-skill";
-import { readProjectKnowledgeChunks } from "@/lib/knowledge-db";
+import { writePracticeTurn } from "@/lib/defense-practice-db";
+import {
+  readProjectKnowledgeChunks,
+  retrieveRelevantKnowledgeChunks,
+} from "@/lib/knowledge-db";
 import { workspacePersistence } from "@/lib/workspace-persistence";
 
 export const runtime = "nodejs";
@@ -22,10 +26,18 @@ export async function POST(
       return NextResponse.json({ error: "Missing project id." }, { status: 400 });
     }
 
-    const [workspace, chunks] = await Promise.all([
+    const query = `${payload.slideTitle ?? ""}\n${payload.userAnswer ?? ""}`;
+    const [workspace, relevantChunks] = await Promise.all([
       workspacePersistence.readWorkspace(),
-      readProjectKnowledgeChunks(projectId),
+      retrieveRelevantKnowledgeChunks({
+        projectId,
+        query,
+        limit: 6,
+      }),
     ]);
+    const chunks = relevantChunks.length
+      ? relevantChunks
+      : await readProjectKnowledgeChunks(projectId);
     const projectName =
       workspace?.project.id === projectId ? workspace.project.name : "课程项目答辩";
     const turn = generateDefenseCoachTurn({
@@ -36,10 +48,36 @@ export async function POST(
       userAnswer: payload.userAnswer ?? "",
       chunks,
     });
+    const practiceTurn = {
+      id: `turn-${projectId}-${Date.parse(turn.generatedAt).toString(36)}-${crypto.randomUUID().slice(0, 8)}`,
+      projectId,
+      slideIndex: payload.slideIndex ?? 1,
+      slideTitle: payload.slideTitle ?? "当前页",
+      teacherRole: payload.teacherRole ?? "strict",
+      userAnswer: payload.userAnswer ?? "",
+      aiMessage: turn.message,
+      score: turn.feedback.score,
+      strengths: turn.feedback.strengths,
+      risks: turn.feedback.risks,
+      improvedAnswer: turn.feedback.improvedAnswer,
+      followUps: turn.followUps,
+      citations: turn.citations,
+      createdAt: turn.generatedAt,
+    };
+
+    let practiceWarning: string | undefined;
+    try {
+      await writePracticeTurn(practiceTurn);
+    } catch (error) {
+      practiceWarning =
+        error instanceof Error ? error.message : "Practice turn persistence failed.";
+    }
 
     return NextResponse.json({
       turn,
       knowledgeChunkCount: chunks.length,
+      practiceTurnId: practiceWarning ? undefined : practiceTurn.id,
+      practiceWarning,
     });
   } catch (error) {
     return NextResponse.json(
