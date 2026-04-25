@@ -85,7 +85,11 @@ export function useWorkspace() {
     if (!task || !file) return null;
 
     try {
-      const artifact = await runProcessingTask({ file, task });
+      const artifact = await runProcessingTask({
+        projectId: workspace.project.id,
+        file,
+        task,
+      });
       const nextWorkspace = completeProcessingTask(
         workspace,
         taskId,

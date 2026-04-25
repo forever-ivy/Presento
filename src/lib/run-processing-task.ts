@@ -5,9 +5,11 @@ import type {
 } from "./project-workspace";
 
 export async function runProcessingTask({
+  projectId,
   file,
   task,
 }: {
+  projectId: string;
   file: DefenseFileRecord;
   task: DefenseProcessingTask;
 }): Promise<DefenseProcessingArtifact> {
@@ -16,7 +18,7 @@ export async function runProcessingTask({
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ file, task }),
+    body: JSON.stringify({ projectId, file, task }),
   });
 
   if (!response.ok) {

@@ -1,4 +1,7 @@
+"use client";
+
 import { Bot, CheckCircle2, Clock, Layers3, MessageSquareText } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
   AppFrame,
   BackLink,
@@ -11,14 +14,47 @@ import {
   TopNav,
 } from "@/components/notion-ui";
 import { demoProject, demoSkillInvocations, demoSkillPacks } from "@/lib/demo-data";
+import { fetchProjectBrief } from "@/lib/project-brief-api";
+import type { ProjectBrief } from "@/lib/project-brief-skill";
+import { useWorkspace } from "@/lib/use-workspace";
 
 export default function SkillsPage() {
+  const { workspace } = useWorkspace();
+  const [brief, setBrief] = useState<ProjectBrief | null>(null);
+  const [knowledgeChunkCount, setKnowledgeChunkCount] = useState(0);
+  const [briefError, setBriefError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    const projectId = workspace?.project.id ?? "";
+    if (!projectId) return;
+
+    async function loadBrief() {
+      setBriefError("");
+      try {
+        const payload = await fetchProjectBrief(projectId);
+        if (cancelled) return;
+        setBrief(payload.brief);
+        setKnowledgeChunkCount(payload.knowledgeChunkCount);
+      } catch (error) {
+        if (cancelled) return;
+        setBriefError(error instanceof Error ? error.message : "项目速记卡生成失败");
+      }
+    }
+
+    void loadBrief();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace?.project.id]);
+
   return (
     <AppFrame>
       <TopNav />
       <PageWrap>
         <PageHeader
-          eyebrow={`${demoProject.name} / Agent Skills`}
+          eyebrow={`${workspace?.project.name ?? demoProject.name} / Agent Skills`}
           title="答辩 Agent Skills"
           description="把讲稿生成、代码解释、数据质疑、老师追问和复盘改答拆成可观察、可测试的能力单元。"
           actions={<BackLink />}
@@ -58,6 +94,61 @@ export default function SkillsPage() {
             </div>
           </Panel>
         </section>
+
+        <Card>
+          <SectionHeading
+            icon={MessageSquareText}
+            title="项目速记 Skill"
+            description={
+              workspace
+                ? `基于 ${knowledgeChunkCount} 个知识片段生成，可用于冲刺模式和同屏追问。`
+                : "创建项目并解析资料后，这里会显示真实的项目速记卡。"
+            }
+          />
+          {brief ? (
+            <div className="flex flex-col gap-4">
+              <div className="rounded-xl border border-[var(--notion-border)] bg-[var(--notion-warm)] p-4 text-sm font-semibold leading-6">
+                {brief.oneSentence}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {brief.cards.map((card) => (
+                  <article
+                    className="rounded-xl border border-[var(--notion-border)] bg-white p-4"
+                    key={card.title}
+                  >
+                    <h3 className="mb-3 text-sm font-bold">{card.title}</h3>
+                    <div className="flex flex-col gap-2">
+                      {card.items.map((item) => (
+                        <p
+                          className="notion-muted text-sm leading-6"
+                          key={`${card.title}-${item}`}
+                        >
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+              {brief.citations.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {brief.citations.slice(0, 4).map((citation) => (
+                    <Badge
+                      key={`${citation.source}-${citation.lineStart}-${citation.lineEnd}`}
+                      tone="gray"
+                    >
+                      {citation.source} L{citation.lineStart}-{citation.lineEnd}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <p className="notion-muted text-sm leading-6">
+              {briefError || "等待真实项目资料入库后生成。"}
+            </p>
+          )}
+        </Card>
 
         <Card>
           <SectionHeading
