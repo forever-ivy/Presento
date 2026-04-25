@@ -15,24 +15,55 @@ import {
   TopNav,
   cn,
 } from "@/components/notion-ui";
+import { requestDefenseCoachTurn } from "@/lib/defense-chat-api";
+import { useWorkspace } from "@/lib/use-workspace";
+
+type DefenseTurnView = {
+  speaker: string;
+  content: string;
+  meta?: string;
+};
 
 export default function DefensePage() {
-  const [turns, setTurns] = useState(demoDefenseTurns);
+  const { workspace } = useWorkspace();
+  const [turns, setTurns] = useState<DefenseTurnView[]>(demoDefenseTurns);
   const [answer, setAnswer] = useState("");
   const [activeHint, setActiveHint] = useState("回答框架");
+  const [isSending, setIsSending] = useState(false);
+  const [chatError, setChatError] = useState("");
 
-  function sendAnswer() {
+  async function sendAnswer() {
     if (!answer.trim()) return;
+    const userAnswer = answer;
     setTurns([
       ...turns,
-      { speaker: "我", content: answer },
-      {
-        speaker: "AI 老师",
-        content:
-          "我会继续追问：你刚才提到后端校验订单状态，请说明这个校验发生在哪个接口，以及异常时前端如何提示用户。",
-      },
+      { speaker: "我", content: userAnswer },
     ]);
     setAnswer("");
+    setIsSending(true);
+    setChatError("");
+
+    try {
+      const payload = await requestDefenseCoachTurn({
+        projectId: workspace?.project.id ?? "project-db-smoke",
+        slideTitle: "系统架构",
+        slideIndex: 2,
+        teacherRole: "strict",
+        userAnswer,
+      });
+      setTurns((currentTurns) => [
+        ...currentTurns,
+        {
+          speaker: payload.turn.role,
+          content: payload.turn.message,
+          meta: `评分 ${payload.turn.feedback.score}/100 · ${payload.knowledgeChunkCount} 个知识片段`,
+        },
+      ]);
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "同屏追问生成失败");
+    } finally {
+      setIsSending(false);
+    }
   }
 
   return (
@@ -40,7 +71,7 @@ export default function DefensePage() {
       <TopNav />
       <PageWrap width="max-w-[1280px]">
         <PageHeader
-          eyebrow={`${demoProject.name} / PPT 同屏实时答辩`}
+          eyebrow={`${workspace?.project.name ?? demoProject.name} / PPT 同屏实时答辩`}
           title="严格老师 · 第 2 页系统架构"
           description="左侧保持当前 PPT 画面，右侧实时追问和记录回答，让练习尽量贴近真实答辩现场。"
           actions={
@@ -126,8 +157,18 @@ export default function DefensePage() {
                     {turn.speaker}
                   </div>
                   {turn.content}
+                  {turn.meta ? (
+                    <div className="notion-muted mt-2 text-xs font-semibold">
+                      {turn.meta}
+                    </div>
+                  ) : null}
                 </div>
               ))}
+              {chatError ? (
+                <div className="rounded-xl border border-[#ffd6bd] bg-[#fff4eb] p-4 text-sm font-semibold text-[#dd5b00]">
+                  {chatError}
+                </div>
+              ) : null}
             </div>
 
             <div className="border-t border-[var(--notion-border)] p-5">
@@ -159,7 +200,7 @@ export default function DefensePage() {
                 />
                 <button className="notion-button-primary" onClick={sendAnswer}>
                   <Send aria-hidden="true" />
-                  发送
+                  {isSending ? "生成中" : "发送"}
                 </button>
               </div>
             </div>
