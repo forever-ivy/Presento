@@ -84,6 +84,21 @@ CREATE TABLE IF NOT EXISTS "DefensePracticeTurn" (
   "createdAt" timestamptz NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS "SkillInvocation" (
+  "id" text PRIMARY KEY,
+  "projectId" text NOT NULL REFERENCES "Project"("id") ON DELETE CASCADE,
+  "skillName" text NOT NULL,
+  "trigger" text NOT NULL,
+  "status" text NOT NULL,
+  "input" jsonb NOT NULL,
+  "output" jsonb NOT NULL,
+  "error" text,
+  "usedFallback" boolean NOT NULL,
+  "startedAt" timestamptz NOT NULL,
+  "completedAt" timestamptz NOT NULL,
+  "durationMs" integer NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS "FileAsset_projectId_idx" ON "FileAsset"("projectId");
 CREATE INDEX IF NOT EXISTS "FileAsset_kind_idx" ON "FileAsset"("kind");
 CREATE INDEX IF NOT EXISTS "ProcessingTask_projectId_status_idx" ON "ProcessingTask"("projectId", "status");
@@ -95,3 +110,5 @@ CREATE INDEX IF NOT EXISTS "KnowledgeChunk_projectId_idx" ON "KnowledgeChunk"("p
 CREATE INDEX IF NOT EXISTS "KnowledgeChunk_artifactId_idx" ON "KnowledgeChunk"("artifactId");
 CREATE INDEX IF NOT EXISTS "KnowledgeChunk_fileId_idx" ON "KnowledgeChunk"("fileId");
 CREATE INDEX IF NOT EXISTS "DefensePracticeTurn_projectId_createdAt_idx" ON "DefensePracticeTurn"("projectId", "createdAt");
+CREATE INDEX IF NOT EXISTS "SkillInvocation_projectId_startedAt_idx" ON "SkillInvocation"("projectId", "startedAt");
+CREATE INDEX IF NOT EXISTS "SkillInvocation_skillName_status_idx" ON "SkillInvocation"("skillName", "status");

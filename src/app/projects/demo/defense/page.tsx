@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowRight, Bot, Send, Timer } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { demoDefenseTurns, demoProject } from "@/lib/demo-data";
 import {
   AppFrame,
@@ -16,6 +16,8 @@ import {
   cn,
 } from "@/components/notion-ui";
 import { requestDefenseCoachTurn } from "@/lib/defense-chat-api";
+import type { ModelRuntimeStatus } from "@/lib/model-config";
+import { fetchModelStatus } from "@/lib/model-status-api";
 import { useWorkspace } from "@/lib/use-workspace";
 
 type DefenseTurnView = {
@@ -31,6 +33,32 @@ export default function DefensePage() {
   const [activeHint, setActiveHint] = useState("回答框架");
   const [isSending, setIsSending] = useState(false);
   const [chatError, setChatError] = useState("");
+  const [modelStatus, setModelStatus] = useState<ModelRuntimeStatus | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadModelStatus() {
+      try {
+        const payload = await fetchModelStatus();
+        if (!cancelled) setModelStatus(payload.modelStatus);
+      } catch {
+        if (!cancelled) {
+          setModelStatus({
+            state: "unconfigured",
+            label: "模型状态未知",
+            message: "暂时无法读取模型配置状态，请检查后端服务是否运行。",
+          });
+        }
+      }
+    }
+
+    void loadModelStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function sendAnswer() {
     if (!answer.trim()) return;
@@ -51,6 +79,7 @@ export default function DefensePage() {
         teacherRole: "strict",
         userAnswer,
       });
+      setModelStatus(payload.modelStatus ?? null);
       setTurns((currentTurns) => [
         ...currentTurns,
         {
@@ -76,6 +105,11 @@ export default function DefensePage() {
           description="左侧保持当前 PPT 画面，右侧实时追问和记录回答，让练习尽量贴近真实答辩现场。"
           actions={
             <>
+              {modelStatus ? (
+                <Badge tone={modelStatus.state === "configured" ? "green" : "orange"}>
+                  {modelStatus.label}
+                </Badge>
+              ) : null}
               <BackLink />
               <span className="notion-button-primary">
                 <Timer aria-hidden="true" />
@@ -137,8 +171,16 @@ export default function DefensePage() {
               <SectionHeading
                 icon={Bot}
                 title="当前页追问 Skill"
-                description="已绑定第 2 页，追问聚焦状态流转、接口权限和异常处理。"
-                action={<Badge>运行中</Badge>}
+                description={
+                  modelStatus?.state === "unconfigured"
+                    ? modelStatus.message
+                    : "已绑定第 2 页，追问聚焦状态流转、接口权限和异常处理。"
+                }
+                action={
+                  <Badge tone={modelStatus?.state === "unconfigured" ? "orange" : "blue"}>
+                    {modelStatus?.label ?? "待发送"}
+                  </Badge>
+                }
               />
             </div>
 

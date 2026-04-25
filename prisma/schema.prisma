@@ -20,6 +20,26 @@ model Project {
   artifacts      Artifact[]
   knowledgeChunks KnowledgeChunk[]
   practiceTurns  DefensePracticeTurn[]
+  skillInvocations SkillInvocation[]
+}
+
+model SkillInvocation {
+  id           String   @id
+  projectId    String
+  skillName    String
+  trigger      String
+  status       String
+  input        Json
+  output       Json
+  error        String?
+  usedFallback Boolean
+  startedAt    DateTime
+  completedAt  DateTime
+  durationMs   Int
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, startedAt])
+  @@index([skillName, status])
 }
 
 model DefensePracticeTurn {

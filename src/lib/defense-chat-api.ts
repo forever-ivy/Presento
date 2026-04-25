@@ -1,4 +1,5 @@
 import type { DefenseCoachTurn, DefenseTeacherRole } from "./defense-chat-skill";
+import type { ModelRuntimeStatus } from "./model-config";
 
 export async function requestDefenseCoachTurn({
   projectId,
@@ -34,6 +35,8 @@ export async function requestDefenseCoachTurn({
   return (await response.json()) as {
     turn: DefenseCoachTurn;
     knowledgeChunkCount: number;
+    skillStatus?: "success" | "fallback" | "failed";
+    modelStatus?: ModelRuntimeStatus;
   };
 }
 

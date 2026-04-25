@@ -1,4 +1,5 @@
 import type { ProjectBrief } from "./project-brief-skill";
+import type { ModelRuntimeStatus } from "./model-config";
 
 export async function fetchProjectBrief(projectId: string) {
   const response = await fetch(`/api/projects/${projectId}/brief`, {
@@ -14,6 +15,8 @@ export async function fetchProjectBrief(projectId: string) {
   return (await response.json()) as {
     brief: ProjectBrief;
     knowledgeChunkCount: number;
+    skillStatus?: "success" | "fallback" | "failed";
+    modelStatus?: ModelRuntimeStatus;
   };
 }
 

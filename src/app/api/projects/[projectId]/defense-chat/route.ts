@@ -5,6 +5,11 @@ import {
   readProjectKnowledgeChunks,
   retrieveRelevantKnowledgeChunks,
 } from "@/lib/knowledge-db";
+import { createConfiguredLlmProvider } from "@/lib/llm-provider";
+import { getModelRuntimeStatus } from "@/lib/model-config";
+import { runDefenseChatGraph } from "@/lib/skill-graph";
+import { writeSkillInvocation } from "@/lib/skill-invocation-db";
+import { runSkill } from "@/lib/skill-runner";
 import { workspacePersistence } from "@/lib/workspace-persistence";
 
 export const runtime = "nodejs";
@@ -40,14 +45,38 @@ export async function POST(
       : await readProjectKnowledgeChunks(projectId);
     const projectName =
       workspace?.project.id === projectId ? workspace.project.name : "课程项目答辩";
-    const turn = generateDefenseCoachTurn({
-      projectName,
-      slideTitle: payload.slideTitle ?? "当前页",
-      slideIndex: payload.slideIndex ?? 1,
-      teacherRole: payload.teacherRole ?? "strict",
-      userAnswer: payload.userAnswer ?? "",
-      chunks,
+    const { output: turn, invocation } = await runSkill({
+      projectId,
+      skillName: "defense-chat",
+      trigger: "current-slide-answer",
+      input: {
+        slideTitle: payload.slideTitle ?? "当前页",
+        slideIndex: payload.slideIndex ?? 1,
+        teacherRole: payload.teacherRole ?? "strict",
+        userAnswer: payload.userAnswer ?? "",
+        retrievedChunkCount: chunks.length,
+      },
+      run: async () =>
+        runDefenseChatGraph({
+          provider: createConfiguredLlmProvider(),
+          projectName,
+          slideTitle: payload.slideTitle ?? "当前页",
+          slideIndex: payload.slideIndex ?? 1,
+          teacherRole: payload.teacherRole ?? "strict",
+          userAnswer: payload.userAnswer ?? "",
+          chunks,
+        }),
+      fallback: async () =>
+        generateDefenseCoachTurn({
+          projectName,
+          slideTitle: payload.slideTitle ?? "当前页",
+          slideIndex: payload.slideIndex ?? 1,
+          teacherRole: payload.teacherRole ?? "strict",
+          userAnswer: payload.userAnswer ?? "",
+          chunks,
+        }),
     });
+    await writeSkillInvocation(invocation).catch(() => undefined);
     const practiceTurn = {
       id: `turn-${projectId}-${Date.parse(turn.generatedAt).toString(36)}-${crypto.randomUUID().slice(0, 8)}`,
       projectId,
@@ -77,6 +106,9 @@ export async function POST(
       turn,
       knowledgeChunkCount: chunks.length,
       practiceTurnId: practiceWarning ? undefined : practiceTurn.id,
+      skillInvocationId: invocation.id,
+      skillStatus: invocation.status,
+      modelStatus: getModelRuntimeStatus(),
       practiceWarning,
     });
   } catch (error) {

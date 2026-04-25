@@ -14,6 +14,8 @@
     "test:unit": "node --test src/lib/*.test.ts"
   },
   "dependencies": {
+    "@langchain/core": "^1.1.41",
+    "@langchain/langgraph": "^1.2.9",
     "@prisma/client": "^7.8.0",
     "lucide-react": "^1.11.0",
     "next": "16.2.4",
