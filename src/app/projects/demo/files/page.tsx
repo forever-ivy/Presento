@@ -1,6 +1,15 @@
 "use client";
 
-import { Database, FileText, FileUp, Search, Upload } from "lucide-react";
+import {
+  CheckCircle2,
+  Database,
+  FileText,
+  FileUp,
+  Play,
+  Search,
+  Upload,
+  XCircle,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   AppFrame,
@@ -10,18 +19,38 @@ import {
   PageHeader,
   PageWrap,
   Panel,
+  ProgressBar,
   SectionHeading,
   TopNav,
 } from "@/components/notion-ui";
-import { demoFiles, demoProject } from "@/lib/demo-data";
+import { demoFiles, demoProcessingTasks, demoProject } from "@/lib/demo-data";
 import { uploadDefenseFiles } from "@/lib/upload-files";
 import { useWorkspace } from "@/lib/use-workspace";
 
+type ProcessingTaskView = {
+  id: string;
+  fileName: string;
+  title: string;
+  engine: string;
+  status: string;
+  progress: number;
+  error?: string;
+};
+
 export default function FilesPage() {
-  const { workspace, summary, addFiles, isLoaded } = useWorkspace();
+  const {
+    workspace,
+    summary,
+    addFiles,
+    isLoaded,
+    startProcessing,
+    runProcessing,
+    failProcessing,
+  } = useWorkspace();
   const [query, setQuery] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [runningTaskId, setRunningTaskId] = useState("");
 
   const files = useMemo(() => {
     const workspaceFiles = workspace?.files.map((file) => ({
@@ -33,6 +62,12 @@ export default function FilesPage() {
 
     return workspaceFiles?.length ? workspaceFiles : demoFiles;
   }, [workspace]);
+
+  const processingTasks: ProcessingTaskView[] = workspace?.processingTasks?.length
+    ? workspace.processingTasks
+    : demoProcessingTasks;
+  const artifacts = workspace?.artifacts ?? [];
+  const canControlQueue = Boolean(workspace?.processingTasks?.length);
 
   const filteredFiles = files.filter((file) => {
     const text = `${file.name} ${file.type} ${file.status} ${file.source}`.toLowerCase();
@@ -52,6 +87,12 @@ export default function FilesPage() {
     } finally {
       setIsUploading(false);
     }
+  }
+
+  async function runTask(taskId: string) {
+    setRunningTaskId(taskId);
+    await runProcessing(taskId);
+    setRunningTaskId("");
   }
 
   return (
@@ -95,6 +136,36 @@ export default function FilesPage() {
                 </article>
               ))}
             </div>
+
+            {artifacts.length > 0 ? (
+              <div className="mt-6 border-t border-[var(--notion-border)] pt-5">
+                <SectionHeading
+                  icon={FileText}
+                  title="解析产物"
+                  description="这些摘要会进入后续项目速记卡、老师追问和 RAG 溯源。"
+                />
+                <div className="flex flex-col gap-3">
+                  {artifacts.map((artifact) => (
+                    <article
+                      className="rounded-xl border border-[var(--notion-border)] bg-[var(--notion-warm)] p-4"
+                      key={artifact.id}
+                    >
+                      <div className="text-sm font-bold">{artifact.title}</div>
+                      <p className="notion-muted mt-2 text-sm leading-6">
+                        {artifact.summary}
+                      </p>
+                      <div className="mt-3 flex flex-col gap-1">
+                        {artifact.previewLines.map((line) => (
+                          <div className="truncate text-xs text-[var(--notion-muted)]" key={line}>
+                            {line}
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </Card>
 
           <aside className="flex flex-col gap-5">
@@ -134,12 +205,82 @@ export default function FilesPage() {
               <div className="grid grid-cols-2 gap-3">
                 <Metric label="文件数" value={String(summary?.fileCount ?? demoFiles.length)} />
                 <Metric label="准备度" value={`${summary?.readiness ?? demoProject.readiness}%`} />
+                <Metric label="待解析" value={String(summary?.pendingTaskCount ?? 1)} />
+                <Metric label="处理中" value={String(summary?.processingTaskCount ?? 1)} />
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Badge tone={summary?.hasPresentation ? "blue" : "gray"}>PPT / PDF</Badge>
                 <Badge tone={summary?.hasCode ? "blue" : "gray"}>代码包</Badge>
                 <Badge tone={summary?.hasDataOrDatabase ? "blue" : "gray"}>数据 / SQL</Badge>
               </div>
+            </Card>
+
+            <Card>
+              <SectionHeading
+                icon={Database}
+                title="解析任务队列"
+                description="先做本地状态流转，后面把这些任务替换为 Docling、Repomix 和向量入库 worker。"
+                action={
+                  <button
+                    className="notion-button-secondary shrink-0 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={!canControlQueue}
+                    onClick={startProcessing}
+                  >
+                    <Play aria-hidden="true" />
+                    启动
+                  </button>
+                }
+              />
+              <div className="flex flex-col gap-3">
+                {processingTasks.map((task) => (
+                  <article
+                    className="rounded-xl border border-[var(--notion-border)] bg-white p-3"
+                    key={task.id}
+                  >
+                    <div className="mb-2 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold">{task.title}</div>
+                        <p className="notion-muted mt-1 text-xs leading-5">
+                          {task.fileName} · {task.engine}
+                        </p>
+                      </div>
+                      <Badge tone={taskStatusTone(task.status)}>
+                        {taskStatusLabel(task.status)}
+                      </Badge>
+                    </div>
+                    <ProgressBar value={task.progress} />
+                    {task.error ? (
+                      <p className="mt-2 text-xs font-semibold text-[#dd5b00]">
+                        {task.error}
+                      </p>
+                    ) : null}
+                    {canControlQueue && task.status === "processing" ? (
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          className="notion-button-secondary flex-1 justify-center"
+                          disabled={runningTaskId === task.id}
+                          onClick={() => runTask(task.id)}
+                        >
+                          <CheckCircle2 aria-hidden="true" />
+                          {runningTaskId === task.id ? "解析中" : "运行解析"}
+                        </button>
+                        <button
+                          className="notion-button-secondary flex-1 justify-center"
+                          onClick={() => failProcessing(task.id, "解析服务暂不可用")}
+                        >
+                          <XCircle aria-hidden="true" />
+                          标记失败
+                        </button>
+                      </div>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+              {!canControlQueue ? (
+                <p className="notion-muted mt-3 text-xs leading-5">
+                  当前是 demo 队列。创建项目并上传文件后，可以在这里模拟任务流转。
+                </p>
+              ) : null}
             </Card>
 
             <Card>
@@ -176,4 +317,22 @@ function kindLabel(kind: string) {
   };
 
   return labels[kind] ?? "附件";
+}
+
+function taskStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: "待解析",
+    processing: "解析中",
+    completed: "已完成",
+    failed: "失败",
+  };
+
+  return labels[status] ?? "未知";
+}
+
+function taskStatusTone(status: string): "blue" | "gray" | "orange" | "green" {
+  if (status === "completed") return "green";
+  if (status === "processing") return "blue";
+  if (status === "failed") return "orange";
+  return "gray";
 }

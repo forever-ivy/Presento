@@ -34,9 +34,42 @@ export type DefenseFileRecord = DefenseFileInput & {
   addedAt: string;
 };
 
+export type ProcessingTaskStatus = "pending" | "processing" | "completed" | "failed";
+
+export type DefenseProcessingTask = {
+  id: string;
+  fileId: string;
+  fileName: string;
+  kind: DefenseFileKind;
+  title: string;
+  engine: string;
+  status: ProcessingTaskStatus;
+  progress: number;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+  artifactId?: string;
+};
+
+export type DefenseProcessingArtifact = {
+  id: string;
+  taskId: string;
+  fileId: string;
+  fileName: string;
+  kind: DefenseFileKind;
+  title: string;
+  summary: string;
+  previewLines: string[];
+  sourcePath?: string;
+  createdAt: string;
+};
+
 export type DefenseWorkspace = {
   project: DefenseProject;
   files: DefenseFileRecord[];
+  processingTasks: DefenseProcessingTask[];
+  artifacts: DefenseProcessingArtifact[];
 };
 
 export type DefenseWorkspaceInput = {
@@ -49,6 +82,9 @@ export type DefenseWorkspaceInput = {
 
 export type WorkspaceSummary = {
   fileCount: number;
+  pendingTaskCount: number;
+  processingTaskCount: number;
+  completedTaskCount: number;
   hasPresentation: boolean;
   hasCode: boolean;
   hasDataOrDatabase: boolean;
@@ -92,6 +128,7 @@ export function classifyDefenseFile(fileName: string): DefenseFileKind {
 
 export function createProjectWorkspace(input: DefenseWorkspaceInput): DefenseWorkspace {
   const createdAt = new Date().toISOString();
+  const files = (input.files ?? []).map((file) => createFileRecord(file, createdAt));
 
   return {
     project: {
@@ -102,7 +139,9 @@ export function createProjectWorkspace(input: DefenseWorkspaceInput): DefenseWor
       teammateScope: input.teammateScope,
       createdAt,
     },
-    files: (input.files ?? []).map((file) => createFileRecord(file, createdAt)),
+    files,
+    processingTasks: createProcessingTasks(files, createdAt),
+    artifacts: [],
   };
 }
 
@@ -111,18 +150,22 @@ export function appendWorkspaceFiles(
   files: DefenseFileInput[],
 ): DefenseWorkspace {
   const addedAt = new Date().toISOString();
+  const nextFiles = files.map((file) => createFileRecord(file, addedAt));
 
   return {
     ...workspace,
-    files: [
-      ...workspace.files,
-      ...files.map((file) => createFileRecord(file, addedAt)),
+    files: [...workspace.files, ...nextFiles],
+    processingTasks: [
+      ...(workspace.processingTasks ?? []),
+      ...createProcessingTasks(nextFiles, addedAt),
     ],
+    artifacts: workspace.artifacts ?? [],
   };
 }
 
 export function summarizeWorkspace(workspace: DefenseWorkspace): WorkspaceSummary {
   const kinds = new Set(workspace.files.map((file) => file.kind));
+  const taskCounts = countProcessingTasks(workspace.processingTasks ?? []);
   const hasPresentation = kinds.has("presentation");
   const hasCode = kinds.has("code");
   const hasDataOrDatabase = kinds.has("dataset") || kinds.has("database");
@@ -133,9 +176,13 @@ export function summarizeWorkspace(workspace: DefenseWorkspace): WorkspaceSummar
   if (hasPresentation) readiness += 10;
   if (hasCode) readiness += 5;
   if (hasDataOrDatabase) readiness += 5;
+  if (taskCounts.completed > 0) readiness += 5;
 
   return {
     fileCount: workspace.files.length,
+    pendingTaskCount: taskCounts.pending,
+    processingTaskCount: taskCounts.processing,
+    completedTaskCount: taskCounts.completed,
     hasPresentation,
     hasCode,
     hasDataOrDatabase,
@@ -156,11 +203,72 @@ export function loadWorkspace(): DefenseWorkspace | null {
   if (!raw) return null;
 
   try {
-    return JSON.parse(raw) as DefenseWorkspace;
+    return normalizeWorkspace(JSON.parse(raw) as DefenseWorkspace);
   } catch {
     window.localStorage.removeItem(workspaceStorageKey);
     return null;
   }
+}
+
+export function startNextProcessingTask(
+  workspace: DefenseWorkspace,
+  startedAt = new Date().toISOString(),
+): DefenseWorkspace {
+  let didStart = false;
+
+  return {
+    ...workspace,
+    processingTasks: (workspace.processingTasks ?? []).map((task) => {
+      if (didStart || task.status !== "pending") return task;
+      didStart = true;
+      return {
+        ...task,
+        status: "processing",
+        progress: 35,
+        startedAt,
+        error: undefined,
+      };
+    }),
+  };
+}
+
+export function completeProcessingTask(
+  workspace: DefenseWorkspace,
+  taskId: string,
+  completedAt = new Date().toISOString(),
+  artifact?: DefenseProcessingArtifact,
+): DefenseWorkspace {
+  const nextWorkspace = updateProcessingTask(workspace, taskId, {
+    status: "completed",
+    progress: 100,
+    completedAt,
+    error: undefined,
+    artifactId: artifact?.id,
+  });
+
+  if (!artifact) return nextWorkspace;
+
+  return {
+    ...nextWorkspace,
+    artifacts: [
+      ...(nextWorkspace.artifacts ?? []).filter((item) => item.id !== artifact.id),
+      artifact,
+    ],
+  };
+}
+
+export function failProcessingTask(
+  workspace: DefenseWorkspace,
+  taskId: string,
+  error: string,
+  completedAt = new Date().toISOString(),
+): DefenseWorkspace {
+  return updateProcessingTask(workspace, taskId, {
+    status: "failed",
+    progress: 100,
+    completedAt,
+    error,
+  });
 }
 
 function createFileRecord(file: DefenseFileInput, addedAt: string): DefenseFileRecord {
@@ -174,6 +282,97 @@ function createFileRecord(file: DefenseFileInput, addedAt: string): DefenseFileR
     source: sourceForKind(kind),
     addedAt,
   };
+}
+
+function createProcessingTasks(files: DefenseFileRecord[], createdAt: string) {
+  return files
+    .filter((file) => isProcessableFile(file))
+    .map((file) => ({
+      id: `task-${stableId(file.id, file.storagePath ?? file.name)}`,
+      fileId: file.id,
+      fileName: file.name,
+      kind: file.kind,
+      title: taskTitleForKind(file.kind),
+      engine: taskEngineForKind(file.kind),
+      status: "pending" as const,
+      progress: 0,
+      createdAt,
+    }));
+}
+
+function isProcessableFile(file: DefenseFileRecord) {
+  if (!file.storagePath) return false;
+  return !["asset", "other"].includes(file.kind);
+}
+
+function updateProcessingTask(
+  workspace: DefenseWorkspace,
+  taskId: string,
+  patch: Partial<DefenseProcessingTask>,
+): DefenseWorkspace {
+  return {
+    ...workspace,
+    processingTasks: (workspace.processingTasks ?? []).map((task) =>
+      task.id === taskId ? { ...task, ...patch } : task,
+    ),
+  };
+}
+
+function countProcessingTasks(tasks: DefenseProcessingTask[]) {
+  return tasks.reduce(
+    (counts, task) => ({
+      ...counts,
+      [task.status]: counts[task.status] + 1,
+    }),
+    {
+      pending: 0,
+      processing: 0,
+      completed: 0,
+      failed: 0,
+    } satisfies Record<ProcessingTaskStatus, number>,
+  );
+}
+
+function normalizeWorkspace(workspace: DefenseWorkspace): DefenseWorkspace {
+  if (Array.isArray(workspace.processingTasks)) {
+    return {
+      ...workspace,
+      artifacts: workspace.artifacts ?? [],
+    };
+  }
+  return {
+    ...workspace,
+    processingTasks: createProcessingTasks(workspace.files ?? [], workspace.project.createdAt),
+    artifacts: workspace.artifacts ?? [],
+  };
+}
+
+function taskTitleForKind(kind: DefenseFileKind) {
+  const titleMap: Record<DefenseFileKind, string> = {
+    presentation: "生成逐页预览与讲稿入口",
+    document: "抽取项目知识库文本",
+    code: "打包代码上下文",
+    database: "解析数据库结构",
+    dataset: "抽取数据字段与指标",
+    asset: "记录附件",
+    other: "记录附件",
+  };
+
+  return titleMap[kind];
+}
+
+function taskEngineForKind(kind: DefenseFileKind) {
+  const engineMap: Record<DefenseFileKind, string> = {
+    presentation: "PDF.js + 逐页讲稿 Skill",
+    document: "Docling / Marker",
+    code: "Repomix",
+    database: "SQL Parser",
+    dataset: "SheetJS",
+    asset: "Local Storage",
+    other: "Local Storage",
+  };
+
+  return engineMap[kind];
 }
 
 function statusForKind(kind: DefenseFileKind, isStored = false) {

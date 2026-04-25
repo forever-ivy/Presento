@@ -2,6 +2,33 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+### Local database
+
+Start the local PostgreSQL database with pgvector:
+
+```bash
+docker compose up -d
+```
+
+The database listens on:
+
+```bash
+postgresql://defense:defense@127.0.0.1:55433/defense_coach?schema=public
+```
+
+Copy `.env.example` to `.env.local` before wiring Prisma or other database clients.
+
+Check the container:
+
+```bash
+docker compose ps
+npm run db:check
+```
+
+The workspace API now persists the current project to PostgreSQL first and keeps
+the local `.data/workspace/current.json` file as a development fallback when
+Docker is stopped.
+
 First, run the development server:
 
 ```bash

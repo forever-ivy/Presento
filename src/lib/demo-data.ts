@@ -39,6 +39,33 @@ export const demoFiles = [
   },
 ];
 
+export const demoProcessingTasks = [
+  {
+    id: "demo-task-ppt",
+    fileName: "答辩 PPT.pdf",
+    title: "生成逐页预览与讲稿入口",
+    engine: "PDF.js + 逐页讲稿 Skill",
+    status: "completed",
+    progress: 100,
+  },
+  {
+    id: "demo-task-code",
+    fileName: "backend.zip",
+    title: "打包代码上下文",
+    engine: "Repomix",
+    status: "processing",
+    progress: 35,
+  },
+  {
+    id: "demo-task-data",
+    fileName: "订单数据.xlsx",
+    title: "抽取数据字段与指标",
+    engine: "SheetJS",
+    status: "pending",
+    progress: 0,
+  },
+];
+
 export const demoSkillPacks = [
   {
     name: "软件项目答辩",

@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id             String           @id
+  name           String
+  category       String
+  ownerScope     String
+  teammateScope  String
+  createdAt      DateTime
+  updatedAt      DateTime         @updatedAt
+  files          FileAsset[]
+  processingTasks ProcessingTask[]
+  artifacts      Artifact[]
+  knowledgeChunks KnowledgeChunk[]
+}
+
+model FileAsset {
+  id           String           @id
+  projectId    String
+  name         String
+  size         Int
+  mimeType     String?
+  kind         String
+  status       String
+  source       String
+  storedName   String?
+  storagePath  String?
+  uploadedAt   DateTime?
+  uploadStatus String?
+  addedAt      DateTime
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks        ProcessingTask[]
+  artifacts    Artifact[]
+
+  @@index([projectId])
+  @@index([kind])
+}
+
+model ProcessingTask {
+  id          String    @id
+  projectId   String
+  fileId      String
+  fileName    String
+  kind        String
+  title       String
+  engine      String
+  status      String
+  progress    Int
+  createdAt   DateTime
+  startedAt   DateTime?
+  completedAt DateTime?
+  error       String?
+  artifactId  String?
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  file        FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status])
+  @@index([fileId])
+}
+
+model Artifact {
+  id           String    @id
+  projectId    String
+  taskId       String
+  fileId       String
+  fileName     String
+  kind         String
+  title        String
+  summary      String
+  previewLines Json
+  sourcePath   String?
+  createdAt    DateTime
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  file         FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([taskId])
+  @@index([fileId])
+}
+
+model KnowledgeChunk {
+  id        String                  @id
+  projectId String
+  artifactId String?
+  fileId    String?
+  content   String
+  source    String
+  metadata  Json
+  embedding Unsupported("vector(1536)")?
+  createdAt DateTime                @default(now())
+  project   Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([artifactId])
+  @@index([fileId])
+}
