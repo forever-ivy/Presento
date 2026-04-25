@@ -15,7 +15,8 @@ import {
   SectionHeading,
   TopNav,
 } from "@/components/notion-ui";
-import { filesToInputs, useWorkspace } from "@/lib/use-workspace";
+import { uploadDefenseFiles } from "@/lib/upload-files";
+import { useWorkspace } from "@/lib/use-workspace";
 
 const uploadGroups = [
   ["PPT / PDF", "答辩展示材料，第一版会转成逐页预览"],
@@ -43,16 +44,29 @@ export default function NewProjectPage() {
   const [ownerScope, setOwnerScope] = useState("我负责：后端订单接口");
   const [teammateScope, setTeammateScope] = useState("队友负责：前端页面 / 数据库");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
 
-  function submitProject() {
-    createWorkspace({
-      name: projectName,
-      category,
-      ownerScope,
-      teammateScope,
-      files: filesToInputs(selectedFiles),
-    });
-    router.push("/projects/demo/files");
+  async function submitProject() {
+    setIsUploading(true);
+    setUploadError("");
+
+    try {
+      const uploadedFiles = await uploadDefenseFiles(selectedFiles);
+
+      createWorkspace({
+        name: projectName,
+        category,
+        ownerScope,
+        teammateScope,
+        files: uploadedFiles,
+      });
+      router.push("/projects/demo/files");
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "文件上传失败");
+    } finally {
+      setIsUploading(false);
+    }
   }
 
   return (
@@ -135,7 +149,7 @@ export default function NewProjectPage() {
                   <FileUp className="mb-3 text-[var(--notion-blue)]" aria-hidden="true" />
                   <span className="text-sm font-bold">选择 PPT、报告、代码 zip 或数据表</span>
                   <span className="notion-muted mt-1 text-sm">
-                    当前阶段会记录文件元数据，后续接入真实存储与解析任务。
+                    当前会先保存到本地工作区，下一步进入解析与知识库任务。
                   </span>
                   <input
                     className="sr-only"
@@ -162,6 +176,11 @@ export default function NewProjectPage() {
                     ))}
                   </div>
                 ) : null}
+                {uploadError ? (
+                  <p className="mt-3 text-sm font-semibold text-[#dd5b00]">
+                    {uploadError}
+                  </p>
+                ) : null}
               </Panel>
             </div>
           </Card>
@@ -183,9 +202,13 @@ export default function NewProjectPage() {
                 </div>
               ))}
             </div>
-            <button className="notion-button-primary mt-5 w-full" onClick={submitProject}>
+            <button
+              className="notion-button-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isUploading}
+              onClick={submitProject}
+            >
               <Plus aria-hidden="true" />
-              创建并进入资料库
+              {isUploading ? "正在上传并创建..." : "创建并进入资料库"}
             </button>
             <Link
               className="mt-3 inline-flex w-full justify-center text-sm font-semibold text-[var(--notion-blue)] hover:underline"

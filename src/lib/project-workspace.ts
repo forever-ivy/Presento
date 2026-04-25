@@ -20,6 +20,10 @@ export type DefenseFileInput = {
   name: string;
   size: number;
   type?: string;
+  storedName?: string;
+  storagePath?: string;
+  uploadedAt?: string;
+  uploadStatus?: "stored";
 };
 
 export type DefenseFileRecord = DefenseFileInput & {
@@ -166,19 +170,20 @@ function createFileRecord(file: DefenseFileInput, addedAt: string): DefenseFileR
     ...file,
     id: `file-${stableId(file.name, `${file.size}-${addedAt}`)}`,
     kind,
-    status: statusForKind(kind),
+    status: statusForKind(kind, Boolean(file.storagePath)),
     source: sourceForKind(kind),
     addedAt,
   };
 }
 
-function statusForKind(kind: DefenseFileKind) {
+function statusForKind(kind: DefenseFileKind, isStored = false) {
+  const prefix = isStored ? "已上传，" : "";
   const statusMap: Record<DefenseFileKind, string> = {
-    presentation: "待生成逐页预览",
-    document: "待入库",
-    code: "待 Repomix 处理",
-    database: "待解析表结构",
-    dataset: "待抽取字段",
+    presentation: `${prefix}待生成逐页预览`,
+    document: `${prefix}待入库`,
+    code: `${prefix}待 Repomix 处理`,
+    database: `${prefix}待解析表结构`,
+    dataset: `${prefix}待抽取字段`,
     asset: "附件已记录",
     other: "附件已记录",
   };

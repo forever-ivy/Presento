@@ -14,11 +14,14 @@ import {
   TopNav,
 } from "@/components/notion-ui";
 import { demoFiles, demoProject } from "@/lib/demo-data";
-import { filesToInputs, useWorkspace } from "@/lib/use-workspace";
+import { uploadDefenseFiles } from "@/lib/upload-files";
+import { useWorkspace } from "@/lib/use-workspace";
 
 export default function FilesPage() {
   const { workspace, summary, addFiles, isLoaded } = useWorkspace();
   const [query, setQuery] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
 
   const files = useMemo(() => {
     const workspaceFiles = workspace?.files.map((file) => ({
@@ -36,9 +39,19 @@ export default function FilesPage() {
     return text.includes(query.toLowerCase());
   });
 
-  function uploadMore(files: FileList | null) {
+  async function uploadMore(files: FileList | null) {
     if (!files?.length) return;
-    addFiles(filesToInputs(files));
+    setIsUploading(true);
+    setUploadError("");
+
+    try {
+      const uploadedFiles = await uploadDefenseFiles(Array.from(files));
+      addFiles(uploadedFiles);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "文件上传失败");
+    } finally {
+      setIsUploading(false);
+    }
   }
 
   return (
@@ -90,9 +103,13 @@ export default function FilesPage() {
               <p className="notion-muted text-sm leading-6">
                 第一版推荐 PDF/PPT、README、代码 zip、SQL、CSV/Excel。其他专业源文件先作为附件记录。
               </p>
-              <label className="notion-button-primary mt-4 w-full cursor-pointer">
+              <label
+                className={`notion-button-primary mt-4 w-full cursor-pointer ${
+                  isUploading ? "pointer-events-none opacity-60" : ""
+                }`}
+              >
                 <FileUp aria-hidden="true" />
-                继续添加文件
+                {isUploading ? "正在上传..." : "继续添加文件"}
                 <input
                   className="sr-only"
                   multiple
@@ -100,6 +117,11 @@ export default function FilesPage() {
                   type="file"
                 />
               </label>
+              {uploadError ? (
+                <p className="mt-3 text-sm font-semibold text-[#dd5b00]">
+                  {uploadError}
+                </p>
+              ) : null}
               {!workspace && isLoaded ? (
                 <p className="notion-muted mt-3 text-xs leading-5">
                   当前展示 demo 文件。创建项目后，这里会切换到你的真实上传记录。
