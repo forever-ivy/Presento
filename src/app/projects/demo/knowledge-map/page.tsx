@@ -1,5 +1,5 @@
 import { FlowWorkspaceView } from "@/components/flow-workspace-view";
 
-export default function SkillsPage() {
+export default function KnowledgeMapPage() {
   return <FlowWorkspaceView />;
 }

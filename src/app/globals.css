@@ -1,44 +1,69 @@
+@import "@xyflow/react/dist/style.css";
 @import "tailwindcss";
 
 :root {
-  --font-notion: "NotionInter", Inter, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Helvetica, "Apple Color Emoji", Arial, "Segoe UI Emoji",
-    "Segoe UI Symbol", sans-serif;
+  --font-presento: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
   --font-mono-system: "SFMono-Regular", "Cascadia Code", "JetBrains Mono",
     ui-monospace, monospace;
-  --background: #ffffff;
-  --foreground: rgba(0, 0, 0, 0.95);
-  --notion-blue: #0075de;
-  --notion-blue-active: #005bab;
-  --notion-focus: #097fe8;
-  --notion-warm: #f6f5f4;
-  --notion-dark: #31302e;
-  --notion-muted: #615d59;
-  --notion-faint: #a39e98;
-  --notion-border: rgba(0, 0, 0, 0.1);
-  --notion-badge-bg: #f2f9ff;
-  --notion-card-shadow: rgba(0, 0, 0, 0.04) 0px 4px 18px,
-    rgba(0, 0, 0, 0.027) 0px 2.025px 7.84688px,
-    rgba(0, 0, 0, 0.02) 0px 0.8px 2.925px,
-    rgba(0, 0, 0, 0.01) 0px 0.175px 1.04062px;
+
+  --background: #f7f8f8;
+  --foreground: #1a1d1f;
+  --presento-ink: #1a1d1f;
+  --presento-muted: #5f666d;
+  --presento-faint: #9aa1a8;
+  --presento-blue: #10b981;
+  --presento-blue-active: #047857;
+  --presento-navy: #111827;
+  --presento-soft-blue: #e7f7ef;
+  --presento-soft: #f7f8f8;
+  --presento-sidebar: #eef3f1;
+  --presento-hover: #f1f5f3;
+  --presento-border: rgba(31, 35, 41, 0.08);
+  --presento-input-border: rgba(31, 35, 41, 0.18);
+  --presento-success: #42b883;
+  --presento-warning: #dfa44a;
+  --presento-danger: #e06c75;
+  --presento-ai: #8b5cf6;
+  --presento-cyan: #6a9fd8;
+  --presento-focus: var(--presento-blue);
+  --presento-warm: #f3faf6;
+  --presento-card-shadow:
+    0 4px 16px rgba(31, 35, 41, 0.035),
+    0 1px 4px rgba(31, 35, 41, 0.025);
+  --presento-lift-shadow:
+    0 12px 40px rgba(31, 35, 41, 0.06),
+    0 2px 8px rgba(31, 35, 41, 0.04);
+  --presento-popover-shadow:
+    0 8px 32px rgba(31, 35, 41, 0.08),
+    0 2px 8px rgba(31, 35, 41, 0.04);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-notion);
+  --font-sans: var(--font-presento);
   --font-mono: var(--font-mono-system);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-notion);
+  font-family: var(--font-presento);
   font-feature-settings: "lnum", "locl";
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -50,133 +75,1289 @@ button,
 a,
 input,
 textarea {
-  outline-color: var(--notion-focus);
+  outline-color: var(--presento-focus);
+}
+
+:focus-visible {
+  outline: 2px solid #b8e4cc;
+  outline-offset: 2px;
+}
+
+a {
+  text-decoration: none;
 }
 
 svg {
   width: 16px;
   height: 16px;
-  stroke-width: 1.8;
+  stroke-width: 1.9;
 }
 
 ::selection {
-  background: #f2f9ff;
-  color: rgba(0, 0, 0, 0.95);
+  background: var(--presento-soft-blue);
+  color: var(--presento-ink);
 }
 
-.notion-shell {
+@keyframes presento-dash-flow {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.presento-shell {
   min-height: 100vh;
-  background: #ffffff;
-  color: rgba(0, 0, 0, 0.95);
+  overflow-x: hidden;
+  background: var(--background);
+  color: var(--presento-ink);
 }
 
-.notion-card {
-  border: 1px solid var(--notion-border);
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: var(--notion-card-shadow);
+.presento-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background-image: radial-gradient(
+    circle,
+    rgba(94, 109, 131, 0.3) 1.45px,
+    transparent 1.7px
+  );
+  background-position: 0 0;
+  background-size: 16px 16px;
 }
 
-.notion-panel {
-  border: 1px solid var(--notion-border);
-  background: var(--notion-warm);
-  border-radius: 12px;
+.presento-dot-pattern {
+  color: rgba(94, 109, 131, 0.18);
+  opacity: 0.72;
 }
 
-.notion-divider {
-  border-color: var(--notion-border);
-}
-
-.notion-muted {
-  color: var(--notion-muted);
-}
-
-.notion-faint {
-  color: var(--notion-faint);
-}
-
-.notion-blue {
-  color: var(--notion-blue);
-}
-
-.notion-button-primary {
-  display: inline-flex;
+.presento-topbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 50;
+  display: flex;
+  min-height: 56px;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid rgba(31, 35, 41, 0.06);
+  background: rgba(247, 248, 248, 0.86);
+  padding: 0.55rem 1.5rem;
+  backdrop-filter: blur(18px);
+}
+
+.presento-workspace {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  min-height: calc(100vh - 88px);
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 72px 1rem 1rem;
+  transition:
+    margin-left 240ms ease,
+    width 240ms ease;
+}
+
+.presento-workspace-expanded {
+  margin-left: 268px;
+  width: calc(100% - 284px);
+}
+
+.presento-workspace-collapsed {
+  margin-left: 112px;
+  width: calc(100% - 128px);
+}
+
+.presento-map-page {
+  height: 100vh;
+  min-height: 0;
+  margin-left: 0;
+  padding: 56px 0 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+.presento-workspace-expanded.presento-map-page,
+.presento-workspace-collapsed.presento-map-page {
+  margin-left: 0;
+  width: 100%;
+}
+
+.presento-sidebar {
+  position: fixed;
+  inset: 72px auto 1rem 1rem;
+  z-index: 40;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(31, 35, 41, 0.07);
+  border-radius: 26px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(244, 248, 246, 0.7)),
+    rgba(238, 243, 241, 0.86);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 18px 48px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(24px);
+  transition:
+    width 240ms ease,
+    transform 240ms ease;
+}
+
+.presento-sidebar-expanded {
+  width: 236px;
+}
+
+.presento-sidebar-collapsed {
+  width: 80px;
+}
+
+.presento-mobile-nav {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-top: 1px solid var(--presento-border);
+  background: rgba(255, 255, 255, 0.96);
+  padding: 0.45rem 0.25rem;
+  backdrop-filter: blur(16px);
+}
+
+.presento-mobile-nav-item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--presento-muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.presento-mobile-nav-item span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presento-brand-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--presento-navy);
+  color: #a7f3d0;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.14);
+}
+
+.presento-project-switch {
+  display: inline-flex;
+  max-width: min(44vw, 220px);
+  align-items: center;
   gap: 0.5rem;
-  border-radius: 4px;
   border: 1px solid transparent;
-  background: var(--notion-blue);
-  color: #ffffff;
-  padding: 0.5rem 1rem;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  line-height: 1.33;
+  border-radius: 10px;
+  color: var(--presento-ink);
+  padding: 0.45rem 0.7rem;
+  font-size: 0.875rem;
+  font-weight: 800;
   transition:
     background-color 160ms ease,
-    transform 160ms ease;
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+  overflow: hidden;
 }
 
-.notion-button-primary:hover {
-  background: var(--notion-blue-active);
+.presento-project-switch[aria-expanded="true"] {
+  border-color: var(--presento-border);
+  background: #ffffff;
+  box-shadow: var(--presento-card-shadow);
 }
 
-.notion-button-primary:active {
-  transform: scale(0.96);
+.presento-project-switch[aria-expanded="true"] svg:last-child {
+  transform: rotate(180deg);
 }
 
-.notion-button-secondary {
+.presento-project-switch span {
+  min-width: 0;
+}
+
+.presento-defense-node-label,
+.presento-defense-timer {
+  display: none;
+}
+
+.presento-project-menu {
+  width: 230px;
+  overflow: hidden;
+  border: 1px solid var(--presento-border);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: var(--presento-popover-shadow);
+}
+
+.presento-sidebar-project {
+  border: 1px solid var(--presento-border);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.84);
+  padding: 1rem;
+  box-shadow:
+    0 14px 28px rgba(15, 23, 42, 0.045),
+    0 1px 2px rgba(15, 23, 42, 0.035);
+}
+
+.presento-sidebar-toggle {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--presento-muted);
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.presento-sidebar-toggle:hover {
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--presento-ink);
+  box-shadow: var(--presento-card-shadow);
+}
+
+.presento-sidebar-collapsed .presento-sidebar-toggle {
+  margin-inline: auto;
+}
+
+.presento-sidebar-collapsed .presento-sidebar-project {
+  display: grid;
+  min-height: 56px;
+  place-items: center;
+  padding: 0;
+  border-radius: 18px;
+}
+
+.presento-sidebar-collapsed .presento-sidebar-project svg {
+  width: 23px;
+  height: 23px;
+}
+
+.presento-nav-item {
+  position: relative;
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 0.625rem;
+  border: 1px solid transparent;
+  border-radius: 15px;
+  color: var(--presento-muted);
+  padding: 0.68rem 0.85rem;
+  font-size: 0.875rem;
+  font-weight: 800;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.presento-nav-item:hover {
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--presento-ink);
+}
+
+.presento-nav-item-active {
+  border-color: rgba(31, 35, 41, 0.04);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--presento-ink);
+  box-shadow:
+    0 12px 24px rgba(15, 23, 42, 0.045),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.presento-nav-item-active svg {
+  color: var(--presento-blue);
+}
+
+.presento-nav-item svg {
+  flex-shrink: 0;
+  transition:
+    width 160ms ease,
+    height 160ms ease,
+    color 160ms ease;
+}
+
+.presento-sidebar-collapsed nav {
+  align-items: center;
+  padding-inline: 0.75rem;
+}
+
+.presento-sidebar-collapsed .presento-nav-item {
+  width: 54px;
+  min-height: 54px;
+  justify-content: center;
+  border-radius: 18px;
+  padding: 0;
+}
+
+.presento-sidebar-collapsed .presento-nav-item svg {
+  width: 22px;
+  height: 22px;
+}
+
+.presento-sidebar-collapsed .presento-nav-item-active {
+  box-shadow:
+    0 14px 26px rgba(15, 23, 42, 0.06),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.74);
+}
+
+.presento-nav-badge {
+  margin-left: auto;
+  border-radius: 7px;
+  background: #fff7ed;
+  color: #c56a09;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.56rem;
+  font-weight: 900;
+}
+
+.presento-dock-nav {
+  position: fixed;
+  left: 1rem;
+  top: 50%;
+  z-index: 42;
+  display: none;
+  transform: translateY(-50%);
+}
+
+.presento-dock {
+  margin: 0;
+  gap: 0.42rem;
+  border-color: rgba(31, 35, 41, 0.07);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(244, 248, 246, 0.74)),
+    rgba(238, 243, 241, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 18px 48px rgba(15, 23, 42, 0.07);
+}
+
+.presento-dock-icon {
+  position: relative;
+  overflow: visible;
+  background: rgba(0, 0, 0, 0.1);
+  color: var(--presento-muted);
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.presento-dock-icon:hover,
+.presento-dock-icon-active {
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--presento-blue);
+  box-shadow:
+    0 12px 24px rgba(15, 23, 42, 0.055),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.82);
+}
+
+.presento-dock-link {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  border-radius: 9999px;
+  color: currentColor;
+}
+
+.presento-dock-link::after {
+  position: absolute;
+  left: calc(100% + 0.7rem);
+  top: 50%;
+  z-index: 60;
+  pointer-events: none;
+  min-width: max-content;
+  transform: translateY(-50%) translateX(-4px);
+  border: 1px solid rgba(31, 35, 41, 0.08);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--presento-popover-shadow);
+  color: var(--presento-ink);
+  content: attr(data-label);
+  opacity: 0;
+  padding: 0.42rem 0.68rem;
+  font-size: 0.75rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.presento-dock-link:hover::after,
+.presento-dock-link:focus-visible::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+.presento-dock-link:hover,
+.presento-dock-link-active {
+  color: var(--presento-blue);
+}
+
+.presento-dock-link svg {
+  width: 100%;
+  height: 100%;
+}
+
+.presento-dock-badge {
+  position: absolute;
+  right: -4px;
+  top: -3px;
+  min-width: 17px;
+  border-radius: 9999px;
+  background: #fff7ed;
+  color: #c56a09;
+  padding: 0.12rem 0.28rem;
+  text-align: center;
+  font-size: 0.55rem;
+  font-weight: 950;
+  line-height: 1;
+  box-shadow: 0 6px 16px rgba(197, 106, 9, 0.12);
+}
+
+.presento-kicker {
+  color: var(--presento-blue-active);
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
+.presento-title {
+  color: var(--presento-ink);
+  font-size: 1.625rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.35;
+}
+
+.presento-card-title {
+  color: var(--presento-ink);
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.35;
+}
+
+.presento-card,
+.presento-panel,
+.presento-floating-panel,
+.presento-coach-panel {
+  border: 1px solid var(--presento-border);
+  border-radius: 18px;
+  box-shadow: var(--presento-card-shadow);
+}
+
+.presento-card {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.presento-panel {
+  background: rgba(247, 248, 248, 0.66);
+}
+
+.presento-floating-panel {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(18px);
+}
+
+.presento-divider {
+  border-color: var(--presento-border);
+}
+
+.presento-muted {
+  color: var(--presento-muted);
+}
+
+.presento-faint {
+  color: var(--presento-faint);
+}
+
+.presento-blue {
+  color: var(--presento-blue);
+}
+
+.presento-button-primary,
+.presento-button-secondary,
+.presento-button-ghost {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: 4px;
-  border: 1px solid var(--notion-border);
-  background: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.95);
-  padding: 0.5rem 1rem;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  line-height: 1.33;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 800;
+  line-height: 1.4;
   transition:
     background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
     transform 160ms ease;
 }
 
-.notion-button-secondary:hover {
-  background: rgba(0, 0, 0, 0.075);
-  transform: scale(1.02);
+.presento-button-primary {
+  border: 1px solid transparent;
+  background: var(--presento-navy);
+  color: #ffffff;
+  padding: 0.55rem 1rem;
+  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.12);
 }
 
-.notion-button-secondary:active {
-  transform: scale(0.96);
+.presento-button-primary:hover {
+  background: #273142;
+  transform: translateY(-1px);
 }
 
-.notion-badge {
+.presento-button-primary:active,
+.presento-button-secondary:active {
+  transform: scale(0.98);
+}
+
+.presento-button-secondary {
+  border: 1px solid var(--presento-border);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--presento-ink);
+  padding: 0.55rem 0.9rem;
+}
+
+.presento-button-secondary:hover {
+  background: var(--presento-hover);
+}
+
+.presento-input {
+  border: 1px solid var(--presento-input-border);
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--presento-ink);
+  padding: 0.7rem 0.85rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.presento-input:focus {
+  border-color: var(--presento-blue);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+}
+
+.presento-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
+  width: fit-content;
   border-radius: 9999px;
-  background: var(--notion-badge-bg);
-  color: var(--notion-focus);
-  padding: 0.25rem 0.5rem;
+  padding: 0.25rem 0.55rem;
   font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.125px;
-  line-height: 1.33;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
-.notion-title {
-  color: rgba(0, 0, 0, 0.95);
-  font-weight: 700;
-  letter-spacing: -0.625px;
-  line-height: 1.23;
+.presento-badge-blue {
+  background: var(--presento-soft-blue);
+  color: #047857;
 }
 
-.notion-card-title {
-  color: rgba(0, 0, 0, 0.95);
-  font-size: 1.125rem;
+.presento-badge-gray {
+  background: #f1f3f3;
+  color: var(--presento-muted);
+}
+
+.presento-badge-orange {
+  background: #fff5e5;
+  color: #a66a12;
+}
+
+.presento-badge-green {
+  background: #e7f6ee;
+  color: #047857;
+}
+
+.presento-badge-red {
+  background: #fff0f0;
+  color: #b84a4a;
+}
+
+.presento-badge-purple {
+  background: #f1ecff;
+  color: #6d28d9;
+}
+
+.presento-badge-cyan {
+  background: #eef5fb;
+  color: #3d74a4;
+}
+
+.presento-metric-pill {
+  border: 1px solid var(--presento-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.88);
+  padding: 0.9rem;
+  box-shadow: var(--presento-card-shadow);
+}
+
+.presento-coach-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.84);
+  padding: 1.25rem;
+  backdrop-filter: blur(18px);
+}
+
+.presento-coach-avatar {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--presento-navy);
+  color: #a7f3d0;
+}
+
+.presento-graph-canvas {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--presento-border);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--presento-card-shadow);
+}
+
+.presento-graph-dot-pattern {
+  color: rgba(94, 109, 131, 0.32);
+  opacity: 1;
+}
+
+.presento-flow .react-flow__pane {
+  cursor: grab;
+}
+
+.presento-flow .react-flow__pane:active {
+  cursor: grabbing;
+}
+
+.presento-flow .react-flow__node {
+  background: transparent;
+  border: 0;
+}
+
+.presento-flow .react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+.presento-flow .react-flow__edge.animated path {
+  stroke-dasharray: 5 5;
+  animation: presento-dash-flow 1.6s linear infinite;
+}
+
+.presento-map-stage {
+  position: relative;
+  flex: 1;
+  height: calc(100vh - 56px);
+  min-height: 0;
+}
+
+.presento-map-stage > .presento-graph-canvas {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  min-height: 0;
+  height: 100%;
+  box-shadow: none;
+}
+
+.presento-graph-line {
+  stroke: rgba(203, 213, 225, 0.92);
+  stroke-width: 1.4;
+}
+
+.presento-graph-line-active {
+  stroke: rgba(16, 185, 129, 0.82);
+  stroke-width: 2;
+  stroke-dasharray: 5 5;
+  animation: presento-dash-flow 1.6s linear infinite;
+}
+
+.presento-flow-workspace {
+  position: relative;
+  flex: 1;
+  height: calc(100vh - 56px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.presento-process-canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.presento-flow-command-bar {
+  position: absolute;
+  left: 268px;
+  right: 1rem;
+  top: 1rem;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--presento-border);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.85rem 1rem;
+  box-shadow: var(--presento-card-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.presento-workspace-collapsed.presento-map-page .presento-flow-command-bar {
+  left: 112px;
+}
+
+.presento-process-node {
+  width: 248px;
+  border: 1px solid var(--presento-border);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 1rem;
+  box-shadow: var(--presento-card-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.presento-process-node-active {
+  width: min(940px, 74vw);
+  border-color: rgba(16, 185, 129, 0.28);
+  box-shadow:
+    0 26px 80px rgba(15, 23, 42, 0.12),
+    0 0 0 1px rgba(16, 185, 129, 0.08);
+}
+
+.presento-process-node-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.presento-process-node-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  color: #ffffff;
+}
+
+.presento-process-node-blue {
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.presento-process-node-green {
+  border-color: rgba(66, 184, 131, 0.24);
+}
+
+.presento-process-node-orange {
+  border-color: rgba(223, 164, 74, 0.28);
+}
+
+.presento-process-node-red {
+  border-color: rgba(224, 108, 117, 0.26);
+}
+
+.presento-process-node-purple {
+  border-color: rgba(139, 92, 246, 0.24);
+}
+
+.presento-process-node-cyan {
+  border-color: rgba(106, 159, 216, 0.28);
+}
+
+.presento-process-node-gray {
+  border-color: rgba(100, 116, 139, 0.2);
+}
+
+.presento-process-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.presento-process-card {
+  min-width: 0;
+  border: 1px solid var(--presento-border);
+  border-radius: 16px;
+  background: rgba(247, 248, 248, 0.66);
+  padding: 1rem;
+}
+
+.presento-process-upload {
+  display: flex;
+  min-height: 130px;
+  cursor: pointer;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px dashed rgba(16, 185, 129, 0.32);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.76);
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 900;
+}
+
+.presento-process-upload small {
+  color: var(--presento-muted);
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: -0.25px;
-  line-height: 1.27;
+}
+
+.presento-process-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid var(--presento-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.84);
+  padding: 0.65rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.presento-process-question {
+  margin-top: 0.5rem;
+  border: 1px solid rgba(223, 164, 74, 0.16);
+  border-radius: 12px;
+  background: #fff7ed;
+  padding: 0.7rem 0.8rem;
+  color: #c56a09;
+  font-size: 0.84rem;
+  font-weight: 850;
+  line-height: 1.5;
+}
+
+.presento-process-slide {
+  display: flex;
+  min-height: 180px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.65rem;
+  border: 1px solid var(--presento-border);
+  border-radius: 18px;
+  background: #ffffff;
+  padding: 1.25rem;
+}
+
+.presento-process-slide span,
+.presento-process-slide small {
+  color: var(--presento-muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.presento-process-slide strong {
+  color: var(--presento-ink);
+  font-size: 1.75rem;
+  font-weight: 950;
+}
+
+.presento-process-chat {
+  border: 1px solid var(--presento-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 0.75rem;
+}
+
+.presento-process-chat-user {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.presento-process-chat strong,
+.presento-process-chat span {
+  display: block;
+}
+
+.presento-process-chat strong {
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.presento-process-chat span {
+  color: var(--presento-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.presento-graph-node {
+  display: flex;
+  width: 142px;
+  min-height: 76px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.25rem;
+  border: 1px solid;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.75rem;
+  text-align: left;
+  box-shadow: 0 10px 22px rgba(31, 41, 55, 0.06);
+  backdrop-filter: blur(14px);
+  transition:
+    box-shadow 160ms ease,
+    border-color 160ms ease;
+}
+
+.presento-graph-node:hover,
+.presento-graph-node-active {
+  border-color: #b8e4cc;
+  box-shadow: var(--presento-lift-shadow);
+}
+
+.presento-graph-icon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 9px;
+  color: #ffffff;
+}
+
+.presento-flow-handle {
+  width: 8px;
+  height: 8px;
+  opacity: 0;
+  border: 0;
+  background: transparent;
+}
+
+.presento-graph-controls {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 5;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--presento-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--presento-card-shadow);
+}
+
+.presento-graph-controls button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-right: 1px solid var(--presento-border);
+  color: var(--presento-muted);
+  font-weight: 900;
+}
+
+.presento-graph-controls button:last-child {
+  border-right: 0;
+}
+
+.presento-graph-controls button:hover {
+  background: var(--presento-hover);
+  color: var(--presento-ink);
+}
+
+.presento-map-command-bar,
+.presento-graph-toolbar,
+.presento-today-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.875rem;
+  border: 1px solid var(--presento-border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.84);
+  padding: 0.85rem 1rem;
+  box-shadow: var(--presento-card-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.presento-map-command-bar {
+  position: absolute;
+  left: 1rem;
+  right: 372px;
+  top: 1rem;
+  z-index: 12;
+}
+
+.presento-workspace-expanded.presento-map-page .presento-map-command-bar,
+.presento-workspace-expanded.presento-map-page .presento-graph-toolbar,
+.presento-workspace-expanded.presento-map-page .presento-today-strip,
+.presento-workspace-expanded.presento-map-page .presento-graph-controls {
+  left: 268px;
+}
+
+.presento-workspace-collapsed.presento-map-page .presento-map-command-bar,
+.presento-workspace-collapsed.presento-map-page .presento-graph-toolbar,
+.presento-workspace-collapsed.presento-map-page .presento-today-strip,
+.presento-workspace-collapsed.presento-map-page .presento-graph-controls {
+  left: 112px;
+}
+
+.presento-graph-toolbar {
+  position: absolute;
+  left: 1rem;
+  right: 372px;
+  top: 6.25rem;
+  z-index: 12;
+  align-items: stretch;
+}
+
+.presento-map-coach {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  top: 1rem;
+  z-index: 12;
+  width: 340px;
+  overflow-y: auto;
+}
+
+.presento-map-filter,
+.presento-map-filter-active {
+  min-height: 34px;
+  border: 1px solid var(--presento-border);
+  border-radius: 9999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 900;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.presento-map-filter {
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--presento-muted);
+}
+
+.presento-map-filter:hover,
+.presento-map-filter-active {
+  border-color: rgba(16, 185, 129, 0.18);
+  background: var(--presento-soft-blue);
+  color: var(--presento-blue-active);
+}
+
+.presento-map-search {
+  display: flex;
+  min-width: min(360px, 42vw);
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--presento-border);
+  border-radius: 9999px;
+  background: rgba(247, 248, 248, 0.86);
+  padding: 0 0.8rem;
+  color: var(--presento-faint);
+}
+
+.presento-map-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--presento-ink);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  outline: none;
+}
+
+.presento-map-search input::placeholder {
+  color: var(--presento-faint);
+}
+
+.presento-today-strip {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  right: 372px;
+  z-index: 8;
+}
+
+.presento-today-task {
+  border-radius: 9999px;
+  background: var(--presento-warm);
+  padding: 0.35rem 0.65rem;
+  color: var(--presento-muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.presento-risk-card {
+  border: 1px solid;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 1rem;
+  box-shadow: var(--presento-card-shadow);
+}
+
+.presento-slide-stage {
+  border: 1px solid var(--presento-border);
+  border-radius: 28px;
+  background: #ffffff;
+  padding: 1.25rem;
+  box-shadow: var(--presento-lift-shadow);
+}
+
+.presento-slide-screen {
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--presento-border);
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, #ffffff, #eef6f1 54%, #f7f8f8),
+    #ffffff;
+  padding: 2rem;
+}
+
+.presento-skill-monitor {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #111827;
+  color: #cbd5e1;
+  box-shadow: var(--presento-lift-shadow);
+}
+
+@media (min-width: 1024px) {
+  .presento-sidebar,
+  .presento-dock-nav {
+    display: flex;
+  }
+
+  .presento-mobile-nav {
+    display: none;
+  }
+
+  .presento-defense-timer {
+    display: inline-flex;
+  }
+}
+
+@media (min-width: 1280px) {
+  .presento-defense-node-label {
+    display: inline-flex;
+  }
+}
+
+@media (min-width: 1280px) {
+  .presento-model-status,
+  .presento-button-secondary.presento-top-new {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 1023px) {
+  .presento-topbar {
+    padding-inline: 1rem;
+  }
+
+  .presento-workspace,
+  .presento-workspace-expanded,
+  .presento-workspace-collapsed {
+    margin-left: 0;
+    width: 100%;
+    padding: 72px 1rem 5.5rem;
+  }
+
+  .presento-title {
+    font-size: 1.45rem;
+  }
+
+  .presento-map-stage {
+    display: flex;
+    min-height: auto;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .presento-map-page {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .presento-map-stage > .presento-graph-canvas,
+  .presento-map-command-bar,
+  .presento-graph-toolbar,
+  .presento-map-coach,
+  .presento-today-strip {
+    position: relative;
+    inset: auto;
+    width: auto;
+  }
+
+  .presento-map-stage > .presento-graph-canvas {
+    min-height: 560px;
+  }
+
+  .presento-graph-toolbar,
+  .presento-map-command-bar,
+  .presento-today-strip {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .presento-map-search {
+    min-width: 0;
+    min-height: 38px;
+  }
+
+  .presento-flow-command-bar {
+    left: 1rem;
+  }
+
+  .presento-process-node-active {
+    width: min(680px, calc(100vw - 2rem));
+  }
+
+  .presento-process-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .presento-project-switch {
+    max-width: 156px;
+  }
+
+  .presento-graph-node {
+    width: 116px;
+    min-height: 64px;
+    border-radius: 14px;
+    padding: 0.6rem;
+  }
+
+  .presento-slide-screen {
+    padding: 1rem;
+  }
 }

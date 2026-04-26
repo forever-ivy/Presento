@@ -1,309 +1,503 @@
-# Design System Inspired by Notion
+# Presento Web 页面设计规范
 
-## 1. Visual Theme & Atmosphere
+## 1. Web 端定位
 
-Notion's website embodies the philosophy of the tool itself: a blank canvas that gets out of your way. The design system is built on warm neutrals rather than cold grays, creating a distinctly approachable minimalism that feels like quality paper rather than sterile glass. The page canvas is pure white (`#ffffff`) but the text isn't pure black -- it's a warm near-black (`rgba(0,0,0,0.95)`) that softens the reading experience imperceptibly. The warm gray scale (`#f6f5f4`, `#31302e`, `#615d59`, `#a39e98`) carries subtle yellow-brown undertones, giving the interface a tactile, almost analog warmth.
+Web 端是 Presento 的可交互比赛 Demo。它不是宣传网站，而是用户进入产品后使用的 AI 表达训练工作台。
 
-The custom NotionInter font (a modified Inter) is the backbone of the system. At display sizes (64px), it uses aggressive negative letter-spacing (-2.125px), creating headlines that feel compressed and precise. The weight range is broader than typical systems: 400 for body, 500 for UI elements, 600 for semi-bold labels, and 700 for display headings. OpenType features `"lnum"` (lining numerals) and `"locl"` (localized forms) are enabled on larger text, adding typographic sophistication that rewards close reading.
+核心体验：
 
-What makes Notion's visual language distinctive is its border philosophy. Rather than heavy borders or shadows, Notion uses ultra-thin `1px solid rgba(0,0,0,0.1)` borders -- borders that exist as whispers, barely perceptible division lines that create structure without weight. The shadow system is equally restrained: multi-layer stacks with cumulative opacity never exceeding 0.05, creating depth that's felt rather than seen.
+```text
+创建训练项目
+  -> 导入资料
+  -> 生成项目知识地图
+  -> 准备逐页讲稿
+  -> 进入模拟讲练
+  -> 修复薄弱点
+  -> 生成复盘
+  -> 转化为短视频 / 图文表达内容
+```
 
-**Key Characteristics:**
-- NotionInter (modified Inter) with negative letter-spacing at display sizes (-2.125px at 64px)
-- Warm neutral palette: grays carry yellow-brown undertones (`#f6f5f4` warm white, `#31302e` warm dark)
-- Near-black text via `rgba(0,0,0,0.95)` -- not pure black, creating micro-warmth
-- Ultra-thin borders: `1px solid rgba(0,0,0,0.1)` throughout -- whisper-weight division
-- Multi-layer shadow stacks with sub-0.05 opacity for barely-there depth
-- Notion Blue (`#0075de`) as the singular accent color for CTAs and interactive elements
-- Pill badges (9999px radius) with tinted blue backgrounds for status indicators
-- 8px base spacing unit with an organic, non-rigid scale
+设计基准：
 
-## 2. Color Palette & Roles
+- 采用根目录 `DESIGN.md` 的 ima 式极简 AI 工作台风格。
+- 核心视觉采用项目知识星图。
+- 前端动效统一使用 Framer Motion，服务面板展开、节点高亮、语音状态和页面过渡。
+- PCG 结合只主讲 QQ 和微视 / 腾讯视频。
+- 其他腾讯产品不得作为 PCG 主线出现。
 
-### Primary
-- **Notion Black** (`rgba(0,0,0,0.95)` / `#000000f2`): Primary text, headings, body copy. The 95% opacity softens pure black without sacrificing readability.
-- **Pure White** (`#ffffff`): Page background, card surfaces, button text on blue.
-- **Notion Blue** (`#0075de`): Primary CTA, link color, interactive accent -- the only saturated color in the core UI chrome.
+## 2. 全局布局
 
-### Brand Secondary
-- **Deep Navy** (`#213183`): Secondary brand color, used sparingly for emphasis and dark feature sections.
-- **Active Blue** (`#005bab`): Button active/pressed state -- darker variant of Notion Blue.
+Web App 使用沉浸式桌面工作台结构：
 
-### Warm Neutral Scale
-- **Warm White** (`#f6f5f4`): Background surface tint, section alternation, subtle card fill. The yellow undertone is key.
-- **Warm Dark** (`#31302e`): Dark surface background, dark section text. Warmer than standard grays.
-- **Warm Gray 500** (`#615d59`): Secondary text, descriptions, muted labels.
-- **Warm Gray 300** (`#a39e98`): Placeholder text, disabled states, caption text.
+```text
+Top App Bar
+  Presento / 当前项目 / 搜索 / 开始讲练
 
-### Semantic Accent Colors
-- **Teal** (`#2a9d99`): Success states, positive indicators.
-- **Green** (`#1aae39`): Confirmation, completion badges.
-- **Orange** (`#dd5b00`): Warning states, attention indicators.
-- **Pink** (`#ff64c8`): Decorative accent, feature highlights.
-- **Purple** (`#391c57`): Premium features, deep accents.
-- **Brown** (`#523410`): Earthy accent, warm feature sections.
+Left Icon Rail
+  工作台 / 知识地图 / 资料导入 / 逐页讲稿 / 模拟讲练 / 薄弱点 / 复盘 / Agent Skills / PCG 连接
 
-### Interactive
-- **Link Blue** (`#0075de`): Primary link color with underline-on-hover.
-- **Link Light Blue** (`#62aef0`): Lighter link variant for dark backgrounds.
-- **Focus Blue** (`#097fe8`): Focus ring on interactive elements.
-- **Badge Blue Bg** (`#f2f9ff`): Pill badge background, tinted blue surface.
-- **Badge Blue Text** (`#097fe8`): Pill badge text, darker blue for readability.
+Main Canvas
+  当前页面核心内容：星图、PPT、文档或报告
 
-### Shadows & Depth
-- **Card Shadow** (`rgba(0,0,0,0.04) 0px 4px 18px, rgba(0,0,0,0.027) 0px 2.025px 7.84688px, rgba(0,0,0,0.02) 0px 0.8px 2.925px, rgba(0,0,0,0.01) 0px 0.175px 1.04062px`): Multi-layer card elevation.
-- **Deep Shadow** (`rgba(0,0,0,0.01) 0px 1px 3px, rgba(0,0,0,0.02) 0px 3px 7px, rgba(0,0,0,0.02) 0px 7px 15px, rgba(0,0,0,0.04) 0px 14px 28px, rgba(0,0,0,0.05) 0px 23px 52px`): Five-layer deep elevation for modals and featured content.
-- **Whisper Border** (`1px solid rgba(0,0,0,0.1)`): Standard division border -- cards, dividers, sections.
+Right Coach Panel
+  AI 教练、节点详情、证据链、推荐动作
+```
 
-## 3. Typography Rules
+尺寸建议：
 
-### Font Family
-- **Primary**: `NotionInter`, with fallbacks: `Inter, -apple-system, system-ui, Segoe UI, Helvetica, Apple Color Emoji, Arial, Segoe UI Emoji, Segoe UI Symbol`
-- **OpenType Features**: `"lnum"` (lining numerals) and `"locl"` (localized forms) enabled on display and heading text.
+- Top App Bar：64px - 72px。
+- Left Icon Rail：72px，展开状态不超过 240px。
+- Right Coach Panel：340px - 400px。
+- 主内容边距：24px - 32px。
+- 浮层圆角：24px。
+- 小卡片圆角：16px - 20px。
 
-### Hierarchy
+移动端不是比赛重点，但必须自然堆叠：
 
-| Role | Font | Size | Weight | Line Height | Letter Spacing | Notes |
-|------|------|------|--------|-------------|----------------|-------|
-| Display Hero | NotionInter | 64px (4.00rem) | 700 | 1.00 (tight) | -2.125px | Maximum compression, billboard headlines |
-| Display Secondary | NotionInter | 54px (3.38rem) | 700 | 1.04 (tight) | -1.875px | Secondary hero, feature headlines |
-| Section Heading | NotionInter | 48px (3.00rem) | 700 | 1.00 (tight) | -1.5px | Feature section titles, with `"lnum"` |
-| Sub-heading Large | NotionInter | 40px (2.50rem) | 700 | 1.50 | normal | Card headings, feature sub-sections |
-| Sub-heading | NotionInter | 26px (1.63rem) | 700 | 1.23 (tight) | -0.625px | Section sub-titles, content headers |
-| Card Title | NotionInter | 22px (1.38rem) | 700 | 1.27 (tight) | -0.25px | Feature cards, list titles |
-| Body Large | NotionInter | 20px (1.25rem) | 600 | 1.40 | -0.125px | Introductions, feature descriptions |
-| Body | NotionInter | 16px (1.00rem) | 400 | 1.50 | normal | Standard reading text |
-| Body Medium | NotionInter | 16px (1.00rem) | 500 | 1.50 | normal | Navigation, emphasized UI text |
-| Body Semibold | NotionInter | 16px (1.00rem) | 600 | 1.50 | normal | Strong labels, active states |
-| Body Bold | NotionInter | 16px (1.00rem) | 700 | 1.50 | normal | Headlines at body size |
-| Nav / Button | NotionInter | 15px (0.94rem) | 600 | 1.33 | normal | Navigation links, button text |
-| Caption | NotionInter | 14px (0.88rem) | 500 | 1.43 | normal | Metadata, secondary labels |
-| Caption Light | NotionInter | 14px (0.88rem) | 400 | 1.43 | normal | Body captions, descriptions |
-| Badge | NotionInter | 12px (0.75rem) | 600 | 1.33 | 0.125px | Pill badges, tags, status labels |
-| Micro Label | NotionInter | 12px (0.75rem) | 400 | 1.33 | 0.125px | Small metadata, timestamps |
+- 左侧图标栏变为底部导航。
+- 右侧 AI 面板下移为抽屉。
+- 模拟讲练页优先显示 PPT 当前页。
 
-### Principles
-- **Compression at scale**: NotionInter at display sizes uses -2.125px letter-spacing at 64px, progressively relaxing to -0.625px at 26px and normal at 16px. The compression creates density at headlines while maintaining readability at body sizes.
-- **Four-weight system**: 400 (body/reading), 500 (UI/interactive), 600 (emphasis/navigation), 700 (headings/display). The broader weight range compared to most systems allows nuanced hierarchy.
-- **Warm scaling**: Line height tightens as size increases -- 1.50 at body (16px), 1.23-1.27 at sub-headings, 1.00-1.04 at display. This creates denser, more impactful headlines.
-- **Badge micro-tracking**: The 12px badge text uses positive letter-spacing (0.125px) -- the only positive tracking in the system, creating wider, more legible small text.
+## 3. 页面清单
 
-## 4. Component Stylings
+Web 端应包含以下页面：
 
-### Buttons
+1. 工作台首页
+2. 项目知识地图
+3. 资料导入 / 知识源
+4. 逐页讲稿
+5. 模拟讲练
+6. 薄弱点钻研
+7. 复盘报告
+8. Agent Skills
+9. PCG 连接
+10. 新建项目
 
-**Primary Blue**
-- Background: `#0075de` (Notion Blue)
-- Text: `#ffffff`
-- Padding: 8px 16px
-- Radius: 4px (subtle)
-- Border: `1px solid transparent`
-- Hover: background darkens to `#005bab`
-- Active: scale(0.9) transform
-- Focus: `2px solid` focus outline, `var(--shadow-level-200)` shadow
-- Use: Primary CTA ("Get Notion free", "Try it")
+## 4. 工作台首页
 
-**Secondary / Tertiary**
-- Background: `rgba(0,0,0,0.05)` (translucent warm gray)
-- Text: `#000000` (near-black)
-- Padding: 8px 16px
-- Radius: 4px
-- Hover: text color shifts, scale(1.05)
-- Active: scale(0.9) transform
-- Use: Secondary actions, form submissions
+页面定位：用户进入产品后的核心首页，不是 landing page。
 
-**Ghost / Link Button**
-- Background: transparent
-- Text: `rgba(0,0,0,0.95)`
-- Decoration: underline on hover
-- Use: Tertiary actions, inline links
+目标：
 
-**Pill Badge Button**
-- Background: `#f2f9ff` (tinted blue)
-- Text: `#097fe8`
-- Padding: 4px 8px
-- Radius: 9999px (full pill)
-- Font: 12px weight 600
-- Use: Status badges, feature labels, "New" tags
+- 告诉用户当前项目状态。
+- 告诉用户今天最该练什么。
+- 用项目星图展示 AI 已经理解项目。
+- 让用户一键进入讲练。
 
-### Cards & Containers
-- Background: `#ffffff`
-- Border: `1px solid rgba(0,0,0,0.1)` (whisper border)
-- Radius: 12px (standard cards), 16px (featured/hero cards)
-- Shadow: `rgba(0,0,0,0.04) 0px 4px 18px, rgba(0,0,0,0.027) 0px 2.025px 7.84688px, rgba(0,0,0,0.02) 0px 0.8px 2.925px, rgba(0,0,0,0.01) 0px 0.175px 1.04062px`
-- Hover: subtle shadow intensification
-- Image cards: 12px top radius, image fills top half
+布局：
 
-### Inputs & Forms
-- Background: `#ffffff`
-- Text: `rgba(0,0,0,0.9)`
-- Border: `1px solid #dddddd`
-- Padding: 6px
-- Radius: 4px
-- Focus: blue outline ring
-- Placeholder: warm gray `#a39e98`
+```text
+顶部：Presento / 当前项目 / 搜索 / 开始讲练
+左侧：极简图标导航
+中间：项目知识星图
+右侧：AI 教练建议
+底部或浮层：今日训练任务、准备度、高危追问、薄弱点
+```
 
-### Navigation
-- Clean horizontal nav on white, not sticky
-- Brand logo left-aligned (33x34px icon + wordmark)
-- Links: NotionInter 15px weight 500-600, near-black text
-- Hover: color shift to `var(--color-link-primary-text-hover)`
-- CTA: blue pill button ("Get Notion free") right-aligned
-- Mobile: hamburger menu collapse
-- Product dropdowns with multi-level categorized menus
+必须展示：
 
-### Image Treatment
-- Product screenshots with `1px solid rgba(0,0,0,0.1)` border
-- Top-rounded images: `12px 12px 0px 0px` radius
-- Dashboard/workspace preview screenshots dominate feature sections
-- Warm gradient backgrounds behind hero illustrations (decorative character illustrations)
+- 项目名：智在必得。
+- 场景：课程项目答辩。
+- 距离答辩：2 天。
+- 准备度：68%。
+- 高危追问：8 个。
+- 薄弱点：3 个。
+- AI 建议：先练 AI 模块和数据库设计。
 
-### Distinctive Components
+视觉要求：
 
-**Feature Cards with Illustrations**
-- Large illustrative headers (The Great Wave, product UI screenshots)
-- 12px radius card with whisper border
-- Title at 22px weight 700, description at 16px weight 400
-- Warm white (`#f6f5f4`) background variant for alternating sections
+- 中间星图是第一视觉中心。
+- 不要用传统统计 dashboard 作为主视觉。
+- 面板数量要少，留白要足。
+- 主按钮文案建议为“开始讲练”或“上台实战”。
 
-**Trust Bar / Logo Grid**
-- Company logos (trusted teams section) in their brand colors
-- Horizontal scroll or grid layout with team counts
-- Metric display: large number + description pattern
+## 5. 项目知识地图页
 
-**Metric Cards**
-- Large number display (e.g., "$4,200 ROI")
-- NotionInter 40px+ weight 700 for the metric
-- Description below in warm gray body text
-- Whisper-bordered card container
+页面定位：展示 AI 如何理解项目，是 Presento 的核心差异化页面。
 
-## 5. Layout Principles
+布局：
 
-### Spacing System
-- Base unit: 8px
-- Scale: 2px, 3px, 4px, 5px, 6px, 7px, 8px, 11px, 12px, 14px, 16px, 24px, 32px
-- Non-rigid organic scale with fractional values (5.6px, 6.4px) for micro-adjustments
+```text
+左侧：图例、筛选、视图切换
+中间：全屏项目星图
+右侧：节点详情、证据链、训练动作
+```
 
-### Grid & Container
-- Max content width: approximately 1200px
-- Hero: centered single-column with generous top padding (80-120px)
-- Feature sections: 2-3 column grids for cards
-- Full-width warm white (`#f6f5f4`) section backgrounds for alternation
-- Code/dashboard screenshots as contained with whisper border
+节点：
 
-### Whitespace Philosophy
-- **Generous vertical rhythm**: 64-120px between major sections. Notion lets content breathe with vast vertical padding.
-- **Warm alternation**: White sections alternate with warm white (`#f6f5f4`) sections, creating gentle visual rhythm without harsh color breaks.
-- **Content-first density**: Body text blocks are compact (line-height 1.50) but surrounded by ample margin, creating islands of readable content in a sea of white space.
+- 中心节点：智在必得。
+- 一级节点：PPT、代码、数据库、AI 模块、智慧书柜、用户端、管理员端、高危追问、薄弱点。
+- 二级节点：PPT 页、代码文件、数据库表、具体追问、具体薄弱点。
 
-### Border Radius Scale
-- Micro (4px): Buttons, inputs, functional interactive elements
-- Subtle (5px): Links, list items, menu items
-- Standard (8px): Small cards, containers, inline elements
-- Comfortable (12px): Standard cards, feature containers, image tops
-- Large (16px): Hero cards, featured content, promotional blocks
-- Full Pill (9999px): Badges, pills, status indicators
-- Circle (100%): Tab indicators, avatars
+节点类型颜色：
 
-## 6. Depth & Elevation
+- 项目中心：深色或品牌渐变。
+- 结构节点：白底黑线图标，蓝灰辅助。
+- 资料节点：青色角标。
+- AI 节点：紫色角标。
+- 高危追问：橙色角标和轻脉冲。
+- 薄弱点：红色角标。
+- 训练入口：蓝色或绿色按钮。
 
-| Level | Treatment | Use |
-|-------|-----------|-----|
-| Flat (Level 0) | No shadow, no border | Page background, text blocks |
-| Whisper (Level 1) | `1px solid rgba(0,0,0,0.1)` | Standard borders, card outlines, dividers |
-| Soft Card (Level 2) | 4-layer shadow stack (max opacity 0.04) | Content cards, feature blocks |
-| Deep Card (Level 3) | 5-layer shadow stack (max opacity 0.05, 52px blur) | Modals, featured panels, hero elements |
-| Focus (Accessibility) | `2px solid var(--focus-color)` outline | Keyboard focus on all interactive elements |
+点击节点后右侧显示：
 
-**Shadow Philosophy**: Notion's shadow system uses multiple layers with extremely low individual opacity (0.01 to 0.05) that accumulate into soft, natural-looking elevation. The 4-layer card shadow spans from 1.04px to 18px blur, creating a gradient of depth rather than a single hard shadow. The 5-layer deep shadow extends to 52px blur at 0.05 opacity, producing ambient occlusion that feels like natural light rather than computer-generated depth. This layered approach makes elements feel embedded in the page rather than floating above it.
+- 节点标题。
+- 节点类型。
+- 风险等级。
+- 说明。
+- 关联 PPT。
+- 关联代码 / 数据。
+- 相关高危追问。
+- 推荐动作。
 
-### Decorative Depth
-- Hero section: decorative character illustrations (playful, hand-drawn style)
-- Section alternation: white to warm white (`#f6f5f4`) background shifts
-- No hard section borders -- separation comes from background color changes and spacing
+关键按钮：
 
-## 7. Responsive Behavior
+- 查看讲稿
+- 查看证据链
+- 进入讲练
+- 加入薄弱点修复
 
-### Breakpoints
-| Name | Width | Key Changes |
-|------|-------|-------------|
-| Mobile Small | <400px | Tight single column, minimal padding |
-| Mobile | 400-600px | Standard mobile, stacked layout |
-| Tablet Small | 600-768px | 2-column grids begin |
-| Tablet | 768-1080px | Full card grids, expanded padding |
-| Desktop Small | 1080-1200px | Standard desktop layout |
-| Desktop | 1200-1440px | Full layout, maximum content width |
-| Large Desktop | >1440px | Centered, generous margins |
+MVP 实现建议：
 
-### Touch Targets
-- Buttons use comfortable padding (8px-16px vertical)
-- Navigation links at 15px with adequate spacing
-- Pill badges have 8px horizontal padding for tap targets
-- Mobile menu toggle uses standard hamburger button
+- 优先使用固定布局模拟星图。
+- 不必实现真实力导向图。
+- 必须实现节点选中、关联线高亮、右侧详情更新。
 
-### Collapsing Strategy
-- Hero: 64px display -> scales to 40px -> 26px on mobile, maintains proportional letter-spacing
-- Navigation: horizontal links + blue CTA -> hamburger menu
-- Feature cards: 3-column -> 2-column -> single column stacked
-- Product screenshots: maintain aspect ratio with responsive images
-- Trust bar logos: grid -> horizontal scroll on mobile
-- Footer: multi-column -> stacked single column
-- Section spacing: 80px+ -> 48px on mobile
+## 6. 资料导入 / 知识源页
 
-### Image Behavior
-- Workspace screenshots maintain whisper border at all sizes
-- Hero illustrations scale proportionally
-- Product screenshots use responsive images with consistent border radius
-- Full-width warm white sections maintain edge-to-edge treatment
+页面定位：展示资料如何进入 Presento，并如何生成知识地图。
 
-## 8. Accessibility & States
+设计方向：知识源接入舱，而不是文件管理器。
 
-### Focus System
-- All interactive elements receive visible focus indicators
-- Focus outline: `2px solid` with focus color + shadow level 200
-- Tab navigation supported throughout all interactive components
-- High contrast text: near-black on white exceeds WCAG AAA (>14:1 ratio)
+模块：
 
-### Interactive States
-- **Default**: Standard appearance with whisper borders
-- **Hover**: Color shift on text, scale(1.05) on buttons, underline on links
-- **Active/Pressed**: scale(0.9) transform, darker background variant
-- **Focus**: Blue outline ring with shadow reinforcement
-- **Disabled**: Warm gray (`#a39e98`) text, reduced opacity
+- 本地上传：PPT / PDF、报告、代码 zip、SQL、CSV、Excel。
+- QQ 模拟入口：从 QQ 小组群创建训练、导入小组资料、同步分工。
+- 解析流程：读取、切片、索引、抽取节点、生成风险。
+- 输出结果：新增知识节点、高危追问、证据链。
 
-### Color Contrast
-- Primary text (rgba(0,0,0,0.95)) on white: ~18:1 ratio
-- Secondary text (#615d59) on white: ~5.5:1 ratio (WCAG AA)
-- Blue CTA (#0075de) on white: ~4.6:1 ratio (WCAG AA for large text)
-- Badge text (#097fe8) on badge bg (#f2f9ff): ~4.5:1 ratio (WCAG AA for large text)
+页面结构：
 
-## 9. Agent Prompt Guide
+```text
+左侧：资料入口
+中间：解析流程和文件卡片
+右侧：生成结果和 AI 建议
+```
 
-### Quick Color Reference
-- Primary CTA: Notion Blue (`#0075de`)
-- Background: Pure White (`#ffffff`)
-- Alt Background: Warm White (`#f6f5f4`)
-- Heading text: Near-Black (`rgba(0,0,0,0.95)`)
-- Body text: Near-Black (`rgba(0,0,0,0.95)`)
-- Secondary text: Warm Gray 500 (`#615d59`)
-- Muted text: Warm Gray 300 (`#a39e98`)
-- Border: `1px solid rgba(0,0,0,0.1)`
-- Link: Notion Blue (`#0075de`)
-- Focus ring: Focus Blue (`#097fe8`)
+交互：
 
-### Example Component Prompts
-- "Create a hero section on white background. Headline at 64px NotionInter weight 700, line-height 1.00, letter-spacing -2.125px, color rgba(0,0,0,0.95). Subtitle at 20px weight 600, line-height 1.40, color #615d59. Blue CTA button (#0075de, 4px radius, 8px 16px padding, white text) and ghost button (transparent bg, near-black text, underline on hover)."
-- "Design a card: white background, 1px solid rgba(0,0,0,0.1) border, 12px radius. Use shadow stack: rgba(0,0,0,0.04) 0px 4px 18px, rgba(0,0,0,0.027) 0px 2.025px 7.85px, rgba(0,0,0,0.02) 0px 0.8px 2.93px, rgba(0,0,0,0.01) 0px 0.175px 1.04px. Title at 22px NotionInter weight 700, letter-spacing -0.25px. Body at 16px weight 400, color #615d59."
-- "Build a pill badge: #f2f9ff background, #097fe8 text, 9999px radius, 4px 8px padding, 12px NotionInter weight 600, letter-spacing 0.125px."
-- "Create navigation: white header. NotionInter 15px weight 600 for links, near-black text. Blue pill CTA 'Get Notion free' right-aligned (#0075de bg, white text, 4px radius)."
-- "Design an alternating section layout: white sections alternate with warm white (#f6f5f4) sections. Each section has 64-80px vertical padding, max-width 1200px centered. Section heading at 48px weight 700, line-height 1.00, letter-spacing -1.5px."
+- 拖拽上传资料。
+- 选择“从 QQ 小组群创建训练”。
+- 上传后显示“正在生成项目知识地图”。
+- 解析完成后跳转知识地图。
 
-### Iteration Guide
-1. Always use warm neutrals -- Notion's grays have yellow-brown undertones (#f6f5f4, #31302e, #615d59, #a39e98), never blue-gray
-2. Letter-spacing scales with font size: -2.125px at 64px, -1.875px at 54px, -0.625px at 26px, normal at 16px
-3. Four weights: 400 (read), 500 (interact), 600 (emphasize), 700 (announce)
-4. Borders are whispers: 1px solid rgba(0,0,0,0.1) -- never heavier
-5. Shadows use 4-5 layers with individual opacity never exceeding 0.05
-6. The warm white (#f6f5f4) section background is essential for visual rhythm
-7. Pill badges (9999px) for status/tags, 4px radius for buttons and inputs
-8. Notion Blue (#0075de) is the only saturated color in core UI -- use it sparingly for CTAs and links
+## 7. 逐页讲稿页
+
+页面定位：把 PPT 页面转化为可上台表达的稿子。
+
+布局：
+
+```text
+左侧：PPT 页缩略图
+中间：当前页讲稿编辑区
+右侧：AI 教练、证据链、高危追问
+```
+
+必须支持：
+
+- 正常版。
+- 30 秒版。
+- 关键词版。
+- 当前页证据链。
+- 当前页高危追问。
+- 当前页进入讲练。
+
+AI 快捷动作：
+
+- 改成口语化。
+- 压缩到 30 秒。
+- 补充来源依据。
+- 生成高危追问。
+- 生成兜底回答。
+
+视觉：
+
+- 像轻量文档编辑器，不像 Word。
+- 保持浅灰背景和白色文档浮层。
+- 右侧 AI 面板默认轻，不要压住编辑区。
+
+## 8. 模拟讲练页
+
+页面定位：核心训练场景。它是用户对着当前 PPT 页面，与 AI 老师进行语音模拟答辩的页面，不是普通聊天页。
+
+布局：
+
+```text
+顶部：倒计时 / 当前页 / 训练模式 / 压力等级
+中间左侧：PPT 当前页
+中间右侧：AI 老师语音 / 文字追问
+底部：麦克风按钮、回答输入框、快捷提示
+侧边：当前知识节点和风险提示
+```
+
+必须体现：
+
+- 用户对着当前 PPT 开口讲。
+- AI 围绕知识节点连续语音 / 文字追问。
+- 用户可以语音回答，也可以输入文本回答。
+- 可请求关键词、回答框架、完整参考答案。
+- 卡住的问题可进入薄弱点钻研。
+- 页面必须有听取中、思考中、追问中、复盘生成中等状态。
+
+状态：
+
+- 正常模式。
+- 高压追问模式。
+- 提示模式。
+- 复盘生成中。
+
+页面不能像普通聊天工具。PPT 当前页必须是视觉中心，麦克风和 AI 老师追问是辅助训练层。
+
+## 9. 薄弱点钻研页
+
+页面定位：修复答不上来的问题。
+
+布局：
+
+```text
+左侧：薄弱点队列
+中间：当前问题拆解
+右侧：证据链、改答版本、训练动作
+```
+
+薄弱点卡片字段：
+
+- 问题标题。
+- 来源：讲练 / 知识地图 / 复盘。
+- 风险等级。
+- 关联节点。
+- 关联资料。
+- 修复状态。
+
+操作：
+
+- 生成回答框架。
+- 加入逐页讲稿。
+- 围绕此问题再练一次。
+- 标记已掌握。
+
+## 10. 复盘报告页
+
+页面定位：训练后的下一轮计划。
+
+模块：
+
+- 本轮一句话结论。
+- 表达清晰度。
+- 证据支撑度。
+- 追问抗压度。
+- 负责范围准确度。
+- 新增薄弱点。
+- 下一轮训练任务。
+- 内容二次创作建议。
+
+内容二次创作建议必须支持：
+
+- 生成 30 秒项目介绍。
+- 生成 1 分钟口播。
+- 生成微视短视频分镜。
+- 生成腾讯视频项目展示简介。
+
+视觉：
+
+- 不做企业 BI。
+- 重点展示结论、风险和下一步动作。
+- 高危内容可回流到知识地图节点。
+
+## 11. Agent Skills 页
+
+页面定位：展示 Presento 的 AI 能力层。它不是公开插件市场，也不是复杂技术配置页，而是让评委和用户看到“哪些 AI 能力在支撑完整训练闭环”，并允许用户创建或导入自己的 Skills。
+
+布局：
+
+```text
+左侧：Skill Packs 分类 / 系统 / 我的
+中间：系统 Skills 与我的 Skills 卡片 / 能力节点
+右侧：Skill 详情、创建 / 导入入口、最近调用记录、fallback 状态
+```
+
+必须展示：
+
+- 软件项目答辩技能包。
+- AI / 数据项目技能包。
+- 调研报告技能包。
+- 表达冲刺技能包。
+- 内容传播技能包。
+- 内置 Skills 列表。
+- 我的 Skills 列表。
+- 创建 Skill 按钮。
+- 导入 Skill 按钮。
+- 最近 Skill 调用。
+- 当前项目启用状态。
+- 依据不足 / fallback 状态。
+
+内置 Skills：
+
+- 项目速记
+- 项目知识地图
+- 逐页讲稿
+- 高危追问
+- 当前页追问
+- 代码 / 数据解释
+- 薄弱点钻研
+- 兜底回答
+- 复盘报告
+- 内容二次创作
+
+每个 Skill 卡片至少展示：
+
+- Skill 名称。
+- 所属 Skill Pack。
+- 来源：系统 / 自定义 / 导入。
+- 触发场景。
+- 输入来源。
+- 输出类型。
+- 当前状态。
+
+创建 / 导入入口必须展示：
+
+- 新建自定义 Skill。
+- 导入 JSON / YAML Skill。
+- 启用 / 停用。
+- 编辑。
+- 删除个人 Skill。
+
+视觉要求：
+
+- 可延续项目星图的节点语言，但密度要更低。
+- 紫色只用于 AI 能力标识。
+- fallback 用橙色，不要大面积警告。
+- 不出现公开“市场”“商店”“付费插件”等文案。
+
+## 12. PCG 连接页
+
+页面定位：说明并演示 Presento 如何结合 QQ 和微视 / 腾讯视频。
+
+不得把 ima、CodeBuddy、腾讯文档、腾讯会议写成 PCG 主结合。
+
+模块：
+
+### 12.1 QQ 校园入口
+
+展示：
+
+- 从 QQ 小组群创建训练。
+- 同步小组分工。
+- 答辩倒计时提醒。
+- 分享高危追问到群。
+- 分享复盘报告。
+
+示例状态：
+
+```text
+QQ 小组群：智在必得答辩组
+成员：4 人
+倒计时：2 天
+今日任务：AI 模块讲练、数据库高危追问
+```
+
+### 12.2 微视 / 腾讯视频内容出口
+
+展示：
+
+- 生成微视 30 秒口播脚本。
+- 生成腾讯视频 1 分钟项目展示脚本。
+- 生成短视频分镜。
+- 模拟观众追问。
+- 将复盘转为内容创作建议。
+
+示例状态：
+
+```text
+可生成内容：
+- 30 秒项目亮点口播
+- 1 分钟项目介绍视频脚本
+- 5 个观众可能追问
+```
+
+### 12.3 接入说明
+
+必须明确：
+
+> 当前 Demo 为模拟接入，用于展示未来业务链路，不依赖真实 PCG 产品接口。
+
+## 13. 新建项目页
+
+页面定位：训练启动舱。
+
+流程：
+
+```text
+选择表达场景
+  -> 导入资料
+  -> 填写负责范围
+  -> 生成项目知识地图
+```
+
+表达场景：
+
+- 课程项目答辩
+- 毕设答辩
+- 小组展示
+- 比赛路演
+- 社团宣讲
+- 实习汇报
+
+字段：
+
+- 项目名称。
+- 项目类型。
+- 我负责的范围。
+- 队友负责范围。
+- 预计上台时间。
+- 是否从 QQ 小组群创建训练。
+
+提交后进入“正在生成项目知识地图”状态。
+
+## 14. 文案约束
+
+统一使用：
+
+- Presento
+- 项目知识地图
+- AI 老师 / AI 教练
+- 模拟讲练
+- Agent Skills
+- 高危追问
+- 薄弱点
+- 复盘报告
+- QQ 小组群
+- 微视口播脚本
+- 腾讯视频项目展示
+
+避免使用：
+
+- 资料库作为主页面名。
+- 准备台作为核心品牌名。
+- Notion 风。
+- SaaS 后台。
+- 通用 AI Chat。
+- 将非 PCG 产品当作 PCG 业务结合。
+- 公开第三方 Skill 市场。
+
+## 15. 工程实现约束
+
+- 本轮优先实现视觉与交互 Demo。
+- 项目知识星图可使用固定布局模拟。
+- 右侧 AI 教练数据可使用 mock。
+- QQ、微视、腾讯视频接入全部使用模拟数据。
+- Agent Skills 使用内置 mock 数据、用户自定义 mock 数据、导入校验和调用记录。
+- 不新增真实第三方接口依赖。
+- 不引入复杂图数据库。
+- 可继续使用 Tailwind CSS 和 lucide-react。
+- 页面应保证桌面端演示稳定。

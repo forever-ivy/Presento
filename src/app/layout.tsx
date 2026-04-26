@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "答辩台 | 课程项目答辩 AI 教练",
+  title: "Presento | 课程项目答辩 AI 教练",
   description: "上传课程项目资料，对着 PPT 与 AI 老师实时训练答辩。",
 };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, FileUp, Plus, Users } from "lucide-react";
+import { CheckCircle2, FileUp, Map, Plus, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -14,33 +14,25 @@ import {
   Panel,
   SectionHeading,
   TopNav,
-} from "@/components/notion-ui";
+  cn,
+} from "@/components/presento-ui";
 import { uploadDefenseFiles } from "@/lib/upload-files";
 import { useWorkspace } from "@/lib/use-workspace";
 
+const scenarios = ["课程项目答辩", "毕设答辩", "小组展示", "比赛路演", "社团宣讲", "实习汇报"];
 const uploadGroups = [
-  ["PPT / PDF", "答辩展示材料，第一版会转成逐页预览"],
-  ["报告 / README", "用于生成项目速记卡和讲稿依据"],
-  ["代码 zip / 仓库链接", "用于代码解释、分工真实性追问"],
-  ["CSV / Excel / SQL", "用于数据来源、表结构和指标质疑"],
-];
-
-const projectTypes = [
-  {
-    name: "软件 / AI / 数据类",
-    desc: "推荐代码解释、数据库追问、模型或指标质疑等技能。",
-  },
-  {
-    name: "经管 / 文科 / 调研类",
-    desc: "推荐研究问题、问卷数据、分析方法和局限性追问。",
-  },
+  ["PPT / PDF", "用于逐页讲稿和同屏讲练"],
+  ["报告 / README", "用于项目速记卡和证据链"],
+  ["代码 zip", "用于代码解释和分工真实性追问"],
+  ["SQL / CSV / Excel", "用于数据库和数据来源质疑"],
 ];
 
 export default function NewProjectPage() {
   const router = useRouter();
   const { createWorkspace } = useWorkspace();
   const [projectName, setProjectName] = useState("智能点餐系统课程答辩");
-  const [category, setCategory] = useState(projectTypes[0].name);
+  const [category, setCategory] = useState("软件 / AI / 数据类");
+  const [scenario, setScenario] = useState(scenarios[0]);
   const [ownerScope, setOwnerScope] = useState("我负责：后端订单接口");
   const [teammateScope, setTeammateScope] = useState("队友负责：前端页面 / 数据库");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -53,15 +45,14 @@ export default function NewProjectPage() {
 
     try {
       const uploadedFiles = await uploadDefenseFiles(selectedFiles);
-
       createWorkspace({
         name: projectName,
-        category,
+        category: `${scenario} · ${category}`,
         ownerScope,
         teammateScope,
         files: uploadedFiles,
       });
-      router.push("/projects/demo/files");
+      router.push("/projects/demo/knowledge-map");
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "文件上传失败");
     } finally {
@@ -72,149 +63,101 @@ export default function NewProjectPage() {
   return (
     <AppFrame>
       <TopNav />
-      <PageWrap width="max-w-[960px]">
+      <PageWrap width="max-w-[1180px]">
         <PageHeader
-          eyebrow="创建课程项目"
-          title="新建答辩项目"
-          description="先录入项目名称、类型和小组分工，再上传 PPT、报告、代码和数据资料。"
+          eyebrow="训练启动舱"
+          title="创建一个可讲练、可追问、可复盘的项目"
+          description="先选择表达场景，再导入资料和负责范围。创建后进入项目知识地图，而不是普通文件夹。"
           actions={<BackLink href="/" label="返回工作台" />}
         />
 
-        <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
           <Card>
-            <SectionHeading
-              title="项目基础信息"
-              description="MVP 先以个人使用为主，但保留小组分工、负责范围和答辩顺序。"
-            />
+            <SectionHeading icon={Map} title="1. 选择表达场景" />
+            <div className="grid gap-3 md:grid-cols-3">
+              {scenarios.map((item) => (
+                <button
+                  className={cn(
+                    "rounded-2xl border p-4 text-left text-sm font-black transition hover:bg-[var(--presento-warm)]",
+                    scenario === item
+                      ? "border-[var(--presento-blue)] bg-[var(--presento-soft-blue)] text-[var(--presento-blue)]"
+                      : "border-[var(--presento-border)] bg-white",
+                  )}
+                  key={item}
+                  onClick={() => setScenario(item)}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
 
-            <div className="flex flex-col gap-5">
+            <div className="mt-6 grid gap-5 md:grid-cols-2">
               <label className="flex flex-col gap-2">
-                <span className="text-sm font-semibold">项目名称</span>
+                <span className="text-sm font-black">项目名称</span>
+                <input className="presento-input" onChange={(event) => setProjectName(event.target.value)} value={projectName} />
+              </label>
+              <label className="flex flex-col gap-2">
+                <span className="text-sm font-black">项目类型</span>
+                <input className="presento-input" onChange={(event) => setCategory(event.target.value)} value={category} />
+              </label>
+            </div>
+
+            <Panel className="mt-6">
+              <SectionHeading icon={Users} title="2. 负责范围" />
+              <div className="grid gap-3 md:grid-cols-2">
+                <input className="presento-input" onChange={(event) => setOwnerScope(event.target.value)} value={ownerScope} />
+                <input className="presento-input" onChange={(event) => setTeammateScope(event.target.value)} value={teammateScope} />
+              </div>
+            </Panel>
+
+            <Panel className="mt-6">
+              <SectionHeading icon={FileUp} title="3. 导入资料" />
+              <label className="flex cursor-pointer flex-col items-center justify-center rounded-3xl border border-dashed border-[var(--presento-border)] bg-white px-4 py-8 text-center transition hover:bg-[var(--presento-warm)]">
+                <FileUp className="mb-3 text-[var(--presento-blue)]" aria-hidden="true" />
+                <span className="text-sm font-black">选择 PPT、报告、代码 zip 或数据表</span>
+                <span className="presento-muted mt-1 text-sm">
+                  上传后进入知识源接入舱，生成项目知识地图。
+                </span>
                 <input
-                  className="rounded-[4px] border border-[#dddddd] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--notion-focus)]"
-                  onChange={(event) => setProjectName(event.target.value)}
-                  value={projectName}
+                  className="sr-only"
+                  multiple
+                  onChange={(event) => setSelectedFiles(event.target.files ? Array.from(event.target.files) : [])}
+                  type="file"
                 />
               </label>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                {projectTypes.map((type) => (
-                  <button
-                    className={`rounded-xl border p-4 text-left transition hover:bg-[var(--notion-warm)] ${
-                      category === type.name
-                        ? "border-[var(--notion-blue)] bg-[#f2f9ff]"
-                        : "border-[var(--notion-border)] bg-white"
-                    }`}
-                    key={type.name}
-                    onClick={() => setCategory(type.name)}
-                  >
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-sm font-bold">
-                        <CheckCircle2
-                          className={
-                            category === type.name
-                              ? "text-[var(--notion-blue)]"
-                              : "notion-faint"
-                          }
-                          aria-hidden="true"
-                        />
-                        {type.name}
-                      </div>
-                      {category === type.name ? <Badge>已选择</Badge> : null}
+              {selectedFiles.length > 0 ? (
+                <div className="mt-4 flex flex-col gap-2">
+                  {selectedFiles.map((file) => (
+                    <div className="flex items-center justify-between rounded-xl border border-[var(--presento-border)] bg-white px-3 py-2 text-sm" key={`${file.name}-${file.size}`}>
+                      <span className="truncate font-semibold">{file.name}</span>
+                      <span className="presento-muted shrink-0 text-xs">{(file.size / 1024).toFixed(1)} KB</span>
                     </div>
-                    <p className="notion-muted text-sm leading-6">{type.desc}</p>
-                  </button>
-                ))}
-              </div>
-
-              <Panel>
-                <SectionHeading icon={Users} title="小组语义" />
-                <div className="grid gap-3 md:grid-cols-2">
-                  <input
-                    className="rounded-[4px] border border-[#dddddd] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--notion-focus)]"
-                    onChange={(event) => setOwnerScope(event.target.value)}
-                    value={ownerScope}
-                  />
-                  <input
-                    className="rounded-[4px] border border-[#dddddd] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--notion-focus)]"
-                    onChange={(event) => setTeammateScope(event.target.value)}
-                    value={teammateScope}
-                  />
+                  ))}
                 </div>
-              </Panel>
-
-              <Panel>
-                <SectionHeading icon={FileUp} title="上传项目资料" />
-                <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[var(--notion-border)] bg-white px-4 py-8 text-center transition hover:bg-[var(--notion-warm)]">
-                  <FileUp className="mb-3 text-[var(--notion-blue)]" aria-hidden="true" />
-                  <span className="text-sm font-bold">选择 PPT、报告、代码 zip 或数据表</span>
-                  <span className="notion-muted mt-1 text-sm">
-                    当前会先保存到本地工作区，下一步进入解析与知识库任务。
-                  </span>
-                  <input
-                    className="sr-only"
-                    multiple
-                    onChange={(event) =>
-                      setSelectedFiles(event.target.files ? Array.from(event.target.files) : [])
-                    }
-                    type="file"
-                  />
-                </label>
-
-                {selectedFiles.length > 0 ? (
-                  <div className="mt-4 flex flex-col gap-2">
-                    {selectedFiles.map((file) => (
-                      <div
-                        className="flex items-center justify-between rounded-lg border border-[var(--notion-border)] bg-white px-3 py-2 text-sm"
-                        key={`${file.name}-${file.size}`}
-                      >
-                        <span className="truncate font-medium">{file.name}</span>
-                        <span className="notion-muted shrink-0 text-xs">
-                          {(file.size / 1024).toFixed(1)} KB
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                {uploadError ? (
-                  <p className="mt-3 text-sm font-semibold text-[#dd5b00]">
-                    {uploadError}
-                  </p>
-                ) : null}
-              </Panel>
-            </div>
+              ) : null}
+              {uploadError ? <p className="mt-3 text-sm font-semibold text-[#c56a09]">{uploadError}</p> : null}
+            </Panel>
           </Card>
 
           <Card>
-            <SectionHeading
-              icon={FileUp}
-              title="推荐上传"
-              description="第一版优先围绕常见课程项目资料建立知识库。"
-            />
+            <SectionHeading icon={CheckCircle2} title="生成项目知识地图" />
             <div className="flex flex-col gap-3">
               {uploadGroups.map(([title, desc]) => (
-                <div
-                  className="rounded-xl border border-[var(--notion-border)] bg-[var(--notion-warm)] p-3"
-                  key={title}
-                >
-                  <div className="text-sm font-bold">{title}</div>
-                  <p className="notion-muted mt-1 text-sm leading-5">{desc}</p>
+                <div className="rounded-2xl border border-[var(--presento-border)] bg-[var(--presento-warm)] p-4" key={title}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-sm font-black">{title}</div>
+                    <Badge tone="blue">建议</Badge>
+                  </div>
+                  <p className="presento-muted text-sm leading-5">{desc}</p>
                 </div>
               ))}
             </div>
-            <button
-              className="notion-button-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isUploading}
-              onClick={submitProject}
-            >
+            <button className="presento-button-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-60" disabled={isUploading} onClick={submitProject}>
               <Plus aria-hidden="true" />
-              {isUploading ? "正在上传并创建..." : "创建并进入资料库"}
+              {isUploading ? "正在创建..." : "创建并生成知识地图"}
             </button>
-            <Link
-              className="mt-3 inline-flex w-full justify-center text-sm font-semibold text-[var(--notion-blue)] hover:underline"
-              href="/projects/demo/files"
-            >
-              先查看 demo 资料库
+            <Link className="presento-button-secondary mt-3 w-full" href="/projects/demo/knowledge-map">
+              先查看 demo 知识地图
             </Link>
           </Card>
         </section>
