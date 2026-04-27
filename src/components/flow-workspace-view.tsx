@@ -110,6 +110,7 @@ const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
 const BACKGROUND_COPY_VISIBLE_MS = 10_000;
 const BACKGROUND_COPY_FADE_MS = 900;
+const BACKGROUND_COPY_EXIT_NAV_DELAY_MS = 180;
 let pendingReturnStepId: FlowStepId | null = null;
 
 export function FlowWorkspaceView() {
@@ -233,10 +234,11 @@ export function FlowWorkspaceView() {
 
     if (mode === "map" && backgroundVisible) {
       setBackgroundVisible(false);
+      // Let the fade begin, but do not block dock navigation for the full copy fade.
       delayedNavigationTimerRef.current = window.setTimeout(() => {
         delayedNavigationTimerRef.current = null;
         startTransition(() => router.push(href));
-      }, BACKGROUND_COPY_FADE_MS);
+      }, BACKGROUND_COPY_EXIT_NAV_DELAY_MS);
       return;
     }
 
