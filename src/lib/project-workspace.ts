@@ -271,7 +271,7 @@ export function failProcessingTask(
   });
 }
 
-function createFileRecord(file: DefenseFileInput, addedAt: string): DefenseFileRecord {
+export function createFileRecord(file: DefenseFileInput, addedAt: string): DefenseFileRecord {
   const kind = classifyDefenseFile(file.name);
 
   return {
@@ -284,7 +284,7 @@ function createFileRecord(file: DefenseFileInput, addedAt: string): DefenseFileR
   };
 }
 
-function createProcessingTasks(files: DefenseFileRecord[], createdAt: string) {
+export function createProcessingTasks(files: DefenseFileRecord[], createdAt: string) {
   return files
     .filter((file) => isProcessableFile(file))
     .map((file) => ({
@@ -347,7 +347,7 @@ function normalizeWorkspace(workspace: DefenseWorkspace): DefenseWorkspace {
   };
 }
 
-function taskTitleForKind(kind: DefenseFileKind) {
+export function taskTitleForKind(kind: DefenseFileKind) {
   const titleMap: Record<DefenseFileKind, string> = {
     presentation: "生成逐页预览与讲稿入口",
     document: "抽取项目知识库文本",
@@ -361,7 +361,7 @@ function taskTitleForKind(kind: DefenseFileKind) {
   return titleMap[kind];
 }
 
-function taskEngineForKind(kind: DefenseFileKind) {
+export function taskEngineForKind(kind: DefenseFileKind) {
   const engineMap: Record<DefenseFileKind, string> = {
     presentation: "PDF.js + 逐页讲稿 Skill",
     document: "Docling / Marker",
@@ -375,7 +375,7 @@ function taskEngineForKind(kind: DefenseFileKind) {
   return engineMap[kind];
 }
 
-function statusForKind(kind: DefenseFileKind, isStored = false) {
+export function statusForKind(kind: DefenseFileKind, isStored = false) {
   const prefix = isStored ? "已上传，" : "";
   const statusMap: Record<DefenseFileKind, string> = {
     presentation: `${prefix}待生成逐页预览`,
@@ -390,7 +390,7 @@ function statusForKind(kind: DefenseFileKind, isStored = false) {
   return statusMap[kind];
 }
 
-function sourceForKind(kind: DefenseFileKind) {
+export function sourceForKind(kind: DefenseFileKind) {
   const sourceMap: Record<DefenseFileKind, string> = {
     presentation: "PPT 同屏答辩",
     document: "项目速记 Skill",
@@ -404,7 +404,7 @@ function sourceForKind(kind: DefenseFileKind) {
   return sourceMap[kind];
 }
 
-function stableId(...parts: string[]) {
+export function stableId(...parts: string[]) {
   let hash = 0;
   for (const part of parts.join(":")) {
     hash = (hash << 5) - hash + part.charCodeAt(0);

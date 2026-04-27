@@ -1,10 +1,7 @@
-import type { Metadata } from "next";
 import "./globals.css";
+import { siteMetadata } from "@/lib/site-metadata";
 
-export const metadata: Metadata = {
-  title: "Presento | 课程项目答辩 AI 教练",
-  description: "上传课程项目资料，对着 PPT 与 AI 老师实时训练答辩。",
-};
+export const metadata = siteMetadata;
 
 export default function RootLayout({
   children,

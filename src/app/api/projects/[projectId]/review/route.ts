@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
+import { invokeBuiltInSkillWithInvocation } from "@ai/executor";
+import { createProjectRepository } from "@db/repositories/projects";
+import { createSkillInvocationRepository } from "@db/repositories/skill-invocations";
 import { readProjectPracticeTurns } from "@/lib/defense-practice-db";
-import { generateDefenseReview } from "@/lib/defense-review";
-import { createConfiguredLlmProvider } from "@/lib/llm-provider";
 import { getModelRuntimeStatus } from "@/lib/model-config";
-import { runDefenseReviewGraph } from "@/lib/skill-graph";
-import { writeSkillInvocation } from "@/lib/skill-invocation-db";
-import { runSkill } from "@/lib/skill-runner";
 import { workspacePersistence } from "@/lib/workspace-persistence";
 
 export const runtime = "nodejs";
@@ -20,33 +18,23 @@ export async function GET(
       return NextResponse.json({ error: "Missing project id." }, { status: 400 });
     }
 
-    const [workspace, turns] = await Promise.all([
+    const [workspace, project, turns] = await Promise.all([
       workspacePersistence.readWorkspace(),
+      createProjectRepository().read(projectId),
       readProjectPracticeTurns(projectId),
     ]);
     const projectName =
-      workspace?.project.id === projectId ? workspace.project.name : "课程项目答辩";
-    const { output: review, invocation } = await runSkill({
+      project?.name ?? (workspace?.project.id === projectId ? workspace.project.name : "课程项目答辩");
+    const { output: review, invocation } = await invokeBuiltInSkillWithInvocation({
       projectId,
-      skillName: "defense-review",
+      projectName,
+      skillId: "review_report",
       trigger: "review-api",
-      input: {
-        projectName,
-        practiceTurnCount: turns.length,
+      payload: {
+        turns,
       },
-      run: async () =>
-        runDefenseReviewGraph({
-          provider: createConfiguredLlmProvider(),
-          projectName,
-          turns,
-        }),
-      fallback: async () =>
-        generateDefenseReview({
-          projectName,
-          turns,
-        }),
     });
-    await writeSkillInvocation(invocation).catch(() => undefined);
+    await createSkillInvocationRepository().write(invocation).catch(() => undefined);
 
     return NextResponse.json({
       review,

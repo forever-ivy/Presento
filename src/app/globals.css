@@ -9,6 +9,20 @@
 
   --background: #f7f8f8;
   --foreground: #1a1d1f;
+  --card: #ffffff;
+  --card-foreground: #1a1d1f;
+  --primary: #111827;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f3;
+  --secondary-foreground: #1a1d1f;
+  --muted: #f1f5f3;
+  --muted-foreground: #5f666d;
+  --accent: #eef7f2;
+  --accent-foreground: #047857;
+  --border: rgba(31, 35, 41, 0.08);
+  --input: rgba(31, 35, 41, 0.18);
+  --ring: #b8e4cc;
+  --destructive: #e06c75;
   --presento-ink: #1a1d1f;
   --presento-muted: #5f666d;
   --presento-faint: #9aa1a8;
@@ -42,6 +56,20 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
   --font-sans: var(--font-presento);
   --font-mono: var(--font-mono-system);
 }
@@ -122,16 +150,16 @@ svg {
   overflow: hidden;
   background-image: radial-gradient(
     circle,
-    rgba(94, 109, 131, 0.3) 1.45px,
-    transparent 1.7px
+    rgba(94, 109, 131, 0.18) 1.2px,
+    transparent 2px
   );
   background-position: 0 0;
   background-size: 16px 16px;
 }
 
 .presento-dot-pattern {
-  color: rgba(94, 109, 131, 0.18);
-  opacity: 0.72;
+  color: rgba(94, 109, 131, 0.14);
+  opacity: 0.62;
 }
 
 .presento-topbar {
@@ -246,15 +274,22 @@ svg {
   white-space: nowrap;
 }
 
-.presento-brand-mark {
-  display: grid;
-  width: 34px;
+.presento-brand-link {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.presento-brand-link-compact .presento-brand-logo {
   height: 34px;
-  place-items: center;
-  border-radius: 10px;
-  background: var(--presento-navy);
-  color: #a7f3d0;
-  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.14);
+  max-width: 124px;
+}
+
+.presento-brand-logo {
+  display: block;
+  width: auto;
+  height: 52px;
+  max-width: min(52vw, 210px);
 }
 
 .presento-project-switch {
@@ -743,8 +778,9 @@ svg {
 }
 
 .presento-graph-dot-pattern {
-  color: rgba(94, 109, 131, 0.32);
-  opacity: 1;
+  color: rgba(94, 109, 131, 0.16);
+  opacity: 0.56;
+  z-index: 0;
 }
 
 .presento-flow .react-flow__pane {
@@ -762,11 +798,13 @@ svg {
 
 .presento-flow .react-flow__edge-path {
   stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 8px rgba(148, 163, 184, 0.14));
 }
 
 .presento-flow .react-flow__edge.animated path {
-  stroke-dasharray: 5 5;
-  animation: presento-dash-flow 1.6s linear infinite;
+  stroke-dasharray: 9 7;
+  animation: presento-dash-flow 1.45s linear infinite;
 }
 
 .presento-map-stage {
@@ -804,69 +842,692 @@ svg {
   height: calc(100vh - 56px);
   min-height: 0;
   overflow: hidden;
+  isolation: isolate;
 }
 
 .presento-process-canvas {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background: #ffffff;
+  contain: layout paint style;
+  background: transparent;
+  z-index: 1;
+  will-change: transform, opacity, filter;
 }
 
-.presento-flow-command-bar {
+.presento-process-canvas .react-flow {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+}
+
+.presento-process-canvas-entering,
+.presento-process-canvas-inside {
+  transform-origin: 50% 50%;
+}
+
+.presento-flow-background-copy {
   position: absolute;
-  left: 268px;
-  right: 1rem;
-  top: 1rem;
-  z-index: 20;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  mix-blend-mode: multiply;
+  opacity: 0.6;
+  filter: saturate(0.94);
+}
+
+.presento-flow-background-copy-track {
+  display: grid;
+  grid-template-rows: 6fr 4fr;
+  height: 100%;
+  width: 100%;
+}
+
+.presento-flow-background-copy-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  border: 1px solid var(--presento-border);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 0.85rem 1rem;
-  box-shadow: var(--presento-card-shadow);
-  backdrop-filter: blur(18px);
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 0.9;
+  user-select: none;
+  text-transform: uppercase;
+  font-kerning: none;
 }
 
-.presento-workspace-collapsed.presento-map-page .presento-flow-command-bar {
-  left: 112px;
+.presento-flow-background-copy-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 100%;
+  padding-right: 5rem;
+  overflow: visible;
+}
+
+.presento-flow-background-copy-base,
+.presento-flow-background-copy-accent {
+  display: inline-flex;
+  align-items: center;
+}
+
+.presento-flow-background-copy-base {
+  color: inherit;
+}
+
+.presento-flow-background-copy-accent {
+  padding-left: 2rem;
+  font-size: 1.34em;
+  line-height: 0.86;
+  opacity: 1;
+  transform-origin: center center;
+}
+
+.presento-flow-background-copy-accent-leading {
+  padding-left: 0;
+  padding-right: 1.25rem;
+}
+
+.presento-flow-background-copy-row-primary {
+  align-self: stretch;
+  font-size: clamp(11rem, 33vh, 24rem);
+  color: #e5e5ea;
+  opacity: 0.96;
+  transform: translateY(-8%);
+}
+
+.presento-flow-background-copy-row-secondary {
+  align-self: stretch;
+  font-size: clamp(9rem, 24vh, 18rem);
+  color: #e5e5ea;
+  opacity: 0.88;
+  transform: translateY(10%);
+}
+
+.presento-flow-background-copy-accent-red {
+  color: #ff4d43;
+}
+
+.presento-flow-background-copy-accent-lime {
+  color: #d8ff3d;
+}
+
+.presento-flow-background-copy-accent-primary {
+  transform: rotate(-4deg);
+}
+
+.presento-flow-background-copy-accent-secondary {
+  transform: rotate(4deg);
 }
 
 .presento-process-node {
-  width: 248px;
-  border: 1px solid var(--presento-border);
+  width: 376px;
+  border: 1.5px solid var(--presento-border);
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.94);
-  padding: 1rem;
-  box-shadow: var(--presento-card-shadow);
-  backdrop-filter: blur(18px);
+  background: #ffffff;
+  padding: 1.62rem;
+  box-shadow:
+    0 18px 44px rgba(15, 23, 42, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.88);
+  backdrop-filter: none;
+  contain: layout paint style;
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
 }
 
 .presento-process-node-active {
-  width: min(940px, 74vw);
   border-color: rgba(16, 185, 129, 0.28);
   box-shadow:
     0 26px 80px rgba(15, 23, 42, 0.12),
     0 0 0 1px rgba(16, 185, 129, 0.08);
 }
 
+.presento-process-node-entered {
+  border-color: rgba(17, 24, 39, 0.18);
+  box-shadow:
+    0 34px 110px rgba(15, 23, 42, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.72);
+}
+
 .presento-process-node-header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.75rem;
+  gap: 1.08rem;
 }
 
 .presento-process-node-icon {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 14px;
+  color: #ffffff;
+}
+
+.presento-flow-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 9999px;
+  background: var(--presento-faint);
+}
+
+.presento-flow-status-dot-active {
+  background: var(--presento-blue);
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.1);
+}
+
+.presento-step-room-shell {
+  position: absolute;
+  z-index: 32;
+  overflow: hidden;
+  border: 1px solid rgba(16, 185, 129, 0.16);
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(247, 248, 248, 0.9)),
+    rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 28px 100px rgba(15, 23, 42, 0.16),
+    0 0 0 1px rgba(255, 255, 255, 0.62) inset,
+    0 0 44px rgba(16, 185, 129, 0.1);
+  clip-path: inset(43% 42% 43% 42% round 22px);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(0) scale(0.18);
+  transform-origin: 50% 48%;
+  will-change: transform, opacity, clip-path;
+}
+
+.presento-step-room-shell-glow {
+  position: absolute;
+  inset: -28%;
+  background:
+    radial-gradient(circle at 36% 34%, rgba(16, 185, 129, 0.18), transparent 34%),
+    radial-gradient(circle at 78% 22%, rgba(106, 159, 216, 0.18), transparent 30%),
+    radial-gradient(circle at 62% 86%, rgba(223, 164, 74, 0.12), transparent 32%);
+  opacity: 0.86;
+}
+
+.presento-step-room-shell-header {
+  position: relative;
+  display: grid;
+  min-height: 76px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  border-bottom: 1px solid rgba(31, 35, 41, 0.08);
+  padding: 1rem 1.25rem;
+}
+
+.presento-step-room-shell-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 13px;
+  color: #ffffff;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
+}
+
+.presento-step-room-shell-copy {
+  min-width: 0;
+}
+
+.presento-step-room-shell-copy span,
+.presento-step-room-shell-pill {
+  color: var(--presento-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.presento-step-room-shell-copy strong {
+  display: block;
+  margin-top: 0.18rem;
+  color: var(--presento-ink);
+  font-size: 1.2rem;
+  font-weight: 950;
+}
+
+.presento-step-room-shell-pill {
+  border: 1px solid rgba(16, 185, 129, 0.12);
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.1);
+  color: #047857;
+  padding: 0.35rem 0.65rem;
+}
+
+.presento-step-room-shell-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 1rem;
+  padding: 1.25rem;
+}
+
+.presento-step-room-shell-body div {
+  min-height: 160px;
+  border: 1px solid rgba(31, 35, 41, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.presento-step-room-shell-body div:first-child {
+  grid-row: span 2;
+  min-height: 340px;
+}
+
+.presento-step-room {
+  position: absolute;
+  z-index: 34;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid var(--presento-border);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 34px 120px rgba(15, 23, 42, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(18px);
+  opacity: 0;
+  transform: translateY(18px) scale(0.82);
+  transform-origin: 50% 48%;
+  contain: layout paint style;
+  will-change: transform, opacity;
+}
+
+.presento-step-room-standard {
+  inset: 86px 28px 28px 128px;
+}
+
+.presento-step-room-explore {
+  inset: 78px 28px 28px 112px;
+}
+
+.presento-step-room-immersive {
+  inset: 72px 20px 20px 104px;
+  border-radius: 24px;
+}
+
+.presento-step-room-header {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  gap: 1rem;
+  border-bottom: 1px solid var(--presento-border);
+  padding: 1rem 1.25rem;
+}
+
+.presento-step-room-scroll {
+  min-height: 0;
+  flex: 1;
+}
+
+.presento-step-room-body {
+  min-height: 100%;
+  padding: 1.25rem;
+  content-visibility: auto;
+}
+
+.presento-room-card {
+  gap: 1.1rem;
+  border-color: var(--presento-border);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: var(--presento-card-shadow);
+}
+
+.presento-room-card-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--presento-navy);
+  color: #a7f3d0;
+}
+
+.presento-room-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--presento-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 0.75rem;
+}
+
+.presento-room-row-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
   place-items: center;
   border-radius: 10px;
-  color: #ffffff;
+  background: var(--presento-warm);
+  color: var(--presento-blue-active);
+}
+
+.presento-room-upload {
+  display: flex;
+  min-height: 220px;
+  cursor: pointer;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px dashed rgba(16, 185, 129, 0.34);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 950;
+}
+
+.presento-room-upload small {
+  color: var(--presento-muted);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.presento-room-question {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  border: 1px solid rgba(223, 164, 74, 0.16);
+  border-radius: 14px;
+  background: #fff7ed;
+  padding: 0.78rem 0.85rem;
+  color: #a66a12;
+}
+
+.presento-room-question span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 9999px;
+  background: rgba(223, 164, 74, 0.14);
+  font-size: 0.75rem;
+  font-weight: 950;
+}
+
+.presento-room-question strong {
+  min-width: 0;
+  font-size: 0.88rem;
+  font-weight: 850;
+  line-height: 1.55;
+}
+
+.presento-room-badge-muted,
+.presento-room-badge-blue,
+.presento-room-badge-orange,
+.presento-room-badge-green,
+.presento-room-badge-red,
+.presento-room-badge-purple,
+.presento-room-badge-cyan {
+  border: 1px solid transparent;
+  font-weight: 900;
+}
+
+.presento-room-badge-muted {
+  background: #f1f3f3;
+  color: var(--presento-muted);
+}
+
+.presento-room-badge-blue {
+  background: var(--presento-soft-blue);
+  color: #047857;
+}
+
+.presento-room-badge-orange {
+  background: #fff5e5;
+  color: #a66a12;
+}
+
+.presento-room-badge-green {
+  background: #e7f6ee;
+  color: #047857;
+}
+
+.presento-room-badge-red {
+  background: #fff0f0;
+  color: #b84a4a;
+}
+
+.presento-room-badge-purple {
+  background: #f1ecff;
+  color: #6d28d9;
+}
+
+.presento-room-badge-cyan {
+  background: #eef5fb;
+  color: #3d74a4;
+}
+
+.presento-room-knowledge-orbit {
+  position: relative;
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid var(--presento-border);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(16, 185, 129, 0.13), transparent 30%),
+    radial-gradient(circle at 72% 24%, rgba(139, 92, 246, 0.11), transparent 26%),
+    rgba(247, 248, 248, 0.8);
+}
+
+.presento-room-knowledge-center,
+.presento-room-knowledge-node {
+  position: absolute;
+  border: 1px solid var(--presento-border);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--presento-card-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.presento-room-knowledge-center {
+  left: 50%;
+  top: 50%;
+  display: grid;
+  width: 210px;
+  min-height: 150px;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  border-radius: 28px;
+  padding: 1.2rem;
+  text-align: center;
+}
+
+.presento-room-knowledge-center svg {
+  width: 28px;
+  height: 28px;
+  color: var(--presento-blue);
+}
+
+.presento-room-knowledge-center strong,
+.presento-room-knowledge-node strong {
+  color: var(--presento-ink);
+  font-weight: 950;
+}
+
+.presento-room-knowledge-center span,
+.presento-room-knowledge-node span {
+  color: var(--presento-muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.presento-room-knowledge-node {
+  display: flex;
+  width: 178px;
+  flex-direction: column;
+  gap: 0.4rem;
+  border-radius: 18px;
+  padding: 0.85rem;
+}
+
+.presento-room-knowledge-node-0 {
+  left: 12%;
+  top: 16%;
+}
+
+.presento-room-knowledge-node-1 {
+  right: 12%;
+  top: 16%;
+}
+
+.presento-room-knowledge-node-2 {
+  left: 10%;
+  bottom: 16%;
+}
+
+.presento-room-knowledge-node-3 {
+  right: 10%;
+  bottom: 18%;
+}
+
+.presento-room-knowledge-node-4 {
+  left: 50%;
+  bottom: 6%;
+  transform: translateX(-50%);
+}
+
+.presento-slide-thumb,
+.presento-weakness-item {
+  min-width: 0;
+  border: 1px solid var(--presento-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 0.85rem;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.presento-slide-thumb:hover,
+.presento-slide-thumb-active,
+.presento-weakness-item:hover,
+.presento-weakness-item-active {
+  border-color: rgba(16, 185, 129, 0.24);
+  background: var(--presento-soft-blue);
+  box-shadow: var(--presento-card-shadow);
+}
+
+.presento-slide-thumb span,
+.presento-slide-thumb small,
+.presento-weakness-item span {
+  display: block;
+  color: var(--presento-muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.presento-slide-thumb strong,
+.presento-weakness-item strong {
+  display: block;
+  margin-block: 0.25rem;
+  color: var(--presento-ink);
+  font-size: 0.9rem;
+  font-weight: 950;
+}
+
+.presento-defense-room {
+  display: flex;
+  min-height: calc(100vh - 176px);
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.presento-defense-topline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.presento-defense-stage {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
+}
+
+.presento-defense-slide {
+  display: flex;
+  min-height: 440px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.25rem;
+  border: 1px solid var(--presento-border);
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, #ffffff, #eef6f1 54%, #f7f8f8),
+    #ffffff;
+  padding: clamp(1.25rem, 3vw, 3rem);
+  box-shadow: var(--presento-lift-shadow);
+}
+
+.presento-defense-slide span,
+.presento-defense-slide p {
+  color: var(--presento-muted);
+  font-weight: 850;
+}
+
+.presento-defense-slide h2 {
+  color: var(--presento-ink);
+  font-size: clamp(2.4rem, 5vw, 5rem);
+  font-weight: 950;
+  line-height: 1.05;
+}
+
+.presento-defense-message {
+  border: 1px solid var(--presento-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 0.85rem;
+}
+
+.presento-defense-message-user {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.presento-defense-message strong,
+.presento-defense-message span {
+  display: block;
+}
+
+.presento-defense-message strong {
+  margin-bottom: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
+.presento-defense-message span {
+  color: var(--presento-muted);
+  font-size: 0.88rem;
+  font-weight: 750;
+  line-height: 1.6;
+}
+
+.presento-defense-console {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--presento-border);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 0.85rem;
+  box-shadow: var(--presento-card-shadow);
 }
 
 .presento-process-node-blue {
@@ -1281,6 +1942,11 @@ svg {
     padding-inline: 1rem;
   }
 
+  .presento-brand-logo {
+    height: 44px;
+    max-width: min(58vw, 188px);
+  }
+
   .presento-workspace,
   .presento-workspace-expanded,
   .presento-workspace-collapsed {
@@ -1332,16 +1998,53 @@ svg {
     min-height: 38px;
   }
 
-  .presento-flow-command-bar {
-    left: 1rem;
-  }
-
   .presento-process-node-active {
-    width: min(680px, calc(100vw - 2rem));
+    width: 286px;
   }
 
   .presento-process-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .presento-step-room,
+  .presento-step-room-shell,
+  .presento-step-room-standard,
+  .presento-step-room-explore,
+  .presento-step-room-immersive {
+    inset: 72px 0.75rem 5.75rem;
+    border-radius: 22px;
+  }
+
+  .presento-step-room-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .presento-step-room-shell-body {
+    grid-template-columns: 1fr;
+  }
+
+  .presento-step-room-shell-body div,
+  .presento-step-room-shell-body div:first-child {
+    grid-row: auto;
+    min-height: 96px;
+  }
+
+  .presento-defense-stage {
+    grid-template-columns: 1fr;
+  }
+
+  .presento-defense-console {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .presento-room-knowledge-orbit {
+    min-height: 680px;
+  }
+
+  .presento-room-knowledge-node {
+    width: min(178px, 42vw);
   }
 }
 

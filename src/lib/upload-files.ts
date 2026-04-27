@@ -1,11 +1,14 @@
 import type { DefenseFileInput } from "./project-workspace";
 
-export async function uploadDefenseFiles(files: File[]): Promise<DefenseFileInput[]> {
+export async function uploadDefenseFiles(files: File[], options?: { projectId?: string }): Promise<DefenseFileInput[]> {
   if (!files.length) return [];
 
   const formData = new FormData();
   for (const file of files) {
     formData.append("files", file);
+  }
+  if (options?.projectId) {
+    formData.append("projectId", options.projectId);
   }
 
   const response = await fetch("/api/uploads", {

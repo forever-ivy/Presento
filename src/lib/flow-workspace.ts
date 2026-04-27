@@ -10,6 +10,73 @@ export type FlowStepId =
   | "skills"
   | "pcg";
 
+export type FlowMode = "map" | "entering" | "inside";
+
+export type FlowRoomKind = "standard" | "explore" | "immersive";
+
+export type FlowEdgeKind = "main" | "return" | "support" | "output";
+
+export type FlowTransitionPhase = "overview" | "focus" | "room";
+
+export type FlowTransitionPreset = {
+  name: "map" | FlowRoomKind;
+  phase: FlowTransitionPhase;
+  ease: string;
+  camera:
+    | {
+        type: "fit";
+        duration: number;
+        padding:
+          | number
+          | {
+              top?: number | `${number}px` | `${number}%`;
+              right?: number | `${number}px` | `${number}%`;
+              bottom?: number | `${number}px` | `${number}%`;
+              left?: number | `${number}px` | `${number}%`;
+              x?: number | `${number}px` | `${number}%`;
+              y?: number | `${number}px` | `${number}%`;
+            };
+        minZoom: number;
+        maxZoom: number;
+        offset: { x: number; y: number };
+      }
+    | {
+        type: "center";
+        duration: number;
+        zoom: number;
+        offset: { x: number; y: number };
+      };
+  canvas: {
+    duration: number;
+    scale: number;
+    blur: number;
+    opacity: number;
+    saturation: number;
+  };
+  commandBar: {
+    duration: number;
+    opacity: number;
+    y: number;
+  };
+  room: {
+    visible: boolean;
+    duration: number;
+    delay: number;
+    scaleFrom: number;
+    yFrom: number;
+  };
+  portalShell: {
+    visible: boolean;
+    duration: number;
+    delay: number;
+    scaleFrom: number;
+    yFrom: number;
+    opacityTo: number;
+    clipFrom: string;
+    clipTo: string;
+  };
+};
+
 export type FlowStepStatus =
   | "completed"
   | "active"
@@ -25,13 +92,17 @@ export type FlowStep = {
   label: string;
   shortLabel: string;
   summary: string;
+  stateLine: string;
+  metrics: string[];
   status: FlowStepStatus;
+  roomKind: FlowRoomKind;
   tone: PresentoTone;
   position: { x: number; y: number };
 };
 
 export type FlowWorkspaceNodeData = FlowStep & {
   active: boolean;
+  mode?: FlowMode;
 };
 
 export type FlowWorkspaceNode = {
@@ -49,7 +120,7 @@ export type FlowWorkspaceEdge = {
   target: FlowStepId;
   animated: boolean;
   type: "smoothstep";
-  data: { tone: PresentoTone; active: boolean };
+  data: { tone: PresentoTone; active: boolean; kind: FlowEdgeKind };
   style: { stroke: string; strokeWidth: number };
 };
 
@@ -58,86 +129,127 @@ export type FlowWorkspaceFlow = {
   edges: FlowWorkspaceEdge[];
 };
 
+export type FlowNodeMotionState = {
+  opacity: number;
+  scale: number;
+  y: number;
+};
+
+export type FlowCameraAction = "fit" | "center" | "hold";
+
+export const FLOW_MAP_OVERVIEW_MIN_ZOOM = 0.34;
+export const FLOW_MAP_OVERVIEW_MAX_ZOOM = 0.44;
+export const FLOW_MAP_OVERVIEW_PADDING = {
+  top: "6%",
+  right: "4%",
+  bottom: "8%",
+  left: "10%",
+} as const;
+
 export const flowSteps: FlowStep[] = [
   {
     id: "files",
     route: "/projects/demo/files",
     label: "资料导入",
     shortLabel: "上传",
-    summary: "已上传资料、继续上传、解析进度和证据链入口。",
+    summary: "上传 PPT、报告、代码与数据",
+    stateLine: "5 份资料 · 3 已解析",
+    metrics: ["5 份资料", "3 已解析", "2 待处理"],
     status: "completed",
+    roomKind: "standard",
     tone: "green",
-    position: { x: -980, y: -160 },
+    position: { x: -820, y: 0 },
   },
   {
     id: "knowledge",
     route: "/projects/demo/knowledge-map",
     label: "知识地图",
     shortLabel: "地图",
-    summary: "项目结构、证据链、高危追问和薄弱点回流。",
+    summary: "把资料转成可训练的项目大脑",
+    stateLine: "18 节点 · 8 高危 · 3 薄弱",
+    metrics: ["18 知识节点", "8 高危追问", "3 薄弱点"],
     status: "active",
+    roomKind: "explore",
     tone: "blue",
-    position: { x: -440, y: -160 },
+    position: { x: -350, y: 0 },
   },
   {
     id: "scripts",
     route: "/projects/demo/scripts",
     label: "逐页讲稿",
     shortLabel: "讲稿",
-    summary: "PPT 页、讲稿版本、关键词和当前页追问。",
+    summary: "为每一页 PPT 生成讲解路径",
+    stateLine: "12 / 18 页完成",
+    metrics: ["18 页 PPT", "12 已生成", "3 页高危"],
     status: "pending",
+    roomKind: "standard",
     tone: "cyan",
-    position: { x: 100, y: -160 },
+    position: { x: 120, y: 0 },
   },
   {
     id: "defense",
     route: "/projects/demo/defense",
     label: "模拟讲练",
     shortLabel: "讲练",
-    summary: "对着 PPT 当前页实时追问，支持文本和语音入口。",
+    summary: "对着当前 PPT 页实时追问",
+    stateLine: "建议下一步 · 第 2 页",
+    metrics: ["严格老师模式", "当前第 2 页", "准备开始"],
     status: "risk",
+    roomKind: "immersive",
     tone: "orange",
-    position: { x: 640, y: -160 },
+    position: { x: 590, y: 0 },
   },
   {
     id: "review",
     route: "/projects/demo/review",
     label: "复盘报告",
     shortLabel: "复盘",
-    summary: "训练得分、问题暴露、下一轮任务和内容再创作。",
+    summary: "暴露问题，生成下一轮训练任务",
+    stateLine: "上次得分 76 · 2 个主要风险",
+    metrics: ["上次得分 76", "2 主要风险", "待生成新复盘"],
     status: "pending",
+    roomKind: "standard",
     tone: "purple",
-    position: { x: 1180, y: -160 },
-  },
-  {
-    id: "deepDive",
-    route: "/projects/demo/deep-dive",
-    label: "薄弱点钻研",
-    shortLabel: "钻研",
-    summary: "拆解答不上来的问题，再回流到知识地图和讲练。",
-    status: "weakness",
-    tone: "red",
-    position: { x: 640, y: 340 },
-  },
-  {
-    id: "skills",
-    route: "/projects/demo/skills",
-    label: "Agent Skills",
-    shortLabel: "Skills",
-    summary: "管理能力包、调用日志和模型 fallback 状态。",
-    status: "capability",
-    tone: "purple",
-    position: { x: -440, y: 340 },
+    position: { x: 1060, y: 0 },
   },
   {
     id: "pcg",
     route: "/projects/demo/pcg",
     label: "PCG 连接",
     shortLabel: "输出",
-    summary: "输出 QQ 小组群、微视和腾讯视频内容。",
+    summary: "面向 QQ 校园协作与成果传播",
+    stateLine: "QQ 小组 · 微视口播 · 腾讯视频",
+    metrics: ["小组协作", "训练摘要", "项目展示"],
     status: "output",
+    roomKind: "standard",
     tone: "cyan",
-    position: { x: 1180, y: 340 },
+    position: { x: 1530, y: 0 },
+  },
+  {
+    id: "deepDive",
+    route: "/projects/demo/deep-dive",
+    label: "薄弱点钻研",
+    shortLabel: "钻研",
+    summary: "把答不上来的问题补回来",
+    stateLine: "数据库设计 · 个人贡献 · 异常处理",
+    metrics: ["数据库设计", "个人贡献", "异常处理"],
+    status: "weakness",
+    roomKind: "explore",
+    tone: "red",
+    position: { x: 590, y: 320 },
+  },
+  {
+    id: "skills",
+    route: "/projects/demo/skills",
+    label: "Agent Skills",
+    shortLabel: "Skills",
+    summary: "解析、追问、复盘的能力包",
+    stateLine: "5 个 Skill 启用 · fallback 可用",
+    metrics: ["5 Skill 启用", "模型 fallback", "调用可观察"],
+    status: "capability",
+    roomKind: "standard",
+    tone: "purple",
+    position: { x: -350, y: -300 },
   },
 ];
 
@@ -147,17 +259,17 @@ const routeAliases = new Map<string, FlowStepId>([
   ...flowSteps.map((step) => [step.route, step.id] as const),
 ]);
 
-const flowLinks: Array<[FlowStepId, FlowStepId, PresentoTone]> = [
-  ["files", "knowledge", "green"],
-  ["knowledge", "scripts", "blue"],
-  ["scripts", "defense", "cyan"],
-  ["defense", "review", "orange"],
-  ["review", "deepDive", "red"],
-  ["deepDive", "knowledge", "red"],
-  ["skills", "files", "purple"],
-  ["skills", "knowledge", "purple"],
-  ["skills", "defense", "purple"],
-  ["review", "pcg", "cyan"],
+const flowLinks: Array<[FlowStepId, FlowStepId, PresentoTone, FlowEdgeKind]> = [
+  ["files", "knowledge", "green", "main"],
+  ["knowledge", "scripts", "blue", "main"],
+  ["scripts", "defense", "cyan", "main"],
+  ["defense", "review", "orange", "main"],
+  ["review", "pcg", "cyan", "output"],
+  ["review", "deepDive", "red", "return"],
+  ["deepDive", "knowledge", "red", "return"],
+  ["skills", "files", "purple", "support"],
+  ["skills", "knowledge", "purple", "support"],
+  ["skills", "defense", "purple", "support"],
 ];
 
 export function getFlowStepByRoute(pathname: string) {
@@ -171,6 +283,186 @@ export function getFlowStepById(stepId: FlowStepId) {
 
 export function flowStepToRoute(stepId: FlowStepId) {
   return getFlowStepById(stepId).route;
+}
+
+export function flowRouteToMode(pathname: string): Exclude<FlowMode, "entering"> {
+  return pathname === "/" ? "map" : "inside";
+}
+
+export function getFlowWorkspaceInitialRoomStep({
+  activeStep,
+  pendingReturnStep,
+  targetMode,
+}: {
+  activeStep: FlowStep;
+  pendingReturnStep: FlowStep | null;
+  targetMode: Exclude<FlowMode, "entering">;
+}) {
+  if (targetMode === "map" && pendingReturnStep) return pendingReturnStep;
+  return activeStep;
+}
+
+export function getFlowWorkspaceTransitionStep({
+  activeStep,
+  lastRoomStep,
+  targetMode,
+}: {
+  activeStep: FlowStep;
+  lastRoomStep: FlowStep;
+  targetMode: Exclude<FlowMode, "entering">;
+}) {
+  if (targetMode === "map") return lastRoomStep;
+  return activeStep;
+}
+
+export function getFlowTransitionPreset(
+  mode: FlowMode,
+  activeStep: FlowStep,
+): FlowTransitionPreset {
+  if (mode === "map") {
+    return {
+      name: "map",
+      phase: "overview",
+      ease: "power2.inOut",
+      camera: {
+        type: "fit",
+        duration: 780,
+        padding: FLOW_MAP_OVERVIEW_PADDING,
+        minZoom: FLOW_MAP_OVERVIEW_MIN_ZOOM,
+        maxZoom: FLOW_MAP_OVERVIEW_MAX_ZOOM,
+        offset: { x: 0, y: 0 },
+      },
+      canvas: {
+        duration: 520,
+        scale: 1,
+        blur: 0,
+        opacity: 1,
+        saturation: 1,
+      },
+      commandBar: {
+        duration: 220,
+        opacity: 1,
+        y: 0,
+      },
+      room: {
+        visible: false,
+        duration: 280,
+        delay: 0,
+        scaleFrom: 0.92,
+        yFrom: 18,
+      },
+      portalShell: {
+        visible: false,
+        duration: 260,
+        delay: 0,
+        scaleFrom: 0.2,
+        yFrom: 0,
+        opacityTo: 0,
+        clipFrom: "inset(43% 42% 43% 42% round 22px)",
+        clipTo: "inset(43% 42% 43% 42% round 22px)",
+      },
+    };
+  }
+
+  const roomKind = activeStep.roomKind;
+  const immersive = roomKind === "immersive";
+  const explore = roomKind === "explore";
+
+  return {
+    name: roomKind,
+    phase: mode === "entering" ? "focus" : "room",
+    ease: mode === "entering" ? "power2.out" : "power3.out",
+    camera: {
+      type: "center",
+      duration: mode === "entering" ? (immersive ? 760 : explore ? 720 : 680) : immersive ? 780 : explore ? 680 : 620,
+      zoom:
+        mode === "entering"
+          ? immersive
+            ? 1.66
+            : explore
+              ? 1.58
+              : 1.5
+          : immersive
+            ? 1.48
+            : explore
+              ? 1.42
+              : 1.36,
+      offset: {
+        x: 0,
+        y: 0,
+      },
+    },
+    canvas: {
+      duration: mode === "entering" ? 360 : 420,
+      scale: mode === "entering" ? 0.96 : immersive ? 1.04 : explore ? 1.03 : 1.02,
+      blur: mode === "entering" ? 0 : 4,
+      opacity: 1,
+      saturation: mode === "entering" ? 1 : 0.84,
+    },
+    commandBar: {
+      duration: mode === "entering" ? 180 : 200,
+      opacity: 0,
+      y: -4,
+    },
+    room: {
+      visible: mode === "inside",
+      duration: immersive ? 380 : 420,
+      delay: mode === "inside" ? 0.02 : 0.3,
+      scaleFrom: 0.82,
+      yFrom: 18,
+    },
+    portalShell: {
+      visible: true,
+      duration: mode === "entering" ? (immersive ? 430 : explore ? 460 : 440) : immersive ? 460 : explore ? 520 : 500,
+      delay: mode === "entering" ? 0 : immersive ? 0.06 : 0.08,
+      scaleFrom: immersive ? 0.16 : explore ? 0.18 : 0.2,
+      yFrom: immersive ? -4 : 0,
+      opacityTo: mode === "entering" ? 0.86 : 0.94,
+      clipFrom: "inset(43% 42% 43% 42% round 22px)",
+      clipTo: immersive ? "inset(0% 0% 0% 0% round 24px)" : "inset(0% 0% 0% 0% round 28px)",
+    },
+  };
+}
+
+export function getFlowCameraAction(
+  mode: FlowMode,
+  targetMode: Exclude<FlowMode, "entering">,
+): FlowCameraAction {
+  if (mode === "map") {
+    return targetMode === "map" ? "fit" : "hold";
+  }
+
+  return "center";
+}
+
+export function shouldAnimateFlowModeTransition({
+  isInitialRender,
+  previousTargetMode,
+  targetMode,
+}: {
+  isInitialRender: boolean;
+  previousTargetMode: Exclude<FlowMode, "entering"> | null;
+  targetMode: Exclude<FlowMode, "entering">;
+}) {
+  if (targetMode === "map") return !isInitialRender;
+  if (isInitialRender) return true;
+  return previousTargetMode === "map";
+}
+
+export function getFlowNodeMotionState(mode: FlowMode, active: boolean): FlowNodeMotionState {
+  if (active) {
+    return {
+      opacity: 1,
+      scale: mode === "inside" ? 1.24 : mode === "entering" ? 1.28 : 1.1,
+      y: mode === "inside" ? -12 : mode === "entering" ? -14 : -2,
+    };
+  }
+
+  return {
+    opacity: 1,
+    scale: mode === "map" ? 1.04 : 0.97,
+    y: 0,
+  };
 }
 
 export function createFlowWorkspaceFlow(activeId: FlowStepId): FlowWorkspaceFlow {
@@ -188,7 +480,7 @@ export function createFlowWorkspaceFlow(activeId: FlowStepId): FlowWorkspaceFlow
     },
   }));
 
-  const edges = flowLinks.map(([source, target, tone]) => {
+  const edges = flowLinks.map(([source, target, tone, kind]) => {
     const active = source === activeId || target === activeId;
 
     return {
@@ -197,10 +489,10 @@ export function createFlowWorkspaceFlow(activeId: FlowStepId): FlowWorkspaceFlow
       target,
       animated: active,
       type: "smoothstep" as const,
-      data: { tone, active },
+      data: { tone, active, kind },
       style: {
-        stroke: flowToneStroke(tone, active),
-        strokeWidth: active ? 2.8 : 1.6,
+        stroke: flowToneStroke(tone, active, kind),
+        strokeWidth: active ? 4.4 : kind === "support" ? 2.4 : 3.1,
       },
     };
   });
@@ -208,8 +500,8 @@ export function createFlowWorkspaceFlow(activeId: FlowStepId): FlowWorkspaceFlow
   return { nodes, edges };
 }
 
-function flowToneStroke(tone: PresentoTone, active: boolean) {
-  const alpha = active ? 0.86 : 0.34;
+function flowToneStroke(tone: PresentoTone, active: boolean, kind: FlowEdgeKind) {
+  const alpha = active ? 0.94 : kind === "support" ? 0.42 : 0.58;
 
   return {
     blue: `rgba(16, 185, 129, ${alpha})`,

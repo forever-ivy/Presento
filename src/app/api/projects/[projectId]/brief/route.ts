@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
+import { invokeBuiltInSkillWithInvocation } from "@ai/executor";
+import { createProjectRepository } from "@db/repositories/projects";
+import { createSkillInvocationRepository } from "@db/repositories/skill-invocations";
 import { readProjectKnowledgeChunks } from "@/lib/knowledge-db";
-import { createConfiguredLlmProvider } from "@/lib/llm-provider";
 import { getModelRuntimeStatus } from "@/lib/model-config";
-import { generateProjectBrief } from "@/lib/project-brief-skill";
-import { runProjectBriefGraph } from "@/lib/skill-graph";
-import { writeSkillInvocation } from "@/lib/skill-invocation-db";
-import { runSkill } from "@/lib/skill-runner";
 import { workspacePersistence } from "@/lib/workspace-persistence";
 
 export const runtime = "nodejs";
@@ -20,33 +18,23 @@ export async function GET(
       return NextResponse.json({ error: "Missing project id." }, { status: 400 });
     }
 
-    const [workspace, chunks] = await Promise.all([
+    const [workspace, project, chunks] = await Promise.all([
       workspacePersistence.readWorkspace(),
+      createProjectRepository().read(projectId),
       readProjectKnowledgeChunks(projectId),
     ]);
     const projectName =
-      workspace?.project.id === projectId ? workspace.project.name : "课程项目答辩";
-    const { output: brief, invocation } = await runSkill({
+      project?.name ?? (workspace?.project.id === projectId ? workspace.project.name : "课程项目答辩");
+    const { output: brief, invocation } = await invokeBuiltInSkillWithInvocation({
       projectId,
-      skillName: "project-brief",
+      projectName,
+      skillId: "project_brief",
       trigger: "brief-api",
-      input: {
-        projectName,
-        knowledgeChunkCount: chunks.length,
+      payload: {
+        chunks,
       },
-      run: async () =>
-        runProjectBriefGraph({
-          provider: createConfiguredLlmProvider(),
-          projectName,
-          chunks,
-        }),
-      fallback: async () =>
-        generateProjectBrief({
-          projectName,
-          chunks,
-        }),
     });
-    await writeSkillInvocation(invocation).catch(() => undefined);
+    await createSkillInvocationRepository().write(invocation).catch(() => undefined);
 
     return NextResponse.json({
       brief,

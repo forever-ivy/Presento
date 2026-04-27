@@ -4,23 +4,54 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model Project {
-  id             String           @id
-  name           String
-  category       String
-  ownerScope     String
-  teammateScope  String
-  createdAt      DateTime
-  updatedAt      DateTime         @updatedAt
-  files          FileAsset[]
-  processingTasks ProcessingTask[]
-  artifacts      Artifact[]
-  knowledgeChunks KnowledgeChunk[]
-  practiceTurns  DefensePracticeTurn[]
+  id               String               @id
+  name             String
+  category         String
+  ownerScope       String
+  teammateScope    String
+  createdAt        DateTime
+  updatedAt        DateTime             @updatedAt
+  members          ProjectMember[]
+  files            FileAsset[]
+  processingTasks  ProcessingTask[]
+  artifacts        Artifact[]
+  sources          ProjectSource[]
+  slideDecks       SlideDeck[]
+  slides           Slide[]
+  knowledgeChunks  KnowledgeChunk[]
+  knowledgeNodes   KnowledgeNode[]
+  knowledgeEdges   KnowledgeEdge[]
+  riskQuestions    RiskQuestion[]
+  practiceTurns    DefensePracticeTurn[]
+  trainingSessions TrainingSession[]
+  trainingTurns    TrainingTurn[]
+  voiceCaptures    VoiceCapture[]
+  weaknesses       Weakness[]
+  deepDives        DeepDive[]
+  reviewReports    ReviewReport[]
+  contentExports   ContentExport[]
+  pcgConnections   PcgMockConnection[]
+  jobRuns          JobRun[]
+  skillFeedbacks   SkillFeedback[]
+  agentSkills      AgentSkill[]
+  skillPacks       SkillPack[]
   skillInvocations SkillInvocation[]
+}
+
+model ProjectMember {
+  id        String   @id
+  projectId String
+  name      String
+  role      String?
+  scope     String
+  isOwner   Boolean  @default(false)
+  createdAt DateTime
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }
 
 model SkillInvocation {
@@ -32,6 +63,7 @@ model SkillInvocation {
   input        Json
   output       Json
   error        String?
+  traceId      String?
   usedFallback Boolean
   startedAt    DateTime
   completedAt  DateTime
@@ -40,6 +72,47 @@ model SkillInvocation {
 
   @@index([projectId, startedAt])
   @@index([skillName, status])
+}
+
+model SkillFeedback {
+  id           String   @id
+  projectId    String
+  invocationId String
+  rating       String
+  comment      String?
+  createdAt    DateTime
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([invocationId])
+}
+
+model AgentSkill {
+  id          String   @id
+  projectId   String?
+  scope       String
+  name        String
+  description String
+  manifest    Json
+  enabled     Boolean
+  createdAt   DateTime
+  updatedAt   DateTime @updatedAt
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([scope, enabled])
+}
+
+model SkillPack {
+  id          String   @id
+  projectId   String?
+  name        String
+  description String
+  metadata    Json
+  createdAt   DateTime
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }
 
 model DefensePracticeTurn {
@@ -77,11 +150,67 @@ model FileAsset {
   uploadStatus String?
   addedAt      DateTime
   project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sources      ProjectSource[]
+  slideDecks   SlideDeck[]
+  slides       Slide[]
   tasks        ProcessingTask[]
   artifacts    Artifact[]
 
   @@index([projectId])
   @@index([kind])
+}
+
+model ProjectSource {
+  id         String    @id
+  projectId  String
+  fileId     String
+  kind       String
+  title      String
+  summary    String
+  sourcePath String?
+  metadata   Json
+  createdAt  DateTime
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  file       FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([fileId])
+}
+
+model SlideDeck {
+  id        String    @id
+  projectId String
+  fileId    String
+  title     String
+  pageCount Int
+  metadata  Json
+  createdAt DateTime
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  file      FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  slides    Slide[]
+
+  @@index([projectId])
+  @@index([fileId])
+}
+
+model Slide {
+  id            String     @id
+  deckId        String
+  projectId     String
+  fileId        String?
+  page          Int
+  title         String
+  extractedText String?
+  imagePath     String?
+  thumbnailPath String?
+  metadata      Json
+  createdAt     DateTime
+  deck          SlideDeck  @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  project       Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  file          FileAsset? @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, page])
+  @@index([deckId])
 }
 
 model ProcessingTask {
@@ -126,17 +255,228 @@ model Artifact {
   @@index([fileId])
 }
 
-model KnowledgeChunk {
-  id        String                  @id
+model KnowledgeNode {
+  id        String   @id
   projectId String
-  artifactId String?
-  fileId    String?
-  content   String
-  source    String
+  kind      String
+  title     String
+  summary   String
+  tone      String
+  sourceId  String?
   metadata  Json
-  embedding Unsupported("vector(1536)")?
-  createdAt DateTime                @default(now())
-  project   Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([kind])
+}
+
+model KnowledgeEdge {
+  id         String   @id
+  projectId  String
+  fromNodeId String
+  toNodeId   String
+  kind       String
+  label      String?
+  createdAt  DateTime
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([fromNodeId])
+  @@index([toNodeId])
+}
+
+model RiskQuestion {
+  id              String   @id
+  projectId       String
+  slideId         String?
+  knowledgeNodeId String?
+  question        String
+  answerFramework String?
+  citations       Json
+  riskLevel       String
+  createdAt       DateTime
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([slideId])
+  @@index([knowledgeNodeId])
+}
+
+model TrainingSession {
+  id                     String   @id
+  projectId              String
+  title                  String
+  teacherRole            String
+  difficulty             String
+  currentSlideId         String?
+  currentKnowledgeNodeId String?
+  status                 String
+  voiceState             String
+  startedAt              DateTime
+  finishedAt             DateTime?
+  createdAt              DateTime
+  updatedAt              DateTime @updatedAt
+  project                Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  turns                  TrainingTurn[]
+  voiceCaptures          VoiceCapture[]
+  weaknesses             Weakness[]
+  reviews                ReviewReport[]
+
+  @@index([projectId, createdAt])
+  @@index([status, voiceState])
+}
+
+model TrainingTurn {
+  id              String          @id
+  sessionId       String
+  projectId       String
+  slideId         String?
+  knowledgeNodeId String?
+  teacherRole     String
+  userAnswer      String
+  aiMessage       String
+  score           Int?
+  strengths       Json
+  risks           Json
+  improvedAnswer  String?
+  followUps       Json
+  citations       Json
+  createdAt       DateTime
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session         TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([sessionId, createdAt])
+}
+
+model VoiceCapture {
+  id             String          @id
+  sessionId      String
+  projectId      String
+  turnId         String?
+  filePath       String
+  mimeType       String
+  durationMs     Int?
+  transcriptText String?
+  state          String
+  metadata       Json
+  createdAt      DateTime
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session        TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([sessionId, createdAt])
+}
+
+model Weakness {
+  id             String           @id
+  projectId      String
+  sessionId      String?
+  trainingTurnId String?
+  title          String
+  reason         String
+  status         String
+  citations      Json
+  createdAt      DateTime
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session        TrainingSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([sessionId])
+}
+
+model DeepDive {
+  id         String   @id
+  projectId  String
+  weaknessId String?
+  title      String
+  summary    String
+  checklist  Json
+  citations  Json
+  createdAt  DateTime
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([weaknessId])
+}
+
+model ReviewReport {
+  id           String          @id
+  projectId    String
+  sessionId    String
+  summary      String
+  averageScore Int
+  scoreLabel   String
+  strengths    Json
+  weaknesses   Json
+  nextActions  Json
+  citations    Json
+  createdAt    DateTime
+  project      Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session      TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([sessionId])
+}
+
+model ContentExport {
+  id        String   @id
+  projectId String
+  reviewId  String?
+  kind      String
+  title     String
+  content   Json
+  status    String
+  createdAt DateTime
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([kind, status])
+}
+
+model PcgMockConnection {
+  id        String   @id
+  projectId String
+  channel   String
+  status    String
+  metadata  Json
+  createdAt DateTime
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([channel, status])
+}
+
+model JobRun {
+  id          String   @id
+  projectId   String
+  kind        String
+  status      String
+  payload     Json
+  error       String?
+  result      Json?
+  createdAt   DateTime
+  updatedAt   DateTime
+  startedAt   DateTime?
+  completedAt DateTime?
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([status, kind])
+}
+
+model KnowledgeChunk {
+  id         String                  @id
+  projectId  String
+  artifactId String?
+  fileId     String?
+  content    String
+  source     String
+  metadata   Json
+  embedding  Unsupported("vector(1536)")?
+  createdAt  DateTime                @default(now())
+  project    Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([artifactId])

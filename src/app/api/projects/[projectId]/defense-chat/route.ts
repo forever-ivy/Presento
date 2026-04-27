@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
-import { generateDefenseCoachTurn, type DefenseTeacherRole } from "@/lib/defense-chat-skill";
+import { invokeBuiltInSkillWithInvocation } from "@ai/executor";
+import { createProjectRepository } from "@db/repositories/projects";
+import { createSkillInvocationRepository } from "@db/repositories/skill-invocations";
+import type { DefenseCoachTurn, DefenseTeacherRole } from "@/lib/defense-chat-skill";
 import { writePracticeTurn } from "@/lib/defense-practice-db";
 import {
   readProjectKnowledgeChunks,
   retrieveRelevantKnowledgeChunks,
 } from "@/lib/knowledge-db";
-import { createConfiguredLlmProvider } from "@/lib/llm-provider";
 import { getModelRuntimeStatus } from "@/lib/model-config";
-import { runDefenseChatGraph } from "@/lib/skill-graph";
-import { writeSkillInvocation } from "@/lib/skill-invocation-db";
-import { runSkill } from "@/lib/skill-runner";
 import { workspacePersistence } from "@/lib/workspace-persistence";
 
 export const runtime = "nodejs";
@@ -32,8 +31,9 @@ export async function POST(
     }
 
     const query = `${payload.slideTitle ?? ""}\n${payload.userAnswer ?? ""}`;
-    const [workspace, relevantChunks] = await Promise.all([
+    const [workspace, project, relevantChunks] = await Promise.all([
       workspacePersistence.readWorkspace(),
+      createProjectRepository().read(projectId),
       retrieveRelevantKnowledgeChunks({
         projectId,
         query,
@@ -44,54 +44,37 @@ export async function POST(
       ? relevantChunks
       : await readProjectKnowledgeChunks(projectId);
     const projectName =
-      workspace?.project.id === projectId ? workspace.project.name : "课程项目答辩";
-    const { output: turn, invocation } = await runSkill({
+      project?.name ?? (workspace?.project.id === projectId ? workspace.project.name : "课程项目答辩");
+    const { output: turn, invocation } = await invokeBuiltInSkillWithInvocation({
       projectId,
-      skillName: "defense-chat",
+      projectName,
+      skillId: "current_slide_followup",
       trigger: "current-slide-answer",
-      input: {
+      payload: {
         slideTitle: payload.slideTitle ?? "当前页",
         slideIndex: payload.slideIndex ?? 1,
         teacherRole: payload.teacherRole ?? "strict",
         userAnswer: payload.userAnswer ?? "",
-        retrievedChunkCount: chunks.length,
+        chunks,
       },
-      run: async () =>
-        runDefenseChatGraph({
-          provider: createConfiguredLlmProvider(),
-          projectName,
-          slideTitle: payload.slideTitle ?? "当前页",
-          slideIndex: payload.slideIndex ?? 1,
-          teacherRole: payload.teacherRole ?? "strict",
-          userAnswer: payload.userAnswer ?? "",
-          chunks,
-        }),
-      fallback: async () =>
-        generateDefenseCoachTurn({
-          projectName,
-          slideTitle: payload.slideTitle ?? "当前页",
-          slideIndex: payload.slideIndex ?? 1,
-          teacherRole: payload.teacherRole ?? "strict",
-          userAnswer: payload.userAnswer ?? "",
-          chunks,
-        }),
     });
-    await writeSkillInvocation(invocation).catch(() => undefined);
+    await createSkillInvocationRepository().write(invocation).catch(() => undefined);
+    const coachTurn = turn as DefenseCoachTurn & { speech?: unknown };
     const practiceTurn = {
-      id: `turn-${projectId}-${Date.parse(turn.generatedAt).toString(36)}-${crypto.randomUUID().slice(0, 8)}`,
+      id: `turn-${projectId}-${Date.parse(coachTurn.generatedAt).toString(36)}-${crypto.randomUUID().slice(0, 8)}`,
       projectId,
       slideIndex: payload.slideIndex ?? 1,
       slideTitle: payload.slideTitle ?? "当前页",
       teacherRole: payload.teacherRole ?? "strict",
       userAnswer: payload.userAnswer ?? "",
-      aiMessage: turn.message,
-      score: turn.feedback.score,
-      strengths: turn.feedback.strengths,
-      risks: turn.feedback.risks,
-      improvedAnswer: turn.feedback.improvedAnswer,
-      followUps: turn.followUps,
-      citations: turn.citations,
-      createdAt: turn.generatedAt,
+      aiMessage: coachTurn.message,
+      score: coachTurn.feedback.score,
+      strengths: coachTurn.feedback.strengths,
+      risks: coachTurn.feedback.risks,
+      improvedAnswer: coachTurn.feedback.improvedAnswer,
+      followUps: coachTurn.followUps,
+      citations: coachTurn.citations,
+      createdAt: coachTurn.generatedAt,
     };
 
     let practiceWarning: string | undefined;
@@ -103,7 +86,7 @@ export async function POST(
     }
 
     return NextResponse.json({
-      turn,
+      turn: coachTurn,
       knowledgeChunkCount: chunks.length,
       practiceTurnId: practiceWarning ? undefined : practiceTurn.id,
       skillInvocationId: invocation.id,

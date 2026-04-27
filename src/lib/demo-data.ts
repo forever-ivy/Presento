@@ -3,6 +3,7 @@ export const demoProject = {
   name: "智能点餐系统课程答辩",
   category: "软件 / 数据类",
   deadline: "距离答辩 2 天",
+  defenseAt: "",
   readiness: 55,
 };
 

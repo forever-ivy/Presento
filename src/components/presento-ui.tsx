@@ -18,11 +18,11 @@ import {
   Mic,
   Plus,
   Radio,
-  Sparkles,
   Target,
   UploadCloud,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -57,6 +57,7 @@ import {
   createKnowledgeMapFlow,
   type KnowledgeMapFlowNodeData,
 } from "@/lib/knowledge-map-flow";
+import { presentoBrandLogo } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 export { cn } from "@/lib/utils";
@@ -168,25 +169,24 @@ export function PageWrap({
 
 export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
-    <Link className="flex min-w-0 items-center gap-2.5" href="/">
-      <div className="presento-brand-mark">
-        <Sparkles aria-hidden="true" />
-      </div>
-      {!compact ? (
-        <div className="min-w-0">
-          <div className="truncate text-[17px] font-black leading-tight text-[var(--presento-ink)]">
-            Presento<span className="text-[var(--presento-blue)]">.</span>
-          </div>
-          <div className="presento-muted truncate text-xs font-semibold">
-            课程项目答辩 AI 教练
-          </div>
-        </div>
-      ) : null}
+    <Link
+      aria-label="Presento 首页"
+      className={cn("presento-brand-link", compact && "presento-brand-link-compact")}
+      href="/"
+    >
+      <Image
+        alt={presentoBrandLogo.alt}
+        className="presento-brand-logo"
+        height={presentoBrandLogo.height}
+        priority
+        src={presentoBrandLogo.src}
+        width={presentoBrandLogo.width}
+      />
     </Link>
   );
 }
 
-export function TopNav() {
+export function TopNav({ onNavigate }: { onNavigate?: (href: string) => void } = {}) {
   const pathname = usePathname();
 
   return (
@@ -260,6 +260,11 @@ export function TopNav() {
                   className={cn("presento-dock-link", active && "presento-dock-link-active")}
                   data-label={item.label}
                   href={item.href}
+                  onClick={(event) => {
+                    if (!onNavigate) return;
+                    event.preventDefault();
+                    onNavigate(item.href);
+                  }}
                   title={item.label}
                 >
                   <Icon aria-hidden="true" className="size-full" />
@@ -281,6 +286,11 @@ export function TopNav() {
               className={cn("presento-mobile-nav-item", active && "text-[var(--presento-blue)]")}
               href={item.href}
               key={item.href}
+              onClick={(event) => {
+                if (!onNavigate) return;
+                event.preventDefault();
+                onNavigate(item.href);
+              }}
             >
               <Icon aria-hidden="true" />
               <span>{item.label}</span>

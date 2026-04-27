@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readProjectSkillInvocations } from "@/lib/skill-invocation-db";
+import { createSkillInvocationRepository } from "@db/repositories/skill-invocations";
 
 export const runtime = "nodejs";
 
@@ -16,7 +16,7 @@ export async function GET(
       return NextResponse.json({ error: "Missing project id." }, { status: 400 });
     }
 
-    const invocations = await readProjectSkillInvocations(projectId, limit);
+    const invocations = await createSkillInvocationRepository().list(projectId, limit);
     return NextResponse.json({ invocations });
   } catch (error) {
     return NextResponse.json(

@@ -20,7 +20,11 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@shared/*": ["./packages/shared/src/*"],
+      "@db/*": ["./packages/db/src/*"],
+      "@ai/*": ["./packages/ai/src/*"],
+      "@ingest/*": ["./packages/ingest/src/*"]
     }
   },
   "include": [
@@ -29,7 +33,9 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    "**/*.mts",
+    "packages/**/*.ts",
+    "workers/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

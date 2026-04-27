@@ -1,0 +1,145 @@
+<h2>外层流程图进入详情页：3 个动画方向</h2>
+<p class="subtitle">推荐选 A：用现有 GSAP + React Flow camera，把“点击节点 → 聚焦 → 房间展开”做成一个连续镜头。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a-shared-node-room" onclick="toggleSelect(this)">
+    <div class="card-image" style="height:300px;background:#f8fafc;position:relative;overflow:hidden;">
+      <style>
+        @keyframes cameraZoom {
+          0% { transform: scale(.76) translateX(0); opacity: 1; filter: blur(0); }
+          45% { transform: scale(1.08) translateX(-42px); opacity: 1; filter: blur(0); }
+          100% { transform: scale(1.02) translateX(-86px); opacity: .34; filter: blur(3px); }
+        }
+        @keyframes nodeBloom {
+          0%, 36% { transform: translate(-50%, -50%) scale(1); border-radius:18px; }
+          62% { transform: translate(-50%, -50%) scale(1.22); border-radius:20px; box-shadow:0 0 0 16px rgba(16,185,129,.12); }
+          100% { transform: translate(-50%, -50%) scale(10); border-radius:24px; opacity:.12; }
+        }
+        @keyframes roomReveal {
+          0%, 48% { transform: translateY(22px) scale(.84); opacity:0; clip-path:inset(44% 43% 44% 43% round 22px); }
+          76% { transform: translateY(2px) scale(1.01); opacity:1; clip-path:inset(0 0 0 0 round 24px); }
+          100% { transform: translateY(0) scale(1); opacity:1; clip-path:inset(0 0 0 0 round 24px); }
+        }
+      </style>
+      <div style="position:absolute;inset:20px;border:1px solid #dbe3ea;border-radius:20px;background:white;overflow:hidden;">
+        <div style="position:absolute;inset:0;animation:cameraZoom 3s cubic-bezier(.2,.95,.28,1) infinite alternate;transform-origin:50% 50%;">
+          <svg viewBox="0 0 620 250" style="position:absolute;left:20px;top:30px;width:580px;height:210px;">
+            <path d="M62 126 C164 56 230 56 330 126 S488 192 578 126" fill="none" stroke="#10b981" stroke-width="3" stroke-dasharray="7 7" opacity=".74"/>
+            <rect x="12" y="86" width="112" height="78" rx="16" fill="#fff" stroke="#cbd5e1"/>
+            <rect x="252" y="72" width="142" height="102" rx="18" fill="#fff" stroke="#10b981" stroke-width="2"/>
+            <rect x="516" y="86" width="112" height="78" rx="16" fill="#fff" stroke="#cbd5e1"/>
+            <text x="323" y="116" text-anchor="middle" font-size="18" font-weight="900" fill="#111827">知识地图</text>
+            <text x="323" y="142" text-anchor="middle" font-size="11" fill="#64748b">active node</text>
+          </svg>
+        </div>
+        <div style="position:absolute;left:50%;top:47%;width:120px;height:82px;border:2px solid #10b981;background:white;animation:nodeBloom 3s cubic-bezier(.2,.95,.28,1) infinite alternate;"></div>
+        <div style="position:absolute;left:80px;right:24px;top:62px;bottom:22px;border:1px solid #dbe3ea;border-radius:24px;background:rgba(255,255,255,.94);box-shadow:0 28px 90px rgba(15,23,42,.18);animation:roomReveal 3s cubic-bezier(.2,.95,.28,1) infinite alternate;overflow:hidden;">
+          <div style="height:50px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;padding:0 18px;">
+            <span style="width:26px;height:26px;border-radius:9px;background:#111827;"></span>
+            <span style="height:12px;width:112px;background:#111827;border-radius:999px;"></span>
+            <span style="margin-left:auto;height:22px;width:92px;background:#ecfdf5;border-radius:999px;"></span>
+          </div>
+          <div style="display:grid;grid-template-columns:1.15fr .85fr;gap:12px;padding:14px;">
+            <div style="height:128px;border-radius:18px;background:#f8fafc;border:1px solid #e2e8f0;"></div>
+            <div style="display:grid;gap:9px;">
+              <div style="height:38px;border-radius:13px;background:#fff7ed;border:1px solid #fed7aa;"></div>
+              <div style="height:38px;border-radius:13px;background:#fff7ed;border:1px solid #fed7aa;"></div>
+              <div style="height:38px;border-radius:13px;background:#ecfdf5;border:1px solid #bbf7d0;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 节点共享元素展开（推荐）</h3>
+      <p>点击节点后，React Flow 镜头先对准节点，节点生成一层光晕/白色底板，详情空间从该节点位置扩展出来。丝滑、清楚、和现有 GSAP 架构最贴合。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b-depth-panel" onclick="toggleSelect(this)">
+    <div class="card-image" style="height:300px;background:#f8fafc;position:relative;overflow:hidden;">
+      <style>
+        @keyframes depthMap {
+          0% { transform:perspective(900px) rotateX(0deg) translateY(0) scale(.88); opacity:1; filter:blur(0); }
+          100% { transform:perspective(900px) rotateX(12deg) translateY(24px) scale(.78); opacity:.22; filter:blur(4px); }
+        }
+        @keyframes slidePanel {
+          0% { transform:translateX(72px) scale(.96); opacity:0; }
+          55% { transform:translateX(72px) scale(.96); opacity:0; }
+          100% { transform:translateX(0) scale(1); opacity:1; }
+        }
+      </style>
+      <div style="position:absolute;inset:20px;border:1px solid #dbe3ea;border-radius:20px;background:white;overflow:hidden;">
+        <div style="position:absolute;left:20px;right:160px;top:32px;bottom:34px;border:1px solid #dbe3ea;border-radius:20px;background:#fff;animation:depthMap 2.6s ease-in-out infinite alternate;transform-origin:50% 80%;">
+          <svg viewBox="0 0 440 220" style="width:100%;height:100%;">
+            <path d="M54 116 C138 62 212 62 294 116 S374 170 420 116" fill="none" stroke="#10b981" stroke-width="3" stroke-dasharray="7 7"/>
+            <rect x="24" y="82" width="96" height="64" rx="15" fill="#fff" stroke="#cbd5e1"/>
+            <rect x="178" y="70" width="112" height="84" rx="17" fill="#fff" stroke="#10b981" stroke-width="2"/>
+            <rect x="344" y="82" width="96" height="64" rx="15" fill="#fff" stroke="#cbd5e1"/>
+          </svg>
+        </div>
+        <div style="position:absolute;right:22px;top:42px;bottom:24px;width:310px;border:1px solid #dbe3ea;border-radius:24px;background:rgba(255,255,255,.96);box-shadow:0 30px 88px rgba(15,23,42,.18);animation:slidePanel 2.6s cubic-bezier(.2,.95,.28,1) infinite alternate;padding:18px;">
+          <div style="height:14px;width:150px;background:#111827;border-radius:999px;"></div>
+          <div style="margin-top:12px;height:9px;width:220px;background:#cbd5e1;border-radius:999px;"></div>
+          <div style="margin-top:28px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div style="height:64px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;"></div>
+            <div style="height:64px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;"></div>
+            <div style="height:64px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;"></div>
+            <div style="height:64px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 地图后退 + 详情面板滑入</h3>
+      <p>地图像工作台一样压到后景，详情从右侧进入。实现稳，但“点击节点进入空间”的空间关系没有 A 强，更像普通抽屉。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c-route-crossfade" onclick="toggleSelect(this)">
+    <div class="card-image" style="height:300px;background:#f8fafc;position:relative;overflow:hidden;">
+      <style>
+        @keyframes mapFade {
+          0% { opacity:1; transform:scale(.9); }
+          100% { opacity:0; transform:scale(1.04); }
+        }
+        @keyframes roomFade {
+          0% { opacity:0; transform:scale(.96); }
+          38% { opacity:0; transform:scale(.96); }
+          100% { opacity:1; transform:scale(1); }
+        }
+      </style>
+      <div style="position:absolute;inset:20px;border:1px solid #dbe3ea;border-radius:20px;background:white;overflow:hidden;">
+        <div style="position:absolute;inset:22px;border:1px solid #dbe3ea;border-radius:22px;background:#fff;animation:mapFade 2.2s ease-in-out infinite alternate;">
+          <svg viewBox="0 0 520 210" style="width:100%;height:100%;">
+            <path d="M54 108 C158 48 248 48 352 108 S454 168 500 108" fill="none" stroke="#10b981" stroke-width="3" stroke-dasharray="7 7"/>
+            <rect x="28" y="74" width="100" height="70" rx="16" fill="#fff" stroke="#cbd5e1"/>
+            <rect x="214" y="62" width="122" height="90" rx="18" fill="#fff" stroke="#10b981" stroke-width="2"/>
+            <rect x="392" y="74" width="100" height="70" rx="16" fill="#fff" stroke="#cbd5e1"/>
+          </svg>
+        </div>
+        <div style="position:absolute;inset:40px 36px 28px 88px;border:1px solid #dbe3ea;border-radius:24px;background:rgba(255,255,255,.96);box-shadow:0 24px 70px rgba(15,23,42,.15);animation:roomFade 2.2s ease-in-out infinite alternate;padding:18px;">
+          <div style="height:48px;border-bottom:1px solid #e2e8f0;margin:-18px -18px 16px;display:flex;align-items:center;padding:0 18px;gap:10px;">
+            <span style="width:26px;height:26px;border-radius:9px;background:#111827;"></span>
+            <span style="height:12px;width:126px;background:#111827;border-radius:999px;"></span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+            <div style="height:80px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;"></div>
+            <div style="height:80px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;"></div>
+            <div style="height:80px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;"></div>
+            <div style="height:80px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 保守淡入淡出</h3>
+      <p>页面之间做简单 crossfade 和轻微缩放。风险最低，但视觉提升有限，不太满足“丝滑且视觉效果佳”。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我的推荐</h3>
+  <p>选 A。实现上继续使用项目已经装好的 GSAP / @gsap/react 控制总时间线，保留 React Flow 的 setCenter 镜头动画；Framer Motion 只负责节点自身 hover/active 微动。这样不会混用两个库抢同一层 transform。</p>
+</div>
