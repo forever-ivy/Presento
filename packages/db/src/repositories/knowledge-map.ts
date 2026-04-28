@@ -13,6 +13,13 @@ export function createKnowledgeMapRepository(runSql: PsqlRunner = runDockerCompo
       );
     },
 
+    async readNode(projectId: string, nodeId: string) {
+      return helpers.readJson<KnowledgeNodeRecord | null>(
+        readKnowledgeNodeSql(projectId, nodeId),
+        null,
+      );
+    },
+
     async upsert(nodes: KnowledgeNodeRecord[], edges: KnowledgeEdgeRecord[]) {
       const statements = [
         "BEGIN;",
@@ -25,6 +32,17 @@ export function createKnowledgeMapRepository(runSql: PsqlRunner = runDockerCompo
       return { nodes, edges };
     },
   };
+}
+
+function readKnowledgeNodeSql(projectId: string, nodeId: string) {
+  return `
+SELECT COALESCE((
+  SELECT row_to_json(node_rows)
+  FROM "KnowledgeNode" node_rows
+  WHERE node_rows."projectId" = ${sqlText(projectId)}
+    AND node_rows."id" = ${sqlText(nodeId)}
+  LIMIT 1
+), 'null'::json)::text;`;
 }
 
 function readKnowledgeMapSql(projectId: string) {

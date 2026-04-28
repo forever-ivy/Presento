@@ -58,6 +58,11 @@ WHERE weakness_rows."projectId" = ${sqlText(projectId)};`,
         [],
       );
     },
+
+    async createWeakness(weakness: WeaknessRecord) {
+      await helpers.run(insertWeaknessesSql([weakness]));
+      return weakness;
+    },
   };
 }
 

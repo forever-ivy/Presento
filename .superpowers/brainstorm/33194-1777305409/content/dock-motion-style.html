@@ -1,0 +1,288 @@
+<style>
+  .motion-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-top: 24px;
+  }
+  .motion-card {
+    cursor: pointer;
+    overflow: hidden;
+    border: 1px solid rgba(16, 24, 40, 0.08);
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  }
+  .motion-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(51, 112, 255, 0.28);
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+  }
+  .preview {
+    position: relative;
+    height: 280px;
+    overflow: hidden;
+    background: #f6f8fb;
+  }
+  .stage {
+    position: absolute;
+    inset: 18px;
+    border-radius: 22px;
+    background:
+      radial-gradient(circle at 70% 28%, rgba(52, 211, 153, 0.18), transparent 28%),
+      linear-gradient(135deg, #f9fbff, #edf3f9 54%, #fbfbf8);
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06);
+  }
+  .rail {
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    z-index: 4;
+    display: grid;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.68);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.12), inset 0 0 0 1px rgba(255,255,255,0.72);
+    backdrop-filter: blur(14px);
+    transform: translateY(-50%);
+  }
+  .dot {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(13, 148, 136, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(13, 148, 136, 0.13);
+  }
+  .dot.active {
+    background: #fff;
+    box-shadow: 0 12px 24px rgba(22, 78, 99, 0.16), inset 0 0 0 1px rgba(255,255,255,0.9);
+  }
+  .room {
+    position: absolute;
+    left: 84px;
+    right: 20px;
+    top: 28px;
+    bottom: 28px;
+    border-radius: 22px;
+    background: rgba(255,255,255,0.78);
+    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.12);
+  }
+  .room::before,
+  .room::after {
+    content: "";
+    position: absolute;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.1);
+  }
+  .room::before {
+    left: 22px;
+    top: 24px;
+    width: 44%;
+    height: 10px;
+  }
+  .room::after {
+    left: 22px;
+    top: 48px;
+    width: 68%;
+    height: 7px;
+    opacity: 0.45;
+  }
+  .camera .stage {
+    animation: camera-stage 3.2s cubic-bezier(.16,1,.3,1) infinite;
+    transform-origin: 20% 50%;
+  }
+  .camera .room {
+    animation: camera-room 3.2s cubic-bezier(.16,1,.3,1) infinite;
+  }
+  .camera .dot.active {
+    animation: icon-pop 3.2s cubic-bezier(.16,1,.3,1) infinite;
+  }
+  .camera .light {
+    position: absolute;
+    left: 54px;
+    top: 50%;
+    z-index: 2;
+    width: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(59,130,246,0), rgba(59,130,246,.75), rgba(45,212,191,0));
+    transform: translateY(-50%);
+    animation: camera-light 3.2s ease infinite;
+  }
+  .glass .liquid {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 24% 48%, rgba(20, 184, 166, 0.36), transparent 18%),
+      radial-gradient(circle at 55% 42%, rgba(59, 130, 246, 0.26), transparent 22%),
+      radial-gradient(circle at 72% 72%, rgba(251, 191, 36, 0.18), transparent 18%);
+    filter: blur(14px);
+    opacity: 0;
+    animation: glass-wash 3.2s cubic-bezier(.2,.9,.2,1) infinite;
+  }
+  .glass .room {
+    animation: glass-room 3.2s cubic-bezier(.16,1,.3,1) infinite;
+  }
+  .glass .dot.active {
+    animation: glass-icon 3.2s ease infinite;
+  }
+  .scan .scanline {
+    position: absolute;
+    left: 70px;
+    top: 0;
+    z-index: 3;
+    width: 2px;
+    height: 100%;
+    background: linear-gradient(180deg, transparent, rgba(34, 197, 94, 0.78), transparent);
+    box-shadow: 0 0 18px rgba(34,197,94,.45);
+    opacity: 0;
+    animation: scanline 3.2s cubic-bezier(.2,.8,.2,1) infinite;
+  }
+  .scan .room {
+    animation: scan-room 3.2s cubic-bezier(.16,1,.3,1) infinite;
+  }
+  .scan .dot.active {
+    animation: scan-icon 3.2s ease infinite;
+  }
+  .card-copy {
+    padding: 16px 18px 18px;
+  }
+  .card-copy h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+  }
+  .card-copy p {
+    margin: 0;
+    color: #667085;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .beats {
+    margin-top: 10px;
+    color: #344054;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  @keyframes camera-stage {
+    0%, 100% { transform: perspective(800px) scale(1) rotateY(0); filter: blur(0); }
+    38% { transform: perspective(800px) scale(1.035) rotateY(-2deg); filter: blur(0); }
+    50% { transform: perspective(800px) scale(1.075) rotateY(-3deg); filter: blur(1px); }
+    70% { transform: perspective(800px) scale(1.02) rotateY(0); filter: blur(0); }
+  }
+  @keyframes camera-room {
+    0%, 23% { transform: translateX(16px) scale(.96); opacity: .58; }
+    46%, 82% { transform: translateX(0) scale(1); opacity: 1; }
+    100% { transform: translateX(16px) scale(.96); opacity: .58; }
+  }
+  @keyframes icon-pop {
+    0%, 100% { transform: scale(1); }
+    18% { transform: scale(.86); }
+    34% { transform: scale(1.22); }
+    48% { transform: scale(1.04); }
+  }
+  @keyframes camera-light {
+    0%, 18%, 100% { width: 0; opacity: 0; }
+    32% { width: 150px; opacity: 1; }
+    58% { width: 240px; opacity: 0; }
+  }
+  @keyframes glass-wash {
+    0%, 18%, 100% { opacity: 0; transform: scale(.9) translateX(-18px); }
+    36% { opacity: 1; transform: scale(1.08) translateX(18px); }
+    64% { opacity: .2; transform: scale(1.18) translateX(42px); }
+  }
+  @keyframes glass-room {
+    0%, 22% { transform: translateY(10px) scale(.97); opacity: .56; }
+    42%, 80% { transform: translateY(0) scale(1); opacity: 1; }
+    100% { transform: translateY(10px) scale(.97); opacity: .56; }
+  }
+  @keyframes glass-icon {
+    0%, 100% { transform: scale(1); filter: saturate(1); }
+    28% { transform: scale(1.14); filter: saturate(1.5); }
+    46% { transform: scale(1.03); filter: saturate(1.1); }
+  }
+  @keyframes scanline {
+    0%, 22%, 100% { transform: translateX(0); opacity: 0; }
+    30% { opacity: 1; }
+    56% { transform: translateX(230px); opacity: .85; }
+    68% { transform: translateX(260px); opacity: 0; }
+  }
+  @keyframes scan-room {
+    0%, 25% { transform: translateX(8px); opacity: .6; clip-path: inset(0 18% 0 0 round 22px); }
+    56%, 82% { transform: translateX(0); opacity: 1; clip-path: inset(0 0 0 0 round 22px); }
+    100% { transform: translateX(8px); opacity: .6; clip-path: inset(0 18% 0 0 round 22px); }
+  }
+  @keyframes scan-icon {
+    0%, 100% { box-shadow: 0 12px 24px rgba(22, 78, 99, 0.16), inset 0 0 0 1px rgba(255,255,255,0.9); }
+    34% { box-shadow: 0 0 0 6px rgba(34,197,94,.14), 0 12px 28px rgba(22, 78, 99, 0.18), inset 0 0 0 1px rgba(255,255,255,0.9); }
+  }
+  @media (max-width: 980px) {
+    .motion-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<h2>Dock 点击后，想要哪种“电影级”空间感？</h2>
+<p class="subtitle">先选感觉，不选代码。后面我会把选中的方向拆成精确节奏、层级和可实现的动效规则。</p>
+
+<div class="motion-grid">
+  <div class="motion-card" data-choice="camera" onclick="toggleSelect(this)">
+    <div class="preview camera">
+      <div class="stage">
+        <div class="light"></div>
+        <div class="rail">
+          <div class="dot"></div>
+          <div class="dot active"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+        </div>
+        <div class="room"></div>
+      </div>
+    </div>
+    <div class="card-copy">
+      <h3>A. 镜头推进</h3>
+      <p>点击 dock 像进入一个工作室：图标先按下蓄力，主画布轻微拉近，目标页面从纵深里浮出。</p>
+      <div class="beats">关键词：空间、聚焦、苹果级克制</div>
+    </div>
+  </div>
+
+  <div class="motion-card" data-choice="glass" onclick="toggleSelect(this)">
+    <div class="preview glass">
+      <div class="stage">
+        <div class="liquid"></div>
+        <div class="rail">
+          <div class="dot"></div>
+          <div class="dot active"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+        </div>
+        <div class="room"></div>
+      </div>
+    </div>
+    <div class="card-copy">
+      <h3>B. 液态玻璃</h3>
+      <p>点击后 dock 表面像玻璃流体一样扩散高光，页面在柔和折射里切换，适合更 iOS、更高级的触感。</p>
+      <div class="beats">关键词：流体、光泽、丝滑奢华</div>
+    </div>
+  </div>
+
+  <div class="motion-card" data-choice="scan" onclick="toggleSelect(this)">
+    <div class="preview scan">
+      <div class="stage">
+        <div class="scanline"></div>
+        <div class="rail">
+          <div class="dot"></div>
+          <div class="dot active"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+        </div>
+        <div class="room"></div>
+      </div>
+    </div>
+    <div class="card-copy">
+      <h3>C. 智能扫描</h3>
+      <p>点击像 AI 开始切换上下文：一道光束扫过画布，内容被快速解析、重组，再落到新页面。</p>
+      <div class="beats">关键词：AI、速度、科技感</div>
+    </div>
+  </div>
+</div>

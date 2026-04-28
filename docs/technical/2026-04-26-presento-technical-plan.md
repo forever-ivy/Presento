@@ -27,7 +27,8 @@ MVP 技术目标：
 
 - 支撑项目创建、资料上传、资料解析和知识库构建。
 - 支撑答辩准备台：项目速记卡、逐页讲稿、高危追问、代码 / 数据解释。
-- 支撑项目知识地图：知识节点、证据链、风险节点、训练入口。
+- 支撑项目知识地图：Force-Directed Graph、知识节点、文件叶子节点、证据链、风险节点、训练入口。
+- 支撑知识地图内的资料讲解：点击 PDF、DOCX、代码、XLSX / CSV 等文件节点后展示文件内容，并提供速通 / 精通两种 AI 讲解和对话。
 - 支撑 PPT 同屏语音模拟答辩：当前页上下文、语音状态、AI 老师追问、提示、薄弱点回流、训练复盘。
 - 支撑项目钻研：模块深挖、证据链、深度追问链、学习清单。
 - 支撑 Agent Skills：系统内置 Skills、用户自定义 Skills、导入 Skills、Skill 调用记录、Skill 输出反馈。
@@ -36,9 +37,9 @@ MVP 技术目标：
 
 ## 2. 技术路线总判断
 
-第一版不建议直接 fork 大型开源 AI 平台。推荐策略是：
+第一版不建议直接 fork 大型通用 AI 平台作为产品底座。推荐策略是：
 
-> 参考成熟开源产品的模块设计，使用成熟开源库搭建垂直业务闭环。
+> 对通用平台只参考架构边界；对 NotebookLM 类资料讲解、引用回答和 Force-Directed Graph 等明确子能力，优先复用或移植许可证兼容的开源实现，不从零自研。
 
 原因：
 
@@ -73,11 +74,13 @@ MVP 的工程定位：
 
 ## 3. 可参考的开源产品和技术
 
-这些项目主要用于学习产品结构和工程边界，不建议直接 fork。
+这些项目分为两类：通用平台只参考结构，不作为产品底座；NotebookLM 类资料讲解和图谱渲染属于明确子能力，可以在许可证允许的范围内直接复用、移植或仿照实现。
 
 | 项目 | 地址 | 参考点 | 本项目用法 |
 |---|---|---|---|
 | AnythingLLM | https://github.com/Mintplex-Labs/anything-llm | Workspace、文档上传、文档聊天、来源引用、Agent | 参考“一个项目 = 一个 Workspace”的组织方式 |
+| Open Notebook | https://github.com/lfnovo/open-notebook | NotebookLM 类资料管理、来源、笔记、引用聊天、内容转换、REST API | 资料讲解能力的优先参考和可移植实现，按 MIT License 保留版权声明 |
+| SurfSense | https://github.com/Decentralised-AI/SurfSense-Open-Source-Alternative-to-NotebookLM | NotebookLM / Perplexity 类资料库、 cited answers、混合检索、层级索引、连接器 | 参考或移植文件摄取、引用回答、混合 RAG、资料对话链路，按 Apache-2.0 要求保留 NOTICE / LICENSE |
 | Dify | https://github.com/langgenius/dify | Workflow、RAG pipeline、Agent、Prompt 管理、LLMOps | 参考工作流拆分，不直接引入平台 |
 | RAGFlow | https://github.com/infiniflow/ragflow | 文档理解、RAG 引擎、复杂文档问答、上下文层 | 参考“文档解析 + 来源溯源”设计 |
 | Open WebUI | https://github.com/open-webui/open-webui | 自托管 AI UI、模型接入、RAG、插件机制 | 参考模型配置和聊天 UI，不做通用聊天壳 |
@@ -90,6 +93,8 @@ MVP 的工程定位：
 关键取舍：
 
 - AnythingLLM 的 workspace 思路可借鉴，但不要继承通用文档聊天心智。
+- Open Notebook 的 sources / notes / chat / citations / content transformations 是资料讲解的优先参考；可直接移植兼容模块，但必须改造成“答辩速通 / 精通”任务流。
+- SurfSense 的多格式文件支持、cited answers、hybrid search 和 hierarchical indices 可作为后端 RAG 的参考或局部移植。
 - Dify 的 workflow 思路可借鉴，但 MVP 用 LangGraph.js 自己编排。
 - RAGFlow 的复杂文档能力可借鉴，但第一版解析服务用 Docling / Marker / LibreOffice 更轻。
 - Slidev / reveal.js 的演讲者视图可借鉴，但 Presento 应围绕用户上传 PPT / PDF 页面自研训练界面。
@@ -109,8 +114,11 @@ MVP 的工程定位：
 | 数据请求 | TanStack Query | 前端缓存、轮询任务状态、乐观更新 |
 | 状态管理 | Zustand | 当前项目、当前 PPT 页、训练状态、语音状态 |
 | 富文本编辑 | Tiptap | 逐页讲稿编辑、回答框架编辑、复盘改答 |
-| 图谱渲染 | React Flow / xyflow | 项目知识地图、节点交互、证据链高亮、右侧详情联动 |
-| 图谱备选 | AntV G6 | 后续节点规模变大、需要复杂布局和图分析时再评估 |
+| 图谱渲染 | sigma.js + graphology + @react-sigma/core | Force-Directed Graph、千级节点渲染、节点邻域高亮、拖拽、缩放、搜索 |
+| 图谱布局 | graphology-layout-forceatlas2 / graphology-layout-force | ForceAtlas2 / force layout、节点稳定布局、后端预布局或前端增量布局 |
+| 图谱备选 | Cytoscape.js | 复杂交互、compound nodes、图分析和多种 force-directed 扩展布局 |
+| 代码阅读 | Monaco Editor / CodeMirror | 代码文件预览、行号、语法高亮、核心片段解释 |
+| 表格预览 | SheetJS + TanStack Table | XLSX / CSV 解析预览、工作表切换、字段和指标解释 |
 
 UI 方向：
 
@@ -143,6 +151,9 @@ MVP 推荐：
 | 简单上传备选 | FilePond | 更轻量的拖拽上传 UI |
 | PDF 预览 | PDF.js / pdfjs-dist | 渲染 PDF 页面、获取页码、页面缩略图 |
 | PPT 预览策略 | LibreOffice headless + PDF.js | `.pptx` 先转 PDF 或图片，再走统一预览链路 |
+| DOCX 预览 | Docling / mammoth | 转 Markdown / HTML 后展示章节和段落 |
+| 代码预览 | Repomix 输出 + Monaco Editor / CodeMirror | 展示目录树、文件内容、行号和语法高亮 |
+| XLSX / CSV 预览 | SheetJS | 展示工作表、表头、单元格范围和字段摘要 |
 
 MVP 原则：
 
@@ -396,12 +407,13 @@ receiveUpload
 
 ### 6.2 项目知识地图 Graph
 
-目标：把项目资料组织成可展示、可点击、可训练的知识网络。
+目标：把项目资料组织成可展示、可点击、可训练、可学习的知识网络。
 
 ```text
 loadProjectSources
   -> extractProjectModules
   -> extractSourceNodes
+  -> extractFileLeafNodes
   -> extractRiskNodes
   -> extractWeaknessCandidates
   -> buildKnowledgeEdges
@@ -413,12 +425,58 @@ loadProjectSources
 
 - 项目中心节点。
 - PPT、代码、数据、AI 模块、用户端、管理端、业务实体等结构节点。
+- 文件叶子节点，指向具体 PDF、DOCX、PPT、代码文件、SQL、CSV、XLSX。
 - 高危追问节点。
 - 薄弱点候选节点。
 - 证据链关联边。
 - 训练入口关联边。
 
+前端展示：
+
+- 使用 sigma.js + graphology + @react-sigma/core 实现 Force-Directed Graph，不使用 React Flow / xyflow 承载知识图谱。
+- 使用 graphology-layout-forceatlas2 或 graphology-layout-force 计算力导向布局；后端可预计算初始布局，前端负责交互、局部展开和稳定动画。
+- 图谱支持拖拽画布、缩放、fit view、节点选中、关联边高亮和局部折叠。
+- 当用户进入文件阅读态时，图谱收起为左侧窄栏或路径导航，保留当前文件在项目知识网络中的位置。
+
 MVP 可以先用 mock / 规则生成知识地图，但数据结构必须支持后续真实 AI 生成。
+
+### 6.2.1 资料讲解 Graph
+
+目标：用户点击知识地图末端的文件节点后，在当前页面快速理解文件内容，并能围绕文件继续提问。
+
+实现原则：优先复用 Open Notebook、SurfSense 等开源 NotebookLM 类项目中已经验证过的 sources、citations、chat sessions、content transformations、hybrid RAG 和 hierarchical indices 设计。只有 Presento 特有的答辩语境、速通 / 精通输出格式、薄弱点回流和逐页讲稿联动需要自研。
+
+```text
+openFileLeafNode
+  -> loadProjectSource
+  -> loadFilePreview
+  -> retrieveFileChunks
+  -> chooseExplanationMode
+  -> generateFileExplanation
+  -> answerFollowUpQuestion
+  -> writeFileExplanationSession
+  -> optionallyCreateWeaknessOrArtifact
+```
+
+文件类型策略：
+
+- `ppt | slide-deck | presentation-pdf`：跳转逐页讲稿页，由 SlideDeck / Slide 体系承接讲稿、页码、证据链和当前页讲练。
+- `pdf`：普通报告 PDF 使用 PDF.js 展示页面，讲解引用页码和文本块。
+- `docx`：展示解析后的 Markdown / HTML 章节，讲解引用章节标题和段落位置。
+- `code`：使用 IDE 风格预览，展示目录树、文件内容、行号和语法高亮，讲解引用 `codePath`、`startLine`、`endLine`。
+- `xlsx | csv`：展示工作表、表头、样例行和单元格范围，讲解引用 `sheetName`、`cellRange` 和字段名。
+
+讲解模式：
+
+- `quick` 速通模式：输出一句话总结、核心 3-5 点、最可能被问的问题、30 秒回答框架和下一步训练入口。
+- `mastery` 精通模式：输出分段讲解、概念拆解、证据引用、代码 / 表格 / 数据解释、深度追问链、自测题和薄弱点候选。
+
+AI 回答约束：
+
+- 回答必须优先引用当前文件 chunk；必要时再引用同项目相关资料。
+- 引用必须带 `sourceId`、文件名和页码 / 行号 / sheet / cell range。
+- 如果当前文件缺少依据，必须说明缺少信息，不补编项目细节。
+- 用户可以把讲解中的问题加入薄弱点，或把解释片段加入逐页讲稿 / 讲练上下文。
 
 ### 6.3 答辩准备 Graph
 
@@ -703,6 +761,8 @@ LangGraph State
 | `DocumentChunk` | 文档块 / 代码块 / 数据块，带 embedding |
 | `KnowledgeNode` | 项目知识地图节点 |
 | `KnowledgeEdge` | 项目知识地图关系 |
+| `FileExplanationSession` | 知识地图中文件讲解会话 |
+| `FileExplanationTurn` | 文件讲解中的用户提问和 AI 回答 |
 | `Artifact` | AI 生成物：速记卡、讲稿、解释、复盘 |
 | `RiskQuestion` | 高危追问 |
 | `TrainingSession` | 一次模拟答辩 |
@@ -733,6 +793,8 @@ Project 1 - N SlideDeck
 SlideDeck 1 - N Slide
 Project 1 - N KnowledgeNode
 KnowledgeNode 1 - N KnowledgeEdge
+ProjectSource 1 - N FileExplanationSession
+FileExplanationSession 1 - N FileExplanationTurn
 Project 1 - N Artifact
 Project 1 - N RiskQuestion
 Project 1 - N TrainingSession
@@ -784,12 +846,25 @@ type KnowledgeNode = {
     | "ai"
     | "code"
     | "data"
+    | "file"
     | "risk"
     | "weakness"
     | "action";
+  fileKind?:
+    | "pdf"
+    | "docx"
+    | "ppt"
+    | "presentation-pdf"
+    | "code"
+    | "sql"
+    | "csv"
+    | "xlsx";
+  sourceId?: string;
   summary?: string;
   riskLevel?: "low" | "medium" | "high";
   position?: { x: number; y: number };
+  collapsible?: boolean;
+  collapsed?: boolean;
   relatedSlideIds: string[];
   relatedFileIds: string[];
   relatedQuestionIds: string[];
@@ -797,7 +872,55 @@ type KnowledgeNode = {
 };
 ```
 
-### 7.5 AgentSkill 数据结构
+### 7.5 FileExplanationSession 数据结构
+
+```ts
+type FileExplanationSession = {
+  id: string;
+  projectId: string;
+  sourceId: string;
+  fileId: string;
+  knowledgeNodeId: string;
+  mode: "quick" | "mastery";
+  title: string;
+  summary: string;
+  keyPoints: Array<{
+    title: string;
+    detail: string;
+    citations: SourceCitationRef[];
+  }>;
+  riskQuestions: Array<{
+    question: string;
+    answerFrame?: string;
+    riskLevel: "low" | "medium" | "high";
+    citations: SourceCitationRef[];
+  }>;
+  createdWeaknessIds: string[];
+  traceId?: string;
+};
+
+type FileExplanationTurn = {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant";
+  content: string;
+  citations: SourceCitationRef[];
+  createdAt: string;
+};
+
+type SourceCitationRef = {
+  sourceId: string;
+  fileName: string;
+  pageNumber?: number;
+  sheetName?: string;
+  cellRange?: string;
+  codePath?: string;
+  startLine?: number;
+  endLine?: number;
+};
+```
+
+### 7.6 AgentSkill 数据结构
 
 ```ts
 type AgentSkill = {
@@ -810,6 +933,7 @@ type AgentSkill = {
   trigger:
     | "after-upload"
     | "knowledge-map-node"
+    | "file-leaf-node"
     | "slide-script"
     | "practice-answer"
     | "weakness-created"
@@ -819,6 +943,7 @@ type AgentSkill = {
     | "project-summary"
     | "current-slide"
     | "knowledge-node"
+    | "file-context"
     | "user-answer"
     | "code-context"
     | "data-context"
@@ -829,6 +954,7 @@ type AgentSkill = {
     | "script"
     | "question"
     | "explanation"
+    | "file-explanation"
     | "review"
     | "video-script"
     | "checklist";
@@ -838,7 +964,7 @@ type AgentSkill = {
 };
 ```
 
-### 7.6 PCG Mock 数据结构
+### 7.7 PCG Mock 数据结构
 
 ```ts
 type QQGroupMock = {
@@ -892,7 +1018,7 @@ type ContentExport = {
 - `setup`：项目类型、小组分工、我的负责部分、PCG mock 入口选择。
 - `workspace`：答辩准备台和项目总览。
 - `files`：资料上传、解析状态、文件管理。
-- `knowledge-map`：项目知识地图、证据链、风险节点、训练入口。
+- `knowledge-map`：项目知识地图、Force-Directed Graph、文件叶子节点、证据链、风险节点、训练入口、资料讲解。
 - `sprint`：速记卡、逐页讲稿、高危追问。
 - `deep-dive`：模块钻研、薄弱点修复。
 - `defense`：PPT 同屏语音模拟答辩。
@@ -927,7 +1053,7 @@ src/server/observability
 - `files`：上传、存储、文件状态。
 - `ingestion`：触发解析任务、任务状态。
 - `slides`：PPT / PDF 页数据。
-- `knowledge-map`：知识节点、关系、图谱布局。
+- `knowledge-map`：知识节点、关系、图谱布局、文件叶子节点、图谱折叠状态。
 - `artifacts`：速记卡、讲稿、问题库、解释、复盘。
 - `training`：训练会话、轮次、语音状态。
 - `deep-dive`：薄弱点、模块解释、学习清单。
@@ -965,6 +1091,11 @@ GET    /api/projects/:projectId/slides/:slideId
 GET    /api/projects/:projectId/knowledge-map
 POST   /api/projects/:projectId/knowledge-map/generate
 PATCH  /api/projects/:projectId/knowledge-map/nodes/:nodeId
+GET    /api/projects/:projectId/knowledge-map/nodes/:nodeId/preview
+POST   /api/projects/:projectId/knowledge-map/nodes/:nodeId/explanations
+GET    /api/projects/:projectId/file-explanations/:sessionId
+POST   /api/projects/:projectId/file-explanations/:sessionId/turns
+POST   /api/projects/:projectId/file-explanations/:sessionId/create-weakness
 
 POST   /api/projects/:projectId/training-sessions
 GET    /api/projects/:projectId/training-sessions/:sessionId
@@ -1054,7 +1185,9 @@ workers/code-worker
 - 项目创建向导。
 - 上传资料界面。
 - 答辩准备台任务卡。
-- 项目知识地图。
+- 项目知识地图 Force-Directed Graph、节点折叠和文件叶子节点。
+- 知识地图内的资料阅读器：PDF、DOCX、代码 IDE、XLSX / CSV。
+- 资料讲解右侧面板：速通 / 精通模式、AI 对话、引用展示、加入薄弱点。
 - PDF / PPT 页面预览。
 - PPT 同屏语音模拟答辩布局。
 - 讲稿 / 追问 / 钻研结果展示。
@@ -1066,7 +1199,8 @@ workers/code-worker
 
 - 同屏答辩页信息密度高，必须稳定展示当前页、聊天、讲稿、语音状态和提示。
 - 当前页切换必须同步更新 AI 上下文。
-- 知识地图要有创意但不能牺牲可读性。
+- 知识地图要有创意但不能牺牲可读性，Force-Directed Graph 必须支持稳定聚焦、折叠和文件节点定位。
+- 文件阅读态的信息密度高，必须让资料内容、AI 讲解、引用和追问输入同时可读。
 - 训练过程需要流式输出和任务状态反馈。
 
 ### 9.2 后端工程
@@ -1097,6 +1231,7 @@ workers/code-worker
 - Prompt 模板。
 - 引用溯源。
 - 知识地图生成。
+- 文件叶子节点讲解：速通 / 精通模式、文件内检索、跨资料补充、引用约束。
 - 高危追问生成。
 - 回答分析和复盘评分。
 - 内容二次创作。
@@ -1326,11 +1461,12 @@ MVP 必做：
 
 - 优先使用 MIT、Apache-2.0、BSD、ISC 这类宽松许可证。
 - 对 AGPL、SSPL、Elastic License、带品牌保留条款或商业限制的项目，只做参考，不进入运行时依赖。
+- Open Notebook、SurfSense、sigma.js、graphology、Cytoscape.js 等如需直接复制、移植或二次改造代码，必须保留原项目 LICENSE / NOTICE / copyright，并在依赖登记中记录复制来源、提交版本和改动范围。
 - Marker、Open WebUI、Dify、RAGFlow 等项目在引入前必须复核最新 LICENSE 和商业使用限制。
 - 所有依赖写入 `docs/technical/dependency-register.md`，记录用途、许可证、替代方案和是否进入生产。
 - Docker 镜像也要纳入依赖治理，包括 LibreOffice、Python parser、OCR 模型和系统包。
 
-第一版应把 Dify、RAGFlow、Open WebUI、Continue、Tabby 明确归类为“参考项目”，不要作为生产依赖。
+第一版应把 Dify、RAGFlow、Open WebUI、Continue、Tabby 明确归类为“参考项目”，不要作为生产依赖。Open Notebook、SurfSense、sigma.js、graphology、Cytoscape.js 属于可进入实现评估的子能力来源，但必须先完成 license scan。
 
 ## 14. 第一版不做
 
@@ -1368,7 +1504,8 @@ MVP 必做：
 |---|---|---|
 | PPTX 转换不稳定 | 同屏答辩核心体验受损 | 优先支持 PDF；PPTX 后台转 PDF，失败时提示用户上传 PDF |
 | AI 输出泛泛 | 用户感知像普通 ChatGPT | 强制绑定当前页、来源 chunk、项目类型、用户分工 |
-| 知识地图过于花哨 | 评委看不清产品价值 | React Flow 采用受控布局，节点详情和证据链必须清楚 |
+| 知识地图过于花哨 | 评委看不清产品价值 | sigma.js + graphology 采用稳定力导向布局，节点详情、证据链和文件入口必须清楚 |
+| 复用开源 NotebookLM 类项目带来许可证或架构耦合 | 法务和后续维护风险 | 只复用 MIT / Apache-2.0 等兼容模块；复制代码必须登记来源；不要把完整通用研究平台变成产品底座 |
 | 文档解析慢 | 用户等待过久 | 任务异步化、进度状态、先生成可用摘要，深度解析后台完成 |
 | 引用不准 | 信任度下降 | chunk 保留来源元数据；回答展示引用；无依据时说明 |
 | 代码包太大 | 成本和延迟上升 | Repomix 过滤依赖目录；设置文件大小和 token 限制 |
@@ -1512,12 +1649,14 @@ MVP 推荐：
 | Storage | Supabase Storage，后续可切 MinIO / S3 |
 | Upload | Uppy |
 | Preview | PDF.js |
-| Knowledge Map | React Flow / xyflow，后续复杂图谱再评估 AntV G6 |
+| Knowledge Map | sigma.js + graphology + @react-sigma/core + graphology-layout-forceatlas2 |
+| Knowledge Map 备选 | Cytoscape.js |
 | Document Parser | Docling，Marker 作为备选 |
 | PPT 转换 | LibreOffice headless |
 | Code Parser | Repomix，后续 tree-sitter |
 | AI Streaming | Vercel AI SDK |
 | AI Chat UI | Vercel AI Elements |
+| NotebookLM-like | 优先复用 Open Notebook / SurfSense 的 sources、citations、chat sessions、content transformations 和 RAG 设计 |
 | Workflow | LangGraph.js |
 | Agent Skills | LangGraph.js + Zod + YAML / JSON manifest + Langfuse trace |
 | RAG Base | LangChain Core / 自写 retriever |
@@ -1533,6 +1672,7 @@ MVP 推荐：
 - Dify 作为运行时平台。
 - RAGFlow 作为运行时平台。
 - Open WebUI 作为基础产品壳。
+- React Flow / xyflow 作为知识地图 Force-Directed Graph 主库。
 - Qdrant，除非 pgvector 性能已经成为瓶颈。
 - 多 Agent 自主协作平台。
 - 真实 PCG 产品接口。
@@ -1543,7 +1683,12 @@ MVP 推荐：
 - LangGraph JavaScript workflows and agents: https://docs.langchain.com/oss/javascript/langgraph/workflows-agents
 - Vercel AI SDK: https://github.com/vercel/ai
 - Vercel AI Elements: https://github.com/vercel/ai-elements
-- React Flow / xyflow: https://github.com/xyflow/xyflow
+- Open Notebook: https://github.com/lfnovo/open-notebook
+- SurfSense: https://github.com/Decentralised-AI/SurfSense-Open-Source-Alternative-to-NotebookLM
+- sigma.js: https://www.sigmajs.org/
+- graphology: https://graphology.github.io/
+- @react-sigma/core: https://github.com/sim51/react-sigma
+- Cytoscape.js: https://js.cytoscape.org/
 - MiniMax API Docs: https://platform.minimax.io/docs/api-reference/api-overview
 - MiniMax TTS WebSocket: https://platform.minimax.io/docs/api-reference/speech-t2a-websocket
 - Zod: https://github.com/colinhacks/zod

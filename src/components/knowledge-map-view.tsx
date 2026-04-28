@@ -17,10 +17,10 @@ import {
   AppFrame,
   Badge,
   CoachPanel,
-  GraphCanvas,
   PageWrap,
   TopNav,
 } from "@/components/presento-ui";
+import { SigmaKnowledgeGraph } from "@/components/sigma-knowledge-graph";
 import { demoKnowledgeNodes, demoProject } from "@/lib/demo-data";
 
 const graphFilters = ["全部", "高危", "薄弱点", "PPT", "代码/数据", "我的负责"];
@@ -43,18 +43,39 @@ export function KnowledgeMapView() {
     () => demoKnowledgeNodes.find((node) => node.id === activeNodeId) ?? demoKnowledgeNodes[0],
     [activeNodeId],
   );
+  const sigmaNodes = useMemo(
+    () => demoKnowledgeNodes.map((node) => ({
+      id: node.id,
+      title: node.title,
+      kind: node.id === "project" ? "project" : node.type.includes("资料") ? "file" : "module",
+      tone: node.tone,
+      summary: node.description,
+    })),
+    [],
+  );
+  const sigmaEdges = useMemo(
+    () => demoKnowledgeNodes.slice(1).map((node) => ({
+      id: `edge-project-${node.id}`,
+      fromNodeId: "project",
+      toNodeId: node.id,
+      label: "知识关联",
+    })),
+    [],
+  );
 
   return (
     <AppFrame>
       <TopNav />
       <PageWrap className="presento-map-page">
         <section className="presento-map-stage">
-          <GraphCanvas
-            activeId={activeNodeId}
-            height="min-h-full"
-            nodes={demoKnowledgeNodes}
-            onSelect={setActiveNodeId}
-          />
+          <div className="min-h-full">
+            <SigmaKnowledgeGraph
+              activeId={activeNodeId}
+              edges={sigmaEdges}
+              nodes={sigmaNodes}
+              onSelect={setActiveNodeId}
+            />
+          </div>
 
           <div className="presento-map-command-bar">
             <div className="min-w-0">

@@ -1,0 +1,118 @@
+<h2>整页详情改造方向</h2>
+<p class="subtitle">目标已经固定：保留顶部栏和左侧 dock；进入时保留原来的放大动画；流程图只在过渡阶段短暂可见，落定后消失。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. 共享壳 + 整页详情（推荐）</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Topbar</div>
+          <div style="display:flex; gap:12px; min-height:260px;">
+            <div class="mock-sidebar" style="width:84px;">Dock</div>
+            <div class="mock-content" style="position:relative; flex:1;">
+              <div class="placeholder" style="position:absolute; inset:0; opacity:.22;">Map only during transition</div>
+              <div class="placeholder" style="position:absolute; inset:14px; background:#fff;">True full-page detail content</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 A</h3>
+      <p>共享一个工作台壳，详情内容改成占满主内容区的真正页面。过渡动画仍由共享壳统一驱动。</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>最容易保住现有丝滑动画</li>
+            <li>改动集中，风险最小</li>
+            <li>视觉上就是“单开页面”</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul>
+            <li>需要把当前方块式容器重构成整页容器</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. 分页彻底拆开</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Topbar</div>
+          <div style="display:flex; gap:12px; min-height:260px;">
+            <div class="mock-sidebar" style="width:84px;">Dock</div>
+            <div class="mock-content" style="display:grid; grid-template-rows:44px 1fr;">
+              <div class="placeholder">Independent transition layer</div>
+              <div class="placeholder" style="background:#fff;">Dedicated detail page tree</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 B</h3>
+      <p>把地图页和详情页彻底拆成两套页面树，再额外做一个跨页面动画层把它们衔接起来。</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>结构最“正统”</li>
+            <li>后续扩展整页功能最自由</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul>
+            <li>动画最容易回归</li>
+            <li>重构量明显更大</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. 原生 View Transition</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Topbar</div>
+          <div style="display:flex; gap:12px; min-height:260px;">
+            <div class="mock-sidebar" style="width:84px;">Dock</div>
+            <div class="mock-content">
+              <div class="placeholder">Browser-driven morph / crossfade</div>
+              <div class="placeholder" style="margin-top:12px; background:#fff;">New detail page</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 C</h3>
+      <p>启用 Next/React 的 View Transition，让浏览器接管跨页面动效，再和现有动画做混合。</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>理论上最像真正页面切换</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul>
+            <li>实验性更强</li>
+            <li>和现有 GSAP 过渡容易打架</li>
+            <li>不适合这次稳改</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

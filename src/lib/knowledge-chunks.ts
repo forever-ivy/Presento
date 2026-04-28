@@ -9,7 +9,13 @@ export type KnowledgeChunkMetadata = {
   artifactTitle: string;
   lineStart: number;
   lineEnd: number;
+  page?: number;
+  slide?: number;
+  sheet?: string;
+  cellRange?: string;
+  codePath?: string;
   sourcePath?: string;
+  [key: string]: unknown;
 };
 
 export type KnowledgeChunkRecord = {

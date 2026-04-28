@@ -5,8 +5,8 @@ export const siteMetadata: Metadata = {
   applicationName: "Presento",
   description: "上传课程项目资料，对着 PPT 与 AI 老师实时训练答辩。",
   icons: {
-    icon: "/brand/presento-icon.png",
-    shortcut: "/brand/presento-icon.png",
-    apple: "/brand/presento-icon.png",
+    icon: "/brand/presento-icon-panda.png",
+    shortcut: "/brand/presento-icon-panda.png",
+    apple: "/brand/presento-icon-panda.png",
   },
 };

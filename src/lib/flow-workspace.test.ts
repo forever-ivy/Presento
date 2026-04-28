@@ -3,11 +3,17 @@ import assert from "node:assert/strict";
 
 import * as flowWorkspaceModule from "./flow-workspace.ts";
 import {
+  FLOW_NODE_FOCUS_MAX_ZOOM,
   createFlowWorkspaceFlow,
   flowRouteToMode,
   flowStepToRoute,
+  getFlowBackgroundCopyAnimationMode,
+  getFlowBackgroundCopyBehavior,
   getFlowCameraAction,
+  getFlowPortalOriginStyle,
+  getFlowStepSlideDirection,
   shouldAnimateFlowModeTransition,
+  shouldRenderFlowRoomChrome,
   getFlowWorkspaceInitialRoomStep,
   getFlowTransitionPreset,
   getFlowWorkspaceTransitionStep,
@@ -55,6 +61,32 @@ test("distinguishes map overview routes from inside room routes", () => {
   assert.equal(flowRouteToMode("/"), "map");
   assert.equal(flowRouteToMode("/projects/demo/knowledge-map"), "inside");
   assert.equal(flowRouteToMode("/projects/demo/defense"), "inside");
+});
+
+test("returns the correct background copy visibility behavior", () => {
+  assert.equal(getFlowBackgroundCopyBehavior({ mode: "map", pinned: false }), "timed");
+  assert.equal(getFlowBackgroundCopyBehavior({ mode: "map", pinned: true }), "persistent");
+  assert.equal(getFlowBackgroundCopyBehavior({ mode: "inside", pinned: false }), "hidden");
+  assert.equal(getFlowBackgroundCopyBehavior({ mode: "inside", pinned: true }), "hidden");
+});
+
+test("prioritizes exit motion over timed and persistent background copy modes", () => {
+  assert.equal(
+    getFlowBackgroundCopyAnimationMode({ behavior: "timed", exiting: false }),
+    "timed",
+  );
+  assert.equal(
+    getFlowBackgroundCopyAnimationMode({ behavior: "persistent", exiting: false }),
+    "persistent",
+  );
+  assert.equal(
+    getFlowBackgroundCopyAnimationMode({ behavior: "timed", exiting: true }),
+    "exiting",
+  );
+  assert.equal(
+    getFlowBackgroundCopyAnimationMode({ behavior: "persistent", exiting: true }),
+    "exiting",
+  );
 });
 
 test("keeps the source room as active transition step while returning to the map", () => {
@@ -150,13 +182,13 @@ test("returns stable transition presets for map, explore, and immersive rooms", 
   assert.equal(mapPreset.camera.type, "fit");
   assert.equal(mapPreset.camera.duration, 780);
   assert.deepEqual(mapPreset.camera.padding, {
-    top: "9%",
-    right: "7%",
-    bottom: "10%",
-    left: "16%",
+    top: "6%",
+    right: "4%",
+    bottom: "8%",
+    left: "10%",
   });
   assert.equal(mapPreset.camera.minZoom, 0.34);
-  assert.equal(mapPreset.camera.maxZoom, 0.4);
+  assert.equal(mapPreset.camera.maxZoom, 0.44);
   assert.equal(mapPreset.canvas.opacity, 1);
   assert.equal(mapPreset.room.visible, false);
   assert.equal(mapPreset.portalShell.visible, false);
@@ -168,28 +200,73 @@ test("returns stable transition presets for map, explore, and immersive rooms", 
   assert.deepEqual(knowledgePreset.camera.offset, { x: 0, y: 0 });
   assert.equal(knowledgePreset.canvas.blur, 4);
   assert.equal(knowledgePreset.canvas.scale, 1.03);
+  assert.equal(knowledgePreset.canvas.opacity, 0);
   assert.equal(knowledgePreset.room.scaleFrom, 0.82);
   assert.equal(knowledgePreset.portalShell.visible, true);
   assert.equal(knowledgePreset.portalShell.duration, 520);
   assert.equal(knowledgePreset.portalShell.delay, 0.08);
-  assert.equal(knowledgePreset.portalShell.scaleFrom, 0.18);
+  assert.equal(knowledgePreset.portalShell.scaleFrom, 0.16);
   assert.equal(knowledgePreset.portalShell.clipFrom, "inset(43% 42% 43% 42% round 22px)");
-  assert.equal(knowledgePreset.portalShell.clipTo, "inset(0% 0% 0% 0% round 28px)");
+  assert.equal(knowledgePreset.portalShell.clipTo, "inset(0% 0% 0% 0% round 0px)");
 
   const defensePreset = getFlowTransitionPreset("inside", getFlowStepById("defense"));
   assert.equal(defensePreset.name, "immersive");
   assert.equal(defensePreset.camera.zoom, 1.48);
-  assert.equal(defensePreset.canvas.opacity, 1);
+  assert.equal(defensePreset.canvas.opacity, 0);
   assert.equal(defensePreset.room.duration, 380);
   assert.equal(defensePreset.portalShell.duration, 460);
+  assert.equal(defensePreset.portalShell.clipTo, "inset(0% 0% 0% 0% round 0px)");
 
   const enteringPreset = getFlowTransitionPreset("entering", getFlowStepById("defense"));
-  assert.equal(enteringPreset.camera.zoom, 1.66);
+  assert.equal(enteringPreset.camera.zoom, 2.6);
+  assert.equal(enteringPreset.camera.duration, 620);
+  assert.ok(FLOW_NODE_FOCUS_MAX_ZOOM >= enteringPreset.camera.zoom);
   assert.equal(enteringPreset.canvas.opacity, 1);
-  assert.equal(enteringPreset.canvas.scale, 0.96);
+  assert.equal(enteringPreset.canvas.scale, 1);
   assert.equal(enteringPreset.canvas.blur, 0);
+  assert.equal(enteringPreset.canvas.saturation, 1);
   assert.equal(enteringPreset.portalShell.visible, true);
-  assert.equal(enteringPreset.portalShell.opacityTo, 0.86);
+  assert.equal(enteringPreset.portalShell.duration, 560);
+  assert.equal(enteringPreset.portalShell.delay, 0.62);
+  assert.equal(enteringPreset.portalShell.scaleFrom, 1);
+  assert.equal(enteringPreset.portalShell.opacityTo, 0.9);
+});
+
+test("builds a portal origin from the target card bounds", () => {
+  assert.deepEqual(
+    getFlowPortalOriginStyle({
+      containerHeight: 800,
+      containerWidth: 1200,
+      padding: 10,
+      sourceHeight: 160,
+      sourceLeft: 300,
+      sourceTop: 240,
+      sourceWidth: 360,
+    }),
+    {
+      clipPath: "inset(28.75% 44.17% 48.75% 24.17% round 24px)",
+      transformOrigin: "40% 40%",
+    },
+  );
+});
+
+test("delays page portal entry until the target card has focused", () => {
+  const enteringPreset = getFlowTransitionPreset("entering", getFlowStepById("defense"));
+
+  assert.equal(enteringPreset.camera.duration, 620);
+  assert.equal(enteringPreset.portalShell.delay, 0.62);
+  assert.ok(enteringPreset.portalShell.delay * 1000 >= enteringPreset.camera.duration);
+
+  const getFlowNodeMotion = (flowWorkspaceModule as Record<string, unknown>)
+    .getFlowNodeMotionState as
+      | ((mode: "map" | "entering" | "inside", active: boolean) => {
+          opacity: number;
+          scale: number;
+          y: number;
+        })
+      | undefined;
+
+  assert.equal(getFlowNodeMotion?.("entering", true).scale, 1.04);
 });
 
 test("keeps sibling cards opaque while a room is focused", () => {
@@ -203,6 +280,11 @@ test("keeps sibling cards opaque while a room is focused", () => {
       | undefined;
 
   assert.equal(typeof getFlowNodeMotion, "function");
+  assert.deepEqual(getFlowNodeMotion?.("map", true), {
+    opacity: 1,
+    scale: 1.04,
+    y: -2,
+  });
   assert.deepEqual(getFlowNodeMotion?.("inside", false), {
     opacity: 1,
     scale: 0.97,
@@ -215,12 +297,25 @@ test("keeps sibling cards opaque while a room is focused", () => {
   });
 });
 
-test("avoids refitting the full map during dock-driven room entry", () => {
+test("uses fit camera only for overview targets", () => {
   assert.equal(getFlowCameraAction("map", "map"), "fit");
   assert.equal(getFlowCameraAction("map", "inside"), "hold");
   assert.equal(getFlowCameraAction("entering", "inside"), "center");
   assert.equal(getFlowCameraAction("inside", "inside"), "center");
-  assert.equal(getFlowCameraAction("entering", "map"), "center");
+  assert.equal(getFlowCameraAction("entering", "map"), "hold");
+});
+
+test("derives room switch slide direction from dock order", () => {
+  assert.equal(getFlowStepSlideDirection("files", "scripts"), 1);
+  assert.equal(getFlowStepSlideDirection("review", "deepDive"), -1);
+  assert.equal(getFlowStepSlideDirection("knowledge", "pcg"), 1);
+});
+
+test("keeps room chrome hidden during the dock focus camera move", () => {
+  assert.equal(shouldRenderFlowRoomChrome({ dockFocusPending: false, mode: "map" }), false);
+  assert.equal(shouldRenderFlowRoomChrome({ dockFocusPending: true, mode: "entering" }), false);
+  assert.equal(shouldRenderFlowRoomChrome({ dockFocusPending: false, mode: "entering" }), true);
+  assert.equal(shouldRenderFlowRoomChrome({ dockFocusPending: false, mode: "inside" }), true);
 });
 
 test("only uses entering mode when crossing the map boundary", () => {

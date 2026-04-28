@@ -1,5 +1,11 @@
-import type { KnowledgeEdgeRecord, KnowledgeNodeRecord, ProjectSourceRecord } from "@shared/domain";
+import type {
+  KnowledgeEdgeRecord,
+  KnowledgeNodeRecord,
+  ParsedFileResult,
+  ProjectSourceRecord,
+} from "@shared/domain";
 import { createKnowledgeChunks } from "../../../src/lib/knowledge-chunks.ts";
+import type { KnowledgeChunkRecord } from "../../../src/lib/knowledge-chunks.ts";
 import { createProcessingArtifact } from "../../../src/lib/local-processing.ts";
 import type {
   DefenseFileRecord,
@@ -11,12 +17,14 @@ export function ingestLocalFile({
   file,
   task,
   content,
+  parsed,
   createdAt = new Date().toISOString(),
 }: {
   projectId: string;
   file: DefenseFileRecord;
   task: DefenseProcessingTask;
   content: string;
+  parsed?: ParsedFileResult;
   createdAt?: string;
 }) {
   const artifact = createProcessingArtifact({
@@ -30,19 +38,21 @@ export function ingestLocalFile({
     projectId,
     fileId: file.id,
     kind: file.kind,
-    title: `${file.name} 来源`,
-    summary: artifact.summary,
+    title: parsed?.source.title ? `${parsed.source.title} 来源` : `${file.name} 来源`,
+    summary: parsed?.source.summary ?? artifact.summary,
     sourcePath: file.storagePath,
     metadata: {
       mimeType: file.type,
       uploadedFrom: file.source,
+      ...(parsed?.source.metadata ?? {}),
     },
     createdAt,
   };
 
-  const chunks = createKnowledgeChunks({
+  const chunks = createIngestKnowledgeChunks({
     projectId,
     artifact,
+    parsed,
     content,
     createdAt,
   });
@@ -50,7 +60,9 @@ export function ingestLocalFile({
   const knowledgeNodes = createStarterKnowledgeNodes({
     projectId,
     source,
+    file,
     content,
+    parsed,
     createdAt,
   });
   const knowledgeEdges = createStarterKnowledgeEdges({
@@ -71,12 +83,16 @@ export function ingestLocalFile({
 function createStarterKnowledgeNodes({
   projectId,
   source,
+  file,
   content,
+  parsed,
   createdAt,
 }: {
   projectId: string;
   source: ProjectSourceRecord;
+  file: DefenseFileRecord;
   content: string;
+  parsed?: ParsedFileResult;
   createdAt: string;
 }): KnowledgeNodeRecord[] {
   const projectNode: KnowledgeNodeRecord = {
@@ -89,17 +105,16 @@ function createStarterKnowledgeNodes({
     metadata: {},
     createdAt,
   };
-  const sourceNode: KnowledgeNodeRecord = {
-    id: `node-source-${source.fileId}`,
+  const categoryNode: KnowledgeNodeRecord = {
+    id: `node-source-category-${projectId}-${source.kind}`,
     projectId,
-    kind: "source",
-    title: source.title,
-    summary: source.summary,
+    kind: "source-category",
+    title: sourceCategoryTitle(source.kind),
+    summary: `按 ${sourceCategoryTitle(source.kind)} 汇总的项目资料。`,
     tone: "green",
-    sourceId: source.id,
     metadata: {
-      fileId: source.fileId,
       kind: source.kind,
+      layout: { ring: 1 },
     },
     createdAt,
   };
@@ -113,11 +128,53 @@ function createStarterKnowledgeNodes({
     sourceId: source.id,
     metadata: {
       sourceFileId: source.fileId,
+      layout: { ring: 2 },
+    },
+    createdAt,
+  };
+  const fileNode: KnowledgeNodeRecord = {
+    id: `node-file-${source.fileId}`,
+    projectId,
+    kind: "file",
+    title: file.name,
+    summary: parsed?.source.summary ?? source.summary,
+    tone: source.kind === "presentation" ? "orange" : "cyan",
+    sourceId: source.id,
+    metadata: {
+      fileId: source.fileId,
+      sourceId: source.id,
+      fileKind: source.kind,
+      mimeType: file.type,
+      sourcePath: source.sourcePath,
+      viewer: viewerForFileKind(source.kind),
+      explainable: isFileExplainable(source.kind),
+      preview: parsed?.preview ?? null,
+      slideCount: parsed?.slides?.length ?? null,
+      tableCount: parsed?.tables?.length ?? null,
+      codeTreeCount: parsed?.codeTree?.length ?? null,
+      layout: { ring: 3 },
+    },
+    createdAt,
+  };
+  const trainingNode: KnowledgeNodeRecord = {
+    id: `node-training-${source.fileId}`,
+    projectId,
+    kind: "training",
+    title: "文件讲解与追问",
+    summary: isFileExplainable(source.kind)
+      ? "进入 NotebookLM 式讲解，支持速通与精通模式。"
+      : "演示稿资料优先进入逐页讲稿与答辩训练。",
+    tone: "purple",
+    sourceId: source.id,
+    metadata: {
+      fileId: source.fileId,
+      action: isFileExplainable(source.kind) ? "explain-file" : "open-slide-script",
+      layout: { ring: 4 },
     },
     createdAt,
   };
 
-  return [projectNode, sourceNode, moduleNode];
+  return [projectNode, categoryNode, moduleNode, fileNode, trainingNode];
 }
 
 function createStarterKnowledgeEdges({
@@ -130,6 +187,9 @@ function createStarterKnowledgeEdges({
   createdAt: string;
 }): KnowledgeEdgeRecord[] {
   const [projectNode, sourceNode, moduleNode] = nodes;
+  const fileNode = nodes.find((node) => node.kind === "file");
+  const trainingNode = nodes.find((node) => node.kind === "training");
+  if (!fileNode || !trainingNode) return [];
   return [
     {
       id: `edge-${projectNode.id}-${sourceNode.id}`,
@@ -137,7 +197,7 @@ function createStarterKnowledgeEdges({
       fromNodeId: projectNode.id,
       toNodeId: sourceNode.id,
       kind: "source",
-      label: "资料来源",
+      label: "资料类别",
       createdAt,
     },
     {
@@ -145,11 +205,96 @@ function createStarterKnowledgeEdges({
       projectId,
       fromNodeId: sourceNode.id,
       toNodeId: moduleNode.id,
+      kind: "contains",
+      label: "关联模块",
+      createdAt,
+    },
+    {
+      id: `edge-${moduleNode.id}-${fileNode.id}`,
+      projectId,
+      fromNodeId: moduleNode.id,
+      toNodeId: fileNode.id,
+      kind: "evidence",
+      label: "资料文件",
+      createdAt,
+    },
+    {
+      id: `edge-${fileNode.id}-${trainingNode.id}`,
+      projectId,
+      fromNodeId: fileNode.id,
+      toNodeId: trainingNode.id,
       kind: "training",
-      label: "解析模块",
+      label: "讲解入口",
       createdAt,
     },
   ];
+}
+
+function createIngestKnowledgeChunks({
+  projectId,
+  artifact,
+  parsed,
+  content,
+  createdAt,
+}: {
+  projectId: string;
+  artifact: ReturnType<typeof createProcessingArtifact>;
+  parsed?: ParsedFileResult;
+  content: string;
+  createdAt: string;
+}): KnowledgeChunkRecord[] {
+  if (!parsed?.chunks?.length) {
+    return createKnowledgeChunks({
+      projectId,
+      artifact,
+      content,
+      createdAt,
+    });
+  }
+
+  return parsed.chunks
+    .filter((chunk) => chunk.content.trim())
+    .map((chunk, index) => ({
+      id: chunk.id ?? `chunk-${artifact.id}-${index + 1}`,
+      projectId,
+      artifactId: artifact.id,
+      fileId: artifact.fileId,
+      content: chunk.content,
+      source: chunk.source ?? `${artifact.fileName} · ${artifact.kind}`,
+      metadata: {
+        fileName: artifact.fileName,
+        kind: artifact.kind,
+        artifactTitle: artifact.title,
+        lineStart: readNumberMetadata(chunk.metadata, "lineStart") ?? index + 1,
+        lineEnd: readNumberMetadata(chunk.metadata, "lineEnd") ?? index + 1,
+        ...(artifact.sourcePath ? { sourcePath: artifact.sourcePath } : {}),
+        ...(chunk.metadata ?? {}),
+      },
+      createdAt,
+    }));
+}
+
+function readNumberMetadata(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+  return typeof value === "number" ? value : undefined;
+}
+
+function sourceCategoryTitle(kind: string) {
+  if (kind === "presentation") return "演示稿资料";
+  if (kind === "dataset") return "数据与表格";
+  if (kind === "code") return "代码资料";
+  return "文档资料";
+}
+
+function viewerForFileKind(kind: string) {
+  if (kind === "presentation") return "slide-script";
+  if (kind === "code") return "code-ide";
+  if (kind === "dataset") return "table";
+  return "document";
+}
+
+function isFileExplainable(kind: string) {
+  return kind !== "presentation";
 }
 
 function inferModuleTitle(content: string) {

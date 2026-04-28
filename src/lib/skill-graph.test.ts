@@ -11,13 +11,15 @@ const chunks = [
   {
     id: "chunk-1",
     projectId: "project-1",
-    fileAssetId: "file-1",
+    fileId: "file-1",
     artifactId: "artifact-1",
     source: "README.md · document",
     content: "项目目标：解决食堂高峰期排队。技术路线：Next.js + PostgreSQL。",
     embedding: [],
     metadata: {
       fileName: "README.md",
+      kind: "document" as const,
+      artifactTitle: "README 解析结果",
       contentType: "text/markdown",
       lineStart: 1,
       lineEnd: 2,
@@ -28,8 +30,8 @@ const chunks = [
 
 function fakeProvider(output: unknown): LlmProvider {
   return {
-    async generateJson() {
-      return output;
+    async generateJson<T>() {
+      return output as T;
     },
   };
 }

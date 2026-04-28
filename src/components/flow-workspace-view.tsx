@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowLeft,
   Bot,
   CheckCircle2,
   Clock,
@@ -23,10 +22,12 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   startTransition,
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -39,11 +40,11 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
-  useNodesInitialized,
-  useReactFlow,
   type Edge,
   type Node,
   type NodeProps,
+  type ReactFlowInstance,
+  type Viewport,
 } from "@xyflow/react";
 import { AppFrame, PageWrap, TopNav, cn } from "@/components/presento-ui";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +63,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DotPattern } from "@/components/magicui/dot-pattern";
+import { SigmaKnowledgeGraph } from "@/components/sigma-knowledge-graph";
 import {
   ScrollVelocityContainer,
   ScrollVelocityRow,
@@ -70,17 +72,24 @@ import {
   FLOW_MAP_OVERVIEW_MAX_ZOOM,
   FLOW_MAP_OVERVIEW_MIN_ZOOM,
   FLOW_MAP_OVERVIEW_PADDING,
+  FLOW_NODE_FOCUS_MAX_ZOOM,
   createFlowWorkspaceFlow,
   flowRouteToMode,
   flowStepToRoute,
+  getFlowBackgroundCopyAnimationMode,
+  getFlowBackgroundCopyBehavior,
   getFlowCameraAction,
   getFlowNodeMotionState,
+  getFlowPortalOriginStyle,
+  getFlowStepSlideDirection,
   shouldAnimateFlowModeTransition,
+  shouldRenderFlowRoomChrome,
   getFlowWorkspaceInitialRoomStep,
   getFlowTransitionPreset,
   getFlowWorkspaceTransitionStep,
   getFlowStepById,
   getFlowStepByRoute,
+  type FlowBackgroundCopyBehavior,
   type FlowMode,
   type FlowRoomKind,
   type FlowStepId,
@@ -104,21 +113,64 @@ import { useWorkspace } from "@/lib/use-workspace";
 
 gsap.registerPlugin(useGSAP);
 
-const ENTER_MS = 820;
-const EXIT_MS = 460;
+const DOCK_FOCUS_MS = 680;
+const ENTER_MS = 1240;
+const DOCK_ROOM_OPEN_MS = ENTER_MS - DOCK_FOCUS_MS;
+const DOCK_ROUTE_SETTLE_MS = 80;
+const ROOM_SWITCH_MS = 560;
+const FLOW_DEFAULT_VIEWPORT = { x: 500, y: 260, zoom: 0.62 };
+const EXIT_MS = 760;
+const MAP_RETURN_CAMERA_MS = 1240;
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
 const BACKGROUND_COPY_VISIBLE_MS = 10_000;
 const BACKGROUND_COPY_FADE_MS = 900;
-const BACKGROUND_COPY_EXIT_NAV_DELAY_MS = 180;
+const BACKGROUND_COPY_PINNED_STORAGE_KEY = "presento.background-copy-pinned";
 let pendingReturnStepId: FlowStepId | null = null;
+let pendingDockEntryStepId: FlowStepId | null = null;
+let pendingDockEntryToken = 0;
+let pendingDockEntryViewport: Viewport | null = null;
+let pendingSettledDockEntryStepId: FlowStepId | null = null;
+let pendingRoomSwitch: RoomSwitchState | null = null;
+let pendingRoomSwitchViewport: Viewport | null = null;
+let pendingSettledMapReturn = false;
+
+type RoomSwitchState = {
+  direction: -1 | 1;
+  from: FlowStep;
+  key: number;
+  startedAt: number;
+  to: FlowStep;
+};
+
+function pushFlowHistory(href: string) {
+  window.history.pushState(null, "", href);
+}
+
+function easeInOutSine(t: number) {
+  return -(Math.cos(Math.PI * t) - 1) / 2;
+}
 
 export function FlowWorkspaceView() {
   const pathname = usePathname();
-  const router = useRouter();
   const targetMode = flowRouteToMode(pathname);
   const activeStep = getFlowStepByRoute(pathname);
-  const [mode, setMode] = useState<FlowMode>(() => (targetMode === "map" ? "map" : "entering"));
+  const settledDockEntry =
+    targetMode === "inside" && pendingSettledDockEntryStepId === activeStep.id;
+  const resumedDockEntry =
+    targetMode === "inside" && pendingDockEntryStepId === activeStep.id;
+  const resumedDockEntryToken = resumedDockEntry || settledDockEntry ? pendingDockEntryToken : 0;
+  const resumedRoomSwitch =
+    targetMode === "inside" && pendingRoomSwitch?.to.id === activeStep.id
+      ? pendingRoomSwitch
+      : null;
+  const [modeState, setMode] = useState<FlowMode>(() => {
+    if (targetMode === "map") return "map";
+    if (settledDockEntry) return "inside";
+    return "entering";
+  });
+  const mode: FlowMode =
+    targetMode === "map" && pendingSettledMapReturn ? "map" : modeState;
   const [lastRoomStep, setLastRoomStep] = useState(() => {
     const pendingReturnStep = pendingReturnStepId ? getFlowStepById(pendingReturnStepId) : null;
     if (targetMode === "map") pendingReturnStepId = null;
@@ -133,116 +185,263 @@ export function FlowWorkspaceView() {
   const initializedRef = useRef(false);
   const pendingModeRef = useRef(targetMode);
   const previousTargetModeRef = useRef<Exclude<FlowMode, "entering"> | null>(null);
-  const delayedNavigationTimerRef = useRef<number | null>(null);
-  const backgroundShowTimerRef = useRef<number | null>(null);
-  const backgroundHideTimerRef = useRef<number | null>(null);
-  const [backgroundVisible, setBackgroundVisible] = useState(() => targetMode === "map");
+  const modeTransitionTimersRef = useRef<{
+    done: number | null;
+    entering: number | null;
+  }>({ done: null, entering: null });
+  const dockFocusTimerRef = useRef<number | null>(null);
+  const roomSwitchTimerRef = useRef<number | null>(null);
+  const returnToMapTimerRef = useRef<number | null>(null);
+  const returningToMapRef = useRef(false);
+  const flowInstanceRef = useRef<ReactFlowInstance<Node<FlowWorkspaceNodeData>, Edge> | null>(null);
+  const [dockEntryHref, setDockEntryHref] = useState<string | null>(null);
+  const [dockFocusPending, setDockFocusPending] = useState(false);
+  const [returningToMap, setReturningToMap] = useState(false);
+  const [roomSwitch, setRoomSwitch] = useState<RoomSwitchState | null>(() => resumedRoomSwitch);
+  const [roomSwitchSettledStepId, setRoomSwitchSettledStepId] = useState<FlowStepId | null>(null);
+  const [roomContentReady, setRoomContentReady] = useState(true);
+  const backgroundCopyPinned = useBackgroundCopyPinnedPreference();
+  const [backgroundCopyCycle, setBackgroundCopyCycle] = useState(0);
+  const [backgroundCopyExiting, setBackgroundCopyExiting] = useState(false);
+  const backgroundCopyBehavior = useMemo(
+    () => getFlowBackgroundCopyBehavior({ mode, pinned: backgroundCopyPinned }),
+    [backgroundCopyPinned, mode],
+  );
+  const clearModeTransitionTimers = useCallback(() => {
+    if (modeTransitionTimersRef.current.entering) {
+      window.clearTimeout(modeTransitionTimersRef.current.entering);
+      modeTransitionTimersRef.current.entering = null;
+    }
+    if (modeTransitionTimersRef.current.done) {
+      window.clearTimeout(modeTransitionTimersRef.current.done);
+      modeTransitionTimersRef.current.done = null;
+    }
+  }, []);
 
-  const visibleRoomStep = targetMode === "inside" ? activeStep : lastRoomStep;
-  const transitionStep = getFlowWorkspaceTransitionStep({
-    activeStep,
-    lastRoomStep,
-    targetMode,
-  });
+  const pendingDockEntryHref = dockEntryHref && dockEntryHref !== pathname
+    ? dockEntryHref
+    : null;
+  const transitionTargetMode: Exclude<FlowMode, "entering"> = returningToMap
+    ? "map"
+    : pendingDockEntryHref
+    ? "inside"
+    : targetMode;
+  const visibleRoomStep = roomSwitch
+    ? roomSwitch.to
+    : transitionTargetMode === "inside"
+    ? pendingDockEntryHref
+      ? lastRoomStep
+      : activeStep
+    : lastRoomStep;
+  const transitionStep = returningToMap
+    ? lastRoomStep
+    : roomSwitch
+    ? roomSwitch.to
+    : pendingDockEntryHref
+    ? lastRoomStep
+    : getFlowWorkspaceTransitionStep({
+        activeStep,
+        lastRoomStep,
+        targetMode,
+      });
 
   useEffect(() => {
     pendingModeRef.current = targetMode;
+    if (targetMode !== "map") {
+      pendingSettledMapReturn = false;
+    }
+    clearModeTransitionTimers();
     const isInitialRender = !initializedRef.current;
     const previousTargetMode = previousTargetModeRef.current;
-    const animateTransition = shouldAnimateFlowModeTransition({
-      isInitialRender,
-      previousTargetMode,
-      targetMode,
-    });
+    const skipSettledMapTransition =
+      targetMode === "map" && pendingSettledMapReturn;
+    const skipSettledDockEntryTransition =
+      targetMode === "inside" && pendingSettledDockEntryStepId === activeStep.id;
+
+    const animateTransition =
+      !skipSettledDockEntryTransition &&
+      !skipSettledMapTransition &&
+      (resumedDockEntry ||
+        shouldAnimateFlowModeTransition({
+          isInitialRender,
+          previousTargetMode,
+          targetMode,
+        }));
 
     previousTargetModeRef.current = targetMode;
     initializedRef.current = true;
+
+    if (skipSettledDockEntryTransition) {
+      pendingSettledDockEntryStepId = null;
+      pendingDockEntryStepId = null;
+      pendingDockEntryViewport = null;
+      const settleTimer = window.setTimeout(() => {
+        setDockEntryHref(null);
+        setDockFocusPending(false);
+        setBackgroundCopyExiting(false);
+        setMode("inside");
+      }, 0);
+      return () => window.clearTimeout(settleTimer);
+    }
+
+    if (skipSettledMapTransition) {
+      const settleTimer = window.setTimeout(() => {
+        returningToMapRef.current = false;
+        setReturningToMap(false);
+        setMode("map");
+      }, 0);
+      return () => window.clearTimeout(settleTimer);
+    }
 
     if (!animateTransition) {
       setMode(targetMode);
       return;
     }
 
-    const enteringTimer = window.setTimeout(() => setMode("entering"), 0);
-
-    const doneTimer = window.setTimeout(() => {
-      if (pendingModeRef.current === "map") setMode("map");
-      if (pendingModeRef.current === "inside") setMode("inside");
-    }, targetMode === "map" ? EXIT_MS : ENTER_MS);
-
-    return () => {
-      window.clearTimeout(enteringTimer);
-      window.clearTimeout(doneTimer);
-    };
-  }, [pathname, targetMode]);
-
-  useEffect(() => {
-    if (backgroundShowTimerRef.current) {
-      window.clearTimeout(backgroundShowTimerRef.current);
-      backgroundShowTimerRef.current = null;
-    }
-    if (backgroundHideTimerRef.current) {
-      window.clearTimeout(backgroundHideTimerRef.current);
-      backgroundHideTimerRef.current = null;
-    }
-
-    if (mode !== "map") return;
-
-    backgroundShowTimerRef.current = window.setTimeout(() => {
-      setBackgroundVisible(true);
-      backgroundShowTimerRef.current = null;
-
-      backgroundHideTimerRef.current = window.setTimeout(() => {
-        setBackgroundVisible(false);
-        backgroundHideTimerRef.current = null;
-      }, BACKGROUND_COPY_VISIBLE_MS);
+    modeTransitionTimersRef.current.entering = window.setTimeout(() => {
+      modeTransitionTimersRef.current.entering = null;
+      setMode("entering");
     }, 0);
 
-    return () => {
-      if (backgroundShowTimerRef.current) {
-        window.clearTimeout(backgroundShowTimerRef.current);
-        backgroundShowTimerRef.current = null;
+    modeTransitionTimersRef.current.done = window.setTimeout(() => {
+      modeTransitionTimersRef.current.done = null;
+      if (pendingModeRef.current === "map") setMode("map");
+      if (pendingModeRef.current === "inside") {
+        setMode("inside");
+        setDockEntryHref(null);
+        setDockFocusPending(false);
+        pendingDockEntryStepId = null;
+        pendingSettledDockEntryStepId = null;
       }
-      if (backgroundHideTimerRef.current) {
-        window.clearTimeout(backgroundHideTimerRef.current);
-        backgroundHideTimerRef.current = null;
+    }, targetMode === "map" ? EXIT_MS : resumedDockEntry ? DOCK_ROOM_OPEN_MS : ENTER_MS);
+
+    return clearModeTransitionTimers;
+  }, [activeStep.id, clearModeTransitionTimers, pathname, resumedDockEntry, targetMode]);
+
+  useEffect(() => {
+    if (!roomSwitch) return;
+
+    if (roomSwitchTimerRef.current) {
+      window.clearTimeout(roomSwitchTimerRef.current);
+    }
+
+    const elapsedMs = Date.now() - roomSwitch.startedAt;
+    const remainingMs = Math.max(0, ROOM_SWITCH_MS - elapsedMs);
+
+    roomSwitchTimerRef.current = window.setTimeout(() => {
+      roomSwitchTimerRef.current = null;
+      pendingRoomSwitch = null;
+      pendingRoomSwitchViewport = null;
+      setRoomSwitchSettledStepId(roomSwitch.to.id);
+      setRoomSwitch(null);
+    }, remainingMs);
+
+    return () => {
+      if (roomSwitchTimerRef.current) {
+        window.clearTimeout(roomSwitchTimerRef.current);
+        roomSwitchTimerRef.current = null;
       }
     };
-  }, [mode]);
+  }, [roomSwitch]);
 
   useEffect(() => {
     return () => {
-      if (delayedNavigationTimerRef.current) {
-        window.clearTimeout(delayedNavigationTimerRef.current);
+      clearModeTransitionTimers();
+      if (dockFocusTimerRef.current) {
+        window.clearTimeout(dockFocusTimerRef.current);
       }
-      if (backgroundShowTimerRef.current) {
-        window.clearTimeout(backgroundShowTimerRef.current);
+      if (roomSwitchTimerRef.current) {
+        window.clearTimeout(roomSwitchTimerRef.current);
       }
-      if (backgroundHideTimerRef.current) {
-        window.clearTimeout(backgroundHideTimerRef.current);
+      if (returnToMapTimerRef.current) {
+        window.clearTimeout(returnToMapTimerRef.current);
       }
     };
-  }, []);
+  }, [clearModeTransitionTimers]);
 
   function navigateWithBackgroundExit(href: string) {
     if (href === pathname) return;
+    if (returningToMapRef.current) return;
 
-    if (delayedNavigationTimerRef.current) {
-      window.clearTimeout(delayedNavigationTimerRef.current);
-      delayedNavigationTimerRef.current = null;
+    clearModeTransitionTimers();
+    if (dockFocusTimerRef.current) {
+      window.clearTimeout(dockFocusTimerRef.current);
+      dockFocusTimerRef.current = null;
     }
+    if (roomSwitchTimerRef.current) {
+      window.clearTimeout(roomSwitchTimerRef.current);
+      roomSwitchTimerRef.current = null;
+    }
+    if (returnToMapTimerRef.current) {
+      window.clearTimeout(returnToMapTimerRef.current);
+      returnToMapTimerRef.current = null;
+    }
+    pendingSettledDockEntryStepId = null;
+    pendingSettledMapReturn = false;
 
-    if (mode === "map" && backgroundVisible) {
-      setBackgroundVisible(false);
-      // Let the fade begin, but do not block dock navigation for the full copy fade.
-      delayedNavigationTimerRef.current = window.setTimeout(() => {
-        delayedNavigationTimerRef.current = null;
-        startTransition(() => router.push(href));
-      }, BACKGROUND_COPY_EXIT_NAV_DELAY_MS);
+    if (mode === "map") {
+      const targetStep = getFlowStepByRoute(href);
+      setDockEntryHref(href);
+      setDockFocusPending(true);
+      setReturningToMap(false);
+      returningToMapRef.current = false;
+      setRoomSwitchSettledStepId(null);
+      setRoomContentReady(false);
+      setLastRoomStep(targetStep);
+      setMode("entering");
+      setBackgroundCopyExiting(true);
+      dockFocusTimerRef.current = window.setTimeout(() => {
+        setDockFocusPending(false);
+        pendingDockEntryStepId = targetStep.id;
+        pendingDockEntryToken += 1;
+        pendingDockEntryViewport = flowInstanceRef.current?.getViewport() ?? null;
+        setMode("inside");
+        setRoomContentReady(true);
+
+        dockFocusTimerRef.current = window.setTimeout(() => {
+          dockFocusTimerRef.current = null;
+          pendingSettledDockEntryStepId = targetStep.id;
+          setRoomSwitchSettledStepId(targetStep.id);
+          startTransition(() => pushFlowHistory(href));
+        }, DOCK_ROOM_OPEN_MS + DOCK_ROUTE_SETTLE_MS);
+      }, DOCK_FOCUS_MS);
       return;
     }
 
-    startTransition(() => router.push(href));
+    if (targetMode === "inside" && flowRouteToMode(href) === "inside") {
+      const targetStep = getFlowStepByRoute(href);
+      const nextSwitch = {
+        direction: getFlowStepSlideDirection(activeStep.id, targetStep.id),
+        from: activeStep,
+        key: Date.now(),
+        startedAt: Date.now(),
+        to: targetStep,
+      } satisfies RoomSwitchState;
+
+      setDockEntryHref(null);
+      setDockFocusPending(false);
+      setReturningToMap(false);
+      returningToMapRef.current = false;
+      setRoomSwitchSettledStepId(null);
+      setRoomContentReady(true);
+      pendingDockEntryViewport = null;
+      pendingRoomSwitch = nextSwitch;
+      pendingRoomSwitchViewport = flowInstanceRef.current?.getViewport() ?? null;
+      setLastRoomStep(targetStep);
+      setRoomSwitch(nextSwitch);
+      setMode("inside");
+      startTransition(() => pushFlowHistory(href));
+      return;
+    }
+
+    setDockEntryHref(null);
+    setDockFocusPending(false);
+    setReturningToMap(false);
+    returningToMapRef.current = false;
+    setRoomSwitchSettledStepId(null);
+    setRoomContentReady(true);
+    pendingDockEntryViewport = null;
+    startTransition(() => pushFlowHistory(href));
   }
 
   function enterStep(stepId: FlowStepId) {
@@ -251,33 +450,176 @@ export function FlowWorkspaceView() {
     navigateWithBackgroundExit(flowStepToRoute(stepId));
   }
 
-  function exitStep() {
-    pendingReturnStepId = activeStep.id;
-    setLastRoomStep(activeStep);
-    startTransition(() => router.push("/"));
+  function cancelDockEntry() {
+    clearModeTransitionTimers();
+    if (dockFocusTimerRef.current) {
+      window.clearTimeout(dockFocusTimerRef.current);
+      dockFocusTimerRef.current = null;
+    }
+
+    pendingDockEntryStepId = null;
+    pendingSettledDockEntryStepId = null;
+    pendingDockEntryViewport = null;
+    setDockEntryHref(null);
+    setDockFocusPending(false);
+    setBackgroundCopyExiting(false);
+    setRoomContentReady(true);
+    returningToMapRef.current = false;
+    setMode("map");
   }
+
+  function exitStep() {
+    if (returningToMapRef.current) return;
+
+    returningToMapRef.current = true;
+    clearModeTransitionTimers();
+    if (dockFocusTimerRef.current) {
+      window.clearTimeout(dockFocusTimerRef.current);
+      dockFocusTimerRef.current = null;
+    }
+
+    pendingReturnStepId = null;
+    pendingDockEntryStepId = null;
+    pendingSettledDockEntryStepId = null;
+    pendingDockEntryToken += 1;
+    pendingDockEntryViewport = null;
+    pendingRoomSwitch = null;
+    pendingRoomSwitchViewport = null;
+    setDockEntryHref(null);
+    setDockFocusPending(false);
+    setBackgroundCopyExiting(false);
+    setRoomSwitch(null);
+    setRoomSwitchSettledStepId(null);
+    setRoomContentReady(true);
+    setLastRoomStep(activeStep);
+    setReturningToMap(true);
+    setMode("entering");
+
+    returnToMapTimerRef.current = window.setTimeout(() => {
+      returnToMapTimerRef.current = null;
+      pendingSettledMapReturn = true;
+      startTransition(() => pushFlowHistory("/"));
+    }, EXIT_MS);
+  }
+
+  function toggleBackgroundHint() {
+    const next = !backgroundCopyPinned;
+    setBackgroundCopyPinnedPreference(next);
+    if (!next) {
+      setBackgroundCopyCycle((cycle) => cycle + 1);
+    }
+  }
+
+  const topNavStep = pendingDockEntryHref ? lastRoomStep : activeStep;
+  const topNavDetailState =
+    targetMode === "inside" || pendingDockEntryHref
+      ? {
+          contextLabel: roomKindLabel(topNavStep.roomKind),
+          title: topNavStep.label,
+          onBack: pendingDockEntryHref ? cancelDockEntry : exitStep,
+        }
+      : undefined;
+  const topNavDetailEntrance = pendingDockEntryHref
+    ? {
+        durationMs: DOCK_FOCUS_MS,
+        key: pendingDockEntryHref,
+      }
+    : undefined;
+  const topNavDetailExit = returningToMap
+    ? {
+        durationMs: EXIT_MS,
+        key: activeStep.id,
+      }
+    : undefined;
+  const topNavDetailTransition = roomSwitch
+    ? {
+        direction: roomSwitch.direction,
+        durationMs: ROOM_SWITCH_MS,
+        from: {
+          contextLabel: roomKindLabel(roomSwitch.from.roomKind),
+          title: roomSwitch.from.label,
+        },
+        key: roomSwitch.key,
+        to: {
+          contextLabel: roomKindLabel(roomSwitch.to.roomKind),
+          title: roomSwitch.to.label,
+        },
+      }
+    : undefined;
+  const renderRoomChrome = shouldRenderFlowRoomChrome({
+    dockFocusPending,
+    mode,
+  });
+  const suppressRoomIntro = settledDockEntry || roomSwitchSettledStepId === visibleRoomStep.id;
 
   return (
     <AppFrame>
-      <TopNav onNavigate={navigateWithBackgroundExit} />
-      <PageWrap className="presento-map-page">
+      <TopNav
+        backgroundHintPinned={targetMode === "map" || returningToMap ? backgroundCopyPinned : undefined}
+        detailEntrance={topNavDetailEntrance}
+        detailExit={topNavDetailExit}
+        detailState={topNavDetailState}
+        detailTransition={topNavDetailTransition}
+        dockFixedSize
+        onNavigate={navigateWithBackgroundExit}
+        onToggleBackgroundHint={
+          targetMode === "map" || returningToMap ? toggleBackgroundHint : undefined
+        }
+      />
+      <PageWrap animateEntrance={false} className="presento-map-page">
         <section className={cn("presento-flow-workspace", `presento-flow-workspace-${mode}`)} ref={workspaceRef}>
-          {mode === "map" ? <MapBackgroundCopy visible={backgroundVisible} /> : null}
+          {mode === "map" ? (
+            <MapBackgroundCopy
+              behavior={backgroundCopyBehavior}
+              exiting={backgroundCopyExiting}
+              key={backgroundCopyPinned ? "persistent" : `timed-${backgroundCopyCycle}`}
+            />
+          ) : null}
           <FlowTransitionDirector
             activeStep={transitionStep}
+            dockEntryActive={pendingDockEntryHref !== null || resumedDockEntry || settledDockEntry}
+            dockFocusPending={dockFocusPending}
             mode={mode}
+            roomContentReady={roomContentReady}
+            roomIntroSuppressed={suppressRoomIntro}
+            roomSwitchActive={roomSwitch !== null}
             scopeRef={workspaceRef}
-            targetMode={targetMode}
+            targetMode={transitionTargetMode}
           />
           <ReactFlowProvider>
-            <FlowWorkspaceCanvas activeId={transitionStep.id} mode={mode} onEnterStep={enterStep} targetMode={targetMode} />
+            <FlowWorkspaceCanvas
+              activeId={transitionStep.id}
+              initialViewport={
+                resumedDockEntry || settledDockEntry
+                  ? pendingDockEntryViewport
+                  : roomSwitch
+                    ? pendingRoomSwitchViewport
+                    : null
+              }
+              instantCameraFocusKey={resumedDockEntryToken}
+              mode={mode}
+              onFlowInit={(instance) => {
+                flowInstanceRef.current = instance;
+              }}
+              onEnterStep={enterStep}
+              smoothMapReturn={targetMode === "map" && pendingSettledMapReturn}
+              suppressSettledMapFit={targetMode === "map" && pendingSettledMapReturn && returningToMap}
+              targetMode={transitionTargetMode}
+            />
           </ReactFlowProvider>
 
-          {mode !== "map" ? (
-            <>
-              <StepRoomShell step={visibleRoomStep} />
-              <StepRoom activeId={visibleRoomStep.id} key={visibleRoomStep.id} onBack={exitStep} />
-            </>
+          {renderRoomChrome ? (
+            roomSwitch ? (
+              <StepRoomSlideTransition transition={roomSwitch} />
+            ) : (
+              (mode === "inside" || returningToMap) && roomContentReady ? (
+                <StepRoom
+                  activeId={visibleRoomStep.id}
+                  instant={suppressRoomIntro}
+                  key={visibleRoomStep.id}
+                />
+              ) : null
+            )
           ) : null}
         </section>
       </PageWrap>
@@ -287,12 +629,22 @@ export function FlowWorkspaceView() {
 
 function FlowTransitionDirector({
   activeStep,
+  dockEntryActive,
+  dockFocusPending,
   mode,
+  roomContentReady,
+  roomIntroSuppressed,
+  roomSwitchActive,
   scopeRef,
   targetMode,
 }: {
   activeStep: FlowStep;
+  dockEntryActive: boolean;
+  dockFocusPending: boolean;
   mode: FlowMode;
+  roomContentReady: boolean;
+  roomIntroSuppressed: boolean;
+  roomSwitchActive: boolean;
   scopeRef: RefObject<HTMLElement | null>;
   targetMode: Exclude<FlowMode, "entering">;
 }) {
@@ -307,24 +659,26 @@ function FlowTransitionDirector({
       const canvas = ".presento-process-canvas";
       const room = ".presento-step-room";
       const shell = ".presento-step-room-shell";
+      const getPortalOrigin = () => getActiveStepPortalOrigin(scopeRef.current!, activeStep.id);
+      const roomElement = scopeRef.current.querySelector(room);
 
       if (reduceMotion) {
         gsap.set(canvas, {
           opacity: preset.canvas.opacity,
           scale: mode === "inside" ? preset.canvas.scale : 1,
-          filter: mode === "inside" ? `blur(${preset.canvas.blur}px) saturate(${preset.canvas.saturation})` : "blur(0px) saturate(1)",
         });
         gsap.set(shell, {
-          clipPath: mode === "map" ? mapPreset.portalShell.clipFrom : preset.portalShell.clipTo,
-          opacity: mode === "map" ? 0 : 0.72,
+          opacity: mode === "map" ? 0 : preset.portalShell.opacityTo,
           scale: 1,
           y: 0,
         });
-        gsap.set(room, {
-          opacity: mode === "inside" ? 1 : 0,
-          scale: 1,
-          y: 0,
-        });
+        if (roomElement) {
+          gsap.set(roomElement, {
+            opacity: mode === "inside" ? 1 : 0,
+            scale: 1,
+            y: 0,
+          });
+        }
         return;
       }
 
@@ -332,12 +686,25 @@ function FlowTransitionDirector({
         defaults: { ease: preset.ease, force3D: true, overwrite: "auto" },
       });
 
+      if (mode === "inside" && roomIntroSuppressed) {
+        gsap.set(shell, {
+          opacity: preset.portalShell.opacityTo,
+          scale: 1,
+          y: 0,
+        });
+        gsap.set(room, {
+          opacity: 1,
+          scale: 1,
+          y: 0,
+        });
+        return;
+      }
+
       if (mode === "map") {
         timeline
           .to(canvas, {
             duration: mapPreset.canvas.duration / 1000,
             scale: mapPreset.canvas.scale,
-            filter: "blur(0px) saturate(1)",
             opacity: mapPreset.canvas.opacity,
             ease: "power2.inOut",
           }, 0.1);
@@ -345,29 +712,38 @@ function FlowTransitionDirector({
       }
 
       if (mode === "entering" && targetMode === "map") {
+        const portalOrigin = getPortalOrigin();
         timeline
           .to(shell, {
-            duration: mapPreset.portalShell.duration / 1000,
-            clipPath: mapPreset.portalShell.clipFrom,
+            duration: EXIT_MS / 1000,
             opacity: 0,
-            scale: mapPreset.portalShell.scaleFrom,
-            y: mapPreset.portalShell.yFrom,
-            ease: "power2.inOut",
+            scale: portalOrigin.exitScale,
+            transformOrigin: portalOrigin.transformOrigin,
+            y: portalOrigin.exitY,
+            ease: "expo.inOut",
+          }, 0)
+          .fromTo(room, {
+            opacity: 1,
+            scale: 1,
+            transformOrigin: portalOrigin.transformOrigin,
+            y: 0,
+          }, {
+            duration: EXIT_MS / 1000,
+            scale: portalOrigin.exitScale,
+            y: portalOrigin.exitY,
+            ease: "expo.inOut",
           }, 0)
           .to(room, {
-            duration: mapPreset.room.duration / 1000,
+            duration: 0.18,
             opacity: 0,
-            scale: mapPreset.room.scaleFrom,
-            y: mapPreset.room.yFrom,
-            ease: "power2.inOut",
-          }, 0)
+            ease: "power2.out",
+          }, (EXIT_MS - 190) / 1000)
           .to(canvas, {
-            duration: mapPreset.canvas.duration / 1000,
+            duration: 0.58,
             scale: mapPreset.canvas.scale,
-            filter: "blur(0px) saturate(1)",
             opacity: mapPreset.canvas.opacity,
-            ease: "power2.inOut",
-          }, 0.22);
+            ease: "power3.out",
+          }, 0.12);
         return;
       }
 
@@ -375,68 +751,127 @@ function FlowTransitionDirector({
         .to(canvas, {
           duration: preset.canvas.duration / 1000,
           scale: preset.canvas.scale,
-          filter: `blur(${preset.canvas.blur}px) saturate(${preset.canvas.saturation})`,
           opacity: preset.canvas.opacity,
-          ease: "power3.out",
-        }, mode === "inside" ? 0.12 : 0.18);
+          transformOrigin: "50% 50%",
+          ease: mode === "entering" ? "expo.out" : "power3.out",
+        }, mode === "inside" ? 0.12 : 0);
+
+      if (mode === "entering" && dockFocusPending) {
+        return;
+      }
 
       if (mode === "entering") {
+        const portalShellDelay = dockEntryActive ? 0 : preset.portalShell.delay;
         timeline
           .set(shell, {
-            clipPath: preset.portalShell.clipFrom,
             opacity: 0,
             scale: preset.portalShell.scaleFrom,
             y: preset.portalShell.yFrom,
-            transformOrigin: "50% 48%",
-          }, 0)
+            transformOrigin: () => getPortalOrigin().transformOrigin,
+          }, portalShellDelay)
           .to(shell, {
             duration: preset.portalShell.duration / 1000,
-            clipPath: preset.portalShell.clipTo,
             opacity: preset.portalShell.opacityTo,
             scale: 1,
             y: 0,
-            ease: "power3.out",
-          }, preset.portalShell.delay)
-          .set(room, {
-            opacity: 0,
-            scale: preset.room.scaleFrom,
-            y: preset.room.yFrom,
-            transformOrigin: "50% 48%",
-          }, 0);
+            ease: "expo.out",
+          }, portalShellDelay);
       }
 
-      if (mode === "inside") {
+      if (mode === "inside" && !roomSwitchActive) {
+        const roomFromScale = dockEntryActive ? preset.portalShell.scaleFrom : preset.room.scaleFrom;
+        const roomFromOpacity = dockEntryActive ? 0.86 : 0;
+        const roomFromY = dockEntryActive ? 0 : preset.room.yFrom;
+        const roomOrigin = dockEntryActive ? getPortalOrigin().transformOrigin : "50% 48%";
+
         timeline
           .to(shell, {
             duration: preset.portalShell.duration / 1000,
-            clipPath: preset.portalShell.clipTo,
             opacity: preset.portalShell.opacityTo,
             scale: 1,
             y: 0,
             ease: "power3.out",
-          }, 0)
-          .fromTo(room, {
-            opacity: 0,
-            scale: preset.room.scaleFrom,
-            y: preset.room.yFrom,
-            transformOrigin: "50% 48%",
+          }, 0);
+
+        if (roomContentReady) {
+          timeline.fromTo(room, {
+            opacity: roomFromOpacity,
+            scale: roomFromScale,
+            y: roomFromY,
+            transformOrigin: roomOrigin,
           }, {
-            duration: preset.room.duration / 1000,
+            duration: dockEntryActive ? preset.portalShell.duration / 1000 : preset.room.duration / 1000,
             opacity: 1,
             scale: 1,
             y: 0,
-            ease: preset.name === "immersive" ? "expo.out" : "power3.out",
+            ease: dockEntryActive || preset.name === "immersive" ? "expo.out" : "power3.out",
           }, preset.room.delay);
+        }
       }
     },
     {
-      dependencies: [activeStep.id, mode, preset, mapPreset, reduceMotion, targetMode],
+      dependencies: [
+        activeStep.id,
+        dockEntryActive,
+        dockFocusPending,
+        mode,
+        preset,
+        roomContentReady,
+        roomIntroSuppressed,
+        roomSwitchActive,
+        mapPreset,
+        reduceMotion,
+        targetMode,
+      ],
       revertOnUpdate: false,
       scope: scopeRef,
     },
   );
 
   return null;
+}
+
+function getActiveStepPortalOrigin(scope: HTMLElement, activeId: FlowStepId) {
+  const containerBounds = scope.getBoundingClientRect();
+  const nodeElement = scope.querySelector<HTMLElement>(
+    `.react-flow__node[data-id="${activeId}"] .presento-process-node`,
+  );
+
+  if (!nodeElement) {
+    return {
+      clipPath: "inset(43% 42% 43% 42% round 22px)",
+      exitScale: 0.28,
+      exitY: 0,
+      transformOrigin: "50% 48%",
+    };
+  }
+
+  const nodeBounds = nodeElement.getBoundingClientRect();
+  const rawExitScale = Math.max(
+    nodeBounds.width / containerBounds.width,
+    nodeBounds.height / containerBounds.height,
+  );
+  const exitScale = Math.min(
+    0.48,
+    Math.max(
+      0.24,
+      rawExitScale * 0.92,
+    ),
+  );
+  const exitY = Math.min(24, Math.max(14, nodeBounds.height * 0.06));
+
+  return {
+    ...getFlowPortalOriginStyle({
+      containerHeight: containerBounds.height,
+      containerWidth: containerBounds.width,
+      sourceHeight: nodeBounds.height,
+      sourceLeft: nodeBounds.left - containerBounds.left,
+      sourceTop: nodeBounds.top - containerBounds.top,
+      sourceWidth: nodeBounds.width,
+    }),
+    exitScale,
+    exitY,
+  };
 }
 
 function usePrefersReducedMotion() {
@@ -447,7 +882,38 @@ function usePrefersReducedMotion() {
   );
 }
 
+function useBackgroundCopyPinnedPreference() {
+  return useSyncExternalStore(
+    subscribeBackgroundCopyPinnedPreference,
+    getBackgroundCopyPinnedSnapshot,
+    getBackgroundCopyPinnedServerSnapshot,
+  );
+}
+
+const backgroundCopyPinnedPreferenceEvent = "presento:background-copy-pinned";
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
+
+function subscribeBackgroundCopyPinnedPreference(onStoreChange: () => void) {
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener(backgroundCopyPinnedPreferenceEvent, onStoreChange);
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener(backgroundCopyPinnedPreferenceEvent, onStoreChange);
+  };
+}
+
+function getBackgroundCopyPinnedSnapshot() {
+  return window.localStorage.getItem(BACKGROUND_COPY_PINNED_STORAGE_KEY) === "true";
+}
+
+function getBackgroundCopyPinnedServerSnapshot() {
+  return false;
+}
+
+function setBackgroundCopyPinnedPreference(pinned: boolean) {
+  window.localStorage.setItem(BACKGROUND_COPY_PINNED_STORAGE_KEY, pinned ? "true" : "false");
+  window.dispatchEvent(new Event(backgroundCopyPinnedPreferenceEvent));
+}
 
 function subscribeReducedMotion(onStoreChange: () => void) {
   const mediaQuery = window.matchMedia(reducedMotionQuery);
@@ -483,9 +949,23 @@ function formatCountdownLabel(totalMinutes: number) {
   return `${Math.max(1, minutes)}分钟`;
 }
 
-function MapBackgroundCopy({ visible }: { visible: boolean }) {
+function splitCountdownLabel(label: string) {
+  const match = label.match(/^(\d+)(.*)$/);
+  if (!match) return { value: label, unit: "" };
+
+  return { value: match[1], unit: match[2] };
+}
+
+function MapBackgroundCopy({
+  behavior,
+  exiting,
+}: {
+  behavior: FlowBackgroundCopyBehavior;
+  exiting: boolean;
+}) {
   const [now, setNow] = useState(() => Date.now());
   const [deadlineMs] = useState(getDemoDefenseDeadlineMs);
+  const animationMode = getFlowBackgroundCopyAnimationMode({ behavior, exiting });
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -502,14 +982,34 @@ function MapBackgroundCopy({ visible }: { visible: boolean }) {
     Math.ceil((deadlineMs - now) / MINUTE_MS),
   );
   const countdownLabel = formatCountdownLabel(countdownMinutes);
+  const { value: countdownValue, unit: countdownUnit } = splitCountdownLabel(countdownLabel);
+  const fadeDurationSeconds = BACKGROUND_COPY_FADE_MS / 1000;
+  const timedDurationSeconds = (BACKGROUND_COPY_VISIBLE_MS + BACKGROUND_COPY_FADE_MS) / 1000;
+
+  if (animationMode === "hidden") return null;
 
   return (
     <motion.div
-      animate={{ opacity: visible ? 1 : 0 }}
+      animate={
+        animationMode === "timed"
+          ? { opacity: [0, 1, 1, 0] }
+          : { opacity: animationMode === "persistent" ? 1 : 0 }
+      }
       aria-hidden="true"
       className="presento-flow-background-copy"
-      initial={{ opacity: 0 }}
-      transition={{ duration: BACKGROUND_COPY_FADE_MS / 1000, ease: [0.22, 1, 0.36, 1] }}
+      initial={{ opacity: animationMode === "exiting" ? 1 : 0 }}
+      transition={
+        animationMode === "timed"
+          ? {
+              duration: timedDurationSeconds,
+              ease: [0.22, 1, 0.36, 1],
+              times: [0, 0.06, 1 - fadeDurationSeconds / timedDurationSeconds, 1],
+            }
+          : {
+              duration: fadeDurationSeconds,
+              ease: [0.22, 1, 0.36, 1],
+            }
+      }
     >
       <ScrollVelocityContainer className="presento-flow-background-copy-track">
         <ScrollVelocityRow
@@ -521,13 +1021,15 @@ function MapBackgroundCopy({ visible }: { visible: boolean }) {
           <span className="presento-flow-background-copy-label">
             <span className="presento-flow-background-copy-base">剩余</span>
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-red presento-flow-background-copy-accent-primary">
-              {countdownLabel}
+              <span>{countdownValue}</span>
+              <span className="presento-flow-background-copy-unit-success">{countdownUnit}</span>
             </span>
           </span>
           <span className="presento-flow-background-copy-label">
             <span className="presento-flow-background-copy-base">剩余</span>
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-red presento-flow-background-copy-accent-primary">
-              {countdownLabel}
+              <span>{countdownValue}</span>
+              <span className="presento-flow-background-copy-unit-success">{countdownUnit}</span>
             </span>
           </span>
         </ScrollVelocityRow>
@@ -541,13 +1043,17 @@ function MapBackgroundCopy({ visible }: { visible: boolean }) {
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-lime presento-flow-background-copy-accent-secondary presento-flow-background-copy-accent-leading">
               {demoProject.readiness}%
             </span>
-            <span className="presento-flow-background-copy-base">已经完成</span>
+            <span className="presento-flow-background-copy-base presento-flow-background-copy-base-complete">
+              已经完成
+            </span>
           </span>
           <span className="presento-flow-background-copy-label">
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-lime presento-flow-background-copy-accent-secondary presento-flow-background-copy-accent-leading">
               {demoProject.readiness}%
             </span>
-            <span className="presento-flow-background-copy-base">已经完成</span>
+            <span className="presento-flow-background-copy-base presento-flow-background-copy-base-complete">
+              已经完成
+            </span>
           </span>
         </ScrollVelocityRow>
       </ScrollVelocityContainer>
@@ -557,15 +1063,34 @@ function MapBackgroundCopy({ visible }: { visible: boolean }) {
 
 function FlowWorkspaceCanvas({
   activeId,
+  initialViewport,
+  instantCameraFocusKey,
   mode,
   onEnterStep,
+  onFlowInit,
+  smoothMapReturn,
+  suppressSettledMapFit,
   targetMode,
 }: {
   activeId: FlowStepId;
+  initialViewport: Viewport | null;
+  instantCameraFocusKey: number;
   mode: FlowMode;
   onEnterStep: (stepId: FlowStepId) => void;
+  onFlowInit: (instance: ReactFlowInstance<Node<FlowWorkspaceNodeData>, Edge>) => void;
+  smoothMapReturn: boolean;
+  suppressSettledMapFit: boolean;
   targetMode: Exclude<FlowMode, "entering">;
 }) {
+  const [reactFlowInstance, setReactFlowInstance] =
+    useState<ReactFlowInstance<Node<FlowWorkspaceNodeData>, Edge> | null>(null);
+  const handleInstantCameraReady = useCallback(() => {
+    pendingDockEntryViewport = null;
+  }, []);
+  const handleFlowInit = useCallback((instance: ReactFlowInstance<Node<FlowWorkspaceNodeData>, Edge>) => {
+    setReactFlowInstance(instance);
+    onFlowInit(instance);
+  }, [onFlowInit]);
   const flow = useMemo(() => createFlowWorkspaceFlow(activeId), [activeId]);
   const fitViewOptions = useMemo(() => ({
     padding: FLOW_MAP_OVERVIEW_PADDING,
@@ -581,10 +1106,23 @@ function FlowWorkspaceCanvas({
       },
     }));
   }, [flow.nodes, mode]);
-  const edges = useMemo<Array<Edge>>(() => flow.edges, [flow.edges]);
+  const edges = useMemo<Array<Edge>>(() => {
+    if (mode === "map") return flow.edges;
+
+    return flow.edges.map((edge) => ({
+      ...edge,
+      animated: false,
+    }));
+  }, [flow.edges, mode]);
+  const defaultViewport = initialViewport ?? FLOW_DEFAULT_VIEWPORT;
 
   return (
-    <div className={cn("presento-process-canvas presento-flow", `presento-process-canvas-${mode}`)}>
+    <div
+      className={cn(
+        "presento-process-canvas presento-flow",
+        `presento-process-canvas-${mode}`,
+      )}
+    >
       <DotPattern
         className="presento-graph-dot-pattern"
         cr={1.7}
@@ -595,93 +1133,114 @@ function FlowWorkspaceCanvas({
         width={15}
       />
       <ReactFlow
-        defaultViewport={{ x: 500, y: 260, zoom: 0.62 }}
+        defaultViewport={defaultViewport}
         edges={edges}
-        fitView={targetMode === "map"}
+        fitView={reactFlowInstance === null && mode === "map" && targetMode === "map"}
         fitViewOptions={fitViewOptions}
-        maxZoom={1.8}
+        maxZoom={FLOW_NODE_FOCUS_MAX_ZOOM}
         minZoom={FLOW_MAP_OVERVIEW_MIN_ZOOM}
         nodeTypes={flowWorkspaceNodeTypes}
         nodes={nodes}
         nodesConnectable={false}
         nodesDraggable={false}
+        onInit={handleFlowInit}
         onNodeClick={(_, node) => onEnterStep(node.id as FlowStepId)}
         panOnDrag
         proOptions={{ hideAttribution: true }}
         style={{ width: "100%", height: "100%" }}
       >
-        <FlowCamera activeId={activeId} mode={mode} targetMode={targetMode} />
+        <FlowCamera
+          activeId={activeId}
+          instantCameraFocusKey={instantCameraFocusKey}
+          mode={mode}
+          onInstantCameraReady={handleInstantCameraReady}
+          reactFlowInstance={reactFlowInstance}
+          smoothMapReturn={smoothMapReturn}
+          suppressSettledMapFit={suppressSettledMapFit}
+          targetMode={targetMode}
+        />
       </ReactFlow>
-    </div>
-  );
-}
-
-function StepRoomShell({ step }: { step: FlowStep }) {
-  return (
-    <div aria-hidden="true" className={cn("presento-step-room-shell", roomKindClass(step.roomKind))}>
-      <div className="presento-step-room-shell-glow" />
-      <div className="presento-step-room-shell-header">
-        <div className={cn("presento-step-room-shell-icon", processIconToneClass(step.tone))}>
-          <ProcessNodeIcon id={step.id} />
-        </div>
-        <div className="presento-step-room-shell-copy">
-          <span>{roomKindLabel(step.roomKind)}</span>
-          <strong>{step.label}</strong>
-        </div>
-        <div className="presento-step-room-shell-pill">{step.shortLabel}</div>
-      </div>
-      <div className="presento-step-room-shell-body">
-        <div />
-        <div />
-        <div />
-      </div>
     </div>
   );
 }
 
 function FlowCamera({
   activeId,
+  instantCameraFocusKey,
   mode,
+  onInstantCameraReady,
+  reactFlowInstance,
+  smoothMapReturn,
+  suppressSettledMapFit,
   targetMode,
 }: {
   activeId: FlowStepId;
+  instantCameraFocusKey: number;
   mode: FlowMode;
+  onInstantCameraReady: () => void;
+  reactFlowInstance: ReactFlowInstance<Node<FlowWorkspaceNodeData>, Edge> | null;
+  smoothMapReturn: boolean;
+  suppressSettledMapFit: boolean;
   targetMode: Exclude<FlowMode, "entering">;
 }) {
-  const reactFlow = useReactFlow();
-  const nodesInitialized = useNodesInitialized();
   const activeStep = useMemo(() => getFlowStepById(activeId), [activeId]);
   const preset = useMemo(() => getFlowTransitionPreset(mode, activeStep), [activeStep, mode]);
+  const mapPreset = useMemo(() => getFlowTransitionPreset("map", activeStep), [activeStep]);
   const cameraAction = useMemo(() => getFlowCameraAction(mode, targetMode), [mode, targetMode]);
+  const instantCameraFocus = instantCameraFocusKey !== 0;
 
-  useEffect(() => {
-    if (!nodesInitialized) return;
+  useLayoutEffect(() => {
+    if (!reactFlowInstance?.viewportInitialized) return;
 
-    if (cameraAction === "hold") return;
+    let animationFrame = 0;
 
-    if (cameraAction === "fit" && preset.camera.type === "fit") {
-      void reactFlow.fitView({
-        duration: preset.camera.duration,
-        padding: preset.camera.padding,
-        minZoom: preset.camera.minZoom,
-        maxZoom: preset.camera.maxZoom,
+    animationFrame = window.requestAnimationFrame(() => {
+      if (cameraAction === "hold") return;
+
+      if (cameraAction === "fit" && mapPreset.camera.type === "fit") {
+        if (suppressSettledMapFit) return;
+
+        void reactFlowInstance.fitView({
+          duration: smoothMapReturn ? MAP_RETURN_CAMERA_MS : mapPreset.camera.duration,
+          ease: smoothMapReturn ? easeInOutSine : undefined,
+          padding: mapPreset.camera.padding,
+          minZoom: mapPreset.camera.minZoom,
+          maxZoom: mapPreset.camera.maxZoom,
+        });
+        return;
+      }
+
+      if (preset.camera.type !== "center") return;
+
+      const node = reactFlowInstance.getNode(activeId);
+      if (!node) {
+        if (instantCameraFocus) onInstantCameraReady();
+        return;
+      }
+
+      const nodeWidth = node.measured?.width ?? node.width ?? 376;
+      const nodeHeight = node.measured?.height ?? node.height ?? 150;
+
+      reactFlowInstance.setCenter(node.position.x + nodeWidth / 2 + preset.camera.offset.x, node.position.y + nodeHeight / 2 + preset.camera.offset.y, {
+        duration: instantCameraFocus ? 0 : preset.camera.duration,
+        zoom: preset.camera.zoom,
       });
-      return;
-    }
-
-    if (preset.camera.type !== "center") return;
-
-    const node = reactFlow.getNode(activeId);
-    if (!node) return;
-
-    const nodeWidth = node.measured?.width ?? node.width ?? 376;
-    const nodeHeight = node.measured?.height ?? node.height ?? 150;
-
-    reactFlow.setCenter(node.position.x + nodeWidth / 2 + preset.camera.offset.x, node.position.y + nodeHeight / 2 + preset.camera.offset.y, {
-      duration: preset.camera.duration,
-      zoom: preset.camera.zoom,
+      if (instantCameraFocus) onInstantCameraReady();
     });
-  }, [activeId, cameraAction, nodesInitialized, preset, reactFlow]);
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [
+    activeId,
+    cameraAction,
+    instantCameraFocus,
+    instantCameraFocusKey,
+    mapPreset,
+    onInstantCameraReady,
+    preset,
+    reactFlowInstance,
+    smoothMapReturn,
+    suppressSettledMapFit,
+  ]);
 
   return null;
 }
@@ -705,7 +1264,6 @@ function FlowStepNode({ id, data }: NodeProps<Node<FlowWorkspaceNodeData>>) {
           processToneClass(data.tone),
         )}
         initial={false}
-        layout
         transition={{ duration: 0.3, ease: [0.2, 0.95, 0.28, 1] }}
       >
         <header className="presento-process-node-header">
@@ -742,43 +1300,56 @@ function FlowStepNode({ id, data }: NodeProps<Node<FlowWorkspaceNodeData>>) {
   );
 }
 
+function StepRoomSlideTransition({
+  transition,
+}: {
+  transition: RoomSwitchState;
+}) {
+  const offset = `${transition.direction * 100}%`;
+  const reverseOffset = `${transition.direction * -100}%`;
+  const slideTransition = {
+    duration: ROOM_SWITCH_MS / 1000,
+    ease: [0.16, 1, 0.3, 1] as const,
+  };
+
+  return (
+    <div className="presento-room-slide-stage">
+      <motion.div
+        animate={{ opacity: 0.62, scale: 0.985, x: reverseOffset }}
+        className="presento-room-slide presento-room-slide-outgoing"
+        initial={{ opacity: 1, scale: 1, x: "0%" }}
+        key={`${transition.key}-${transition.from.id}-out`}
+        transition={slideTransition}
+      >
+        <StepRoom activeId={transition.from.id} instant />
+      </motion.div>
+      <motion.div
+        animate={{ opacity: 1, scale: 1, x: "0%" }}
+        className="presento-room-slide presento-room-slide-incoming"
+        initial={{ opacity: 0.92, scale: 0.995, x: offset }}
+        key={`${transition.key}-${transition.to.id}-in`}
+        transition={slideTransition}
+      >
+        <StepRoom activeId={transition.to.id} instant />
+      </motion.div>
+    </div>
+  );
+}
+
 function StepRoom({
   activeId,
-  onBack,
+  instant = false,
 }: {
   activeId: FlowStepId;
-  onBack: () => void;
+  instant?: boolean;
 }) {
   const step = getFlowStepById(activeId);
 
   return (
     <section
       className={cn("presento-step-room", roomKindClass(step.roomKind))}
+      style={instant ? { opacity: 1, transform: "translateY(0) scale(1)" } : undefined}
     >
-      <header className="presento-step-room-header">
-        <Button
-          className="rounded-xl border-[var(--presento-border)] bg-white/86 font-black"
-          onClick={onBack}
-          type="button"
-          variant="outline"
-        >
-          <ArrowLeft data-icon="inline-start" aria-hidden="true" />
-          返回图谱
-        </Button>
-        <div className="min-w-0">
-          <div className="text-xs font-black text-[var(--presento-blue-active)]">
-            当前训练空间
-          </div>
-          <h1 className="truncate text-2xl font-black text-[var(--presento-ink)]">
-            {step.label}
-          </h1>
-        </div>
-        <div className="ml-auto hidden flex-wrap items-center gap-2 lg:flex">
-          <Badge className={toneBadgeClass(step.tone)}>{roomKindLabel(step.roomKind)}</Badge>
-          <Badge className="presento-room-badge-muted">{step.stateLine}</Badge>
-        </div>
-      </header>
-
       <ScrollArea className="presento-step-room-scroll">
         <main className="presento-step-room-body">
           <StepRoomContent stepId={activeId} />
@@ -879,6 +1450,31 @@ function FilesRoom() {
 
 function KnowledgeRoom() {
   const projectNode = demoKnowledgeNodes[0];
+  const [activeNodeId, setActiveNodeId] = useState(projectNode.id);
+  const sigmaNodes = useMemo(
+    () => demoKnowledgeNodes.map((node) => ({
+      id: node.id,
+      title: node.title,
+      kind: node.id === "project" ? "project" : node.type.includes("资料") ? "file" : "module",
+      tone: node.tone,
+      summary: node.description,
+      metadata: {
+        risk: node.risk,
+        evidence: node.evidence,
+      },
+    })),
+    [],
+  );
+  const sigmaEdges = useMemo(
+    () => demoKnowledgeNodes.slice(1).map((node) => ({
+      id: `edge-project-${node.id}`,
+      fromNodeId: projectNode.id,
+      toNodeId: node.id,
+      label: "知识关联",
+    })),
+    [projectNode.id],
+  );
+  const activeNode = demoKnowledgeNodes.find((node) => node.id === activeNodeId) ?? projectNode;
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
@@ -887,21 +1483,25 @@ function KnowledgeRoom() {
         className="min-h-[520px]"
         icon={<Map aria-hidden="true" />}
         title="项目知识地图"
-        description="把资料、证据链、高危追问和训练动作组织成可进入的项目大脑。"
+        description="Force-Directed Graph 展示资料、模块、风险和训练入口，后续文件叶子节点可进入讲解态。"
       >
-        <div className="presento-room-knowledge-orbit">
-          <div className="presento-room-knowledge-center">
-            <Sparkles aria-hidden="true" />
-            <strong>{projectNode.title}</strong>
-            <span>{projectNode.risk}</span>
+        <div className="h-[430px] overflow-hidden rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_35%_30%,rgba(37,99,235,0.16),transparent_32%),linear-gradient(135deg,#f8fbff,#eef4ff)]">
+          <SigmaKnowledgeGraph
+            activeId={activeNodeId}
+            edges={sigmaEdges}
+            nodes={sigmaNodes}
+            onSelect={setActiveNodeId}
+          />
+        </div>
+        <div className="mt-3 rounded-2xl border border-slate-200 bg-white/85 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className={toneBadgeClass(activeNode.tone)}>{activeNode.type}</Badge>
+            <span className="text-sm font-black">{activeNode.title}</span>
+            <span className="text-xs font-bold text-[var(--presento-muted)]">{activeNode.risk}</span>
           </div>
-          {demoKnowledgeNodes.slice(1).map((node, index) => (
-            <div className={cn("presento-room-knowledge-node", `presento-room-knowledge-node-${index}`)} key={node.id}>
-              <Badge className={toneBadgeClass(node.tone)}>{node.type}</Badge>
-              <strong>{node.title}</strong>
-              <span>{node.risk}</span>
-            </div>
-          ))}
+          <p className="mt-2 text-sm font-semibold leading-6 text-[var(--presento-muted)]">
+            {activeNode.description}
+          </p>
         </div>
       </RoomCard>
 

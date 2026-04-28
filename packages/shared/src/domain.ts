@@ -64,6 +64,96 @@ export type SkillOutputDescriptor = {
     | "content_export";
 };
 
+export type NotebookExplanationMode = "quick" | "mastery";
+
+export type NotebookCitation = {
+  fileName?: string;
+  fileId?: string;
+  page?: number;
+  slide?: number;
+  sheet?: string;
+  cellRange?: string;
+  codePath?: string;
+  lineStart?: number;
+  lineEnd?: number;
+  text?: string;
+};
+
+export type ParsedFileChunk = {
+  id?: string;
+  content: string;
+  source?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ParsedFileResult = {
+  source: {
+    title: string;
+    summary: string;
+    fileKind?: string;
+    metadata?: Record<string, unknown>;
+  };
+  chunks: ParsedFileChunk[];
+  preview: {
+    text?: string;
+    outline?: string[];
+    metadata?: Record<string, unknown>;
+  };
+  slides?: Array<{
+    page: number;
+    title: string;
+    text?: string;
+    notes?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+  tables?: Array<{
+    title?: string;
+    sheet?: string;
+    headers?: string[];
+    rows?: unknown[][];
+    metadata?: Record<string, unknown>;
+  }>;
+  codeTree?: Array<{
+    path: string;
+    language?: string;
+    summary?: string;
+    lineCount?: number;
+    children?: unknown[];
+  }>;
+  citations?: NotebookCitation[];
+};
+
+export type FileExplanationSessionRecord = {
+  id: string;
+  projectId: string;
+  nodeId: string;
+  fileId: string;
+  sourceId?: string;
+  mode: NotebookExplanationMode;
+  status: "ready" | "failed";
+  summary: string;
+  outline: string[];
+  citations: NotebookCitation[];
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FileExplanationTurnRecord = {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  role: "user" | "assistant";
+  content: string;
+  citations: NotebookCitation[];
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type FileExplanationSessionWithTurns = FileExplanationSessionRecord & {
+  turns: FileExplanationTurnRecord[];
+};
+
 export type BuiltInSkillDefinition = {
   id:
     | "project_brief"
@@ -129,8 +219,10 @@ export type ProjectSourceRecord = {
 
 export type KnowledgeNodeKind =
   | "project"
+  | "source-category"
   | "source"
   | "module"
+  | "file"
   | "risk"
   | "weakness"
   | "training";
@@ -152,7 +244,7 @@ export type KnowledgeEdgeRecord = {
   projectId: string;
   fromNodeId: string;
   toNodeId: string;
-  kind: "source" | "evidence" | "risk" | "training";
+  kind: "source" | "contains" | "evidence" | "risk" | "training";
   label?: string;
   createdAt: string;
 };

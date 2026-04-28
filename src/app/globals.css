@@ -42,6 +42,9 @@
   --presento-cyan: #6a9fd8;
   --presento-focus: var(--presento-blue);
   --presento-warm: #f3faf6;
+  --presento-topbar-height: 70px;
+  --presento-detail-safe-start: 104px;
+  --presento-detail-inline-gutter: 1.75rem;
   --presento-card-shadow:
     0 4px 16px rgba(31, 35, 41, 0.035),
     0 1px 4px rgba(31, 35, 41, 0.025);
@@ -135,6 +138,23 @@ svg {
   }
 }
 
+@keyframes presento-room-shell-sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-42%) rotate(10deg);
+  }
+  24% {
+    opacity: 0;
+  }
+  52% {
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(62%) rotate(10deg);
+  }
+}
+
 .presento-shell {
   min-height: 100vh;
   overflow-x: hidden;
@@ -167,7 +187,8 @@ svg {
   inset: 0 0 auto 0;
   z-index: 50;
   display: flex;
-  min-height: 56px;
+  height: var(--presento-topbar-height);
+  min-height: var(--presento-topbar-height);
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -204,7 +225,7 @@ svg {
   height: 100vh;
   min-height: 0;
   margin-left: 0;
-  padding: 56px 0 0;
+  padding: var(--presento-topbar-height) 0 0;
   overflow: hidden;
   width: 100%;
 }
@@ -278,6 +299,147 @@ svg {
   display: inline-flex;
   min-width: 0;
   align-items: center;
+}
+
+.presento-topbar-detail {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.presento-topbar-left-stage {
+  position: relative;
+  display: block;
+  width: clamp(12rem, 24vw, 20rem);
+  height: 42px;
+  min-width: 0;
+}
+
+.presento-topbar-left-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  height: 42px;
+  min-width: 0;
+  align-items: center;
+  gap: 0.85rem;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.presento-topbar-back {
+  display: inline-flex;
+  height: 36px;
+  width: 36px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(31, 35, 41, 0.08);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--presento-ink);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.presento-topbar-back:hover {
+  background: #ffffff;
+  border-color: rgba(16, 185, 129, 0.18);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  transform: translateX(-1px);
+}
+
+.presento-topbar-detail-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.presento-topbar-detail-copy-stage {
+  position: relative;
+  width: clamp(7.5rem, 18vw, 15rem);
+  height: 2.35rem;
+  overflow: hidden;
+  contain: layout paint;
+}
+
+.presento-topbar-detail-copy-slide {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform, opacity;
+}
+
+.presento-topbar-detail-copy-static {
+  height: 100%;
+  width: 100%;
+}
+
+.presento-topbar-detail-copy span {
+  color: var(--presento-blue-active);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.presento-topbar-detail-copy strong {
+  overflow: hidden;
+  color: var(--presento-ink);
+  font-size: 1.1rem;
+  font-weight: 900;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presento-topbar-icon-button {
+  display: inline-flex;
+  height: 30px;
+  width: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(31, 35, 41, 0.04);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.34);
+  color: rgba(95, 102, 109, 0.5);
+  box-shadow: none;
+  opacity: 0.72;
+  transition:
+    opacity 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.presento-topbar-icon-button:hover {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(31, 35, 41, 0.09);
+  color: rgba(26, 29, 31, 0.74);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.presento-topbar-icon-button-active {
+  border-color: rgba(16, 185, 129, 0.1);
+  background: rgba(231, 247, 239, 0.54);
+  color: rgba(4, 120, 87, 0.72);
+  opacity: 0.94;
 }
 
 .presento-brand-link-compact .presento-brand-logo {
@@ -810,7 +972,7 @@ svg {
 .presento-map-stage {
   position: relative;
   flex: 1;
-  height: calc(100vh - 56px);
+  height: calc(100vh - var(--presento-topbar-height));
   min-height: 0;
 }
 
@@ -839,10 +1001,31 @@ svg {
 .presento-flow-workspace {
   position: relative;
   flex: 1;
-  height: calc(100vh - 56px);
+  height: calc(100vh - var(--presento-topbar-height));
   min-height: 0;
   overflow: hidden;
   isolation: isolate;
+}
+
+.presento-flow-workspace::before {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 42% 46%, transparent 0 22%, rgba(15, 23, 42, 0.06) 54%, rgba(15, 23, 42, 0.16) 100%),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.08), transparent 28%, transparent 72%, rgba(15, 23, 42, 0.08));
+  content: "";
+  opacity: 0;
+  transition: opacity 520ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.presento-flow-workspace-entering::before {
+  opacity: 0.78;
+}
+
+.presento-flow-workspace-inside::before {
+  opacity: 0.18;
 }
 
 .presento-process-canvas {
@@ -852,7 +1035,8 @@ svg {
   contain: layout paint style;
   background: transparent;
   z-index: 1;
-  will-change: transform, opacity, filter;
+  transform: translateZ(0);
+  will-change: transform, opacity;
 }
 
 .presento-process-canvas .react-flow {
@@ -865,6 +1049,10 @@ svg {
 .presento-process-canvas-entering,
 .presento-process-canvas-inside {
   transform-origin: 50% 50%;
+}
+
+.presento-process-canvas-inside {
+  pointer-events: none;
 }
 
 .presento-flow-background-copy {
@@ -1034,12 +1222,35 @@ svg {
     0 28px 100px rgba(15, 23, 42, 0.16),
     0 0 0 1px rgba(255, 255, 255, 0.62) inset,
     0 0 44px rgba(16, 185, 129, 0.1);
-  clip-path: inset(43% 42% 43% 42% round 22px);
   opacity: 0;
   pointer-events: none;
   transform: translateY(0) scale(0.18);
   transform-origin: 50% 48%;
-  will-change: transform, opacity, clip-path;
+  will-change: transform, opacity;
+}
+
+.presento-step-room-shell::after {
+  position: absolute;
+  top: -18%;
+  bottom: -18%;
+  left: -18%;
+  width: 38%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.44),
+    rgba(151, 205, 255, 0.28),
+    transparent
+  );
+  content: "";
+  mix-blend-mode: screen;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-42%) rotate(10deg);
+}
+
+.presento-flow-workspace-entering .presento-step-room-shell::after {
+  animation: presento-room-shell-sweep 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .presento-step-room-shell-glow {
@@ -1120,19 +1331,51 @@ svg {
   min-height: 340px;
 }
 
+.presento-room-slide-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 34;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.presento-room-slide {
+  position: absolute;
+  inset: 0;
+  will-change: transform, opacity;
+}
+
+.presento-room-slide-outgoing {
+  z-index: 1;
+}
+
+.presento-room-slide-incoming {
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.presento-room-slide .presento-step-room-shell {
+  clip-path: inset(0% 0% 0% 0% round 0px);
+  opacity: 0.94;
+  transform: translateY(0) scale(1);
+}
+
+.presento-room-slide .presento-step-room {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
 .presento-step-room {
   position: absolute;
   z-index: 34;
   display: flex;
   overflow: hidden;
   flex-direction: column;
-  border: 1px solid var(--presento-border);
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow:
-    0 34px 120px rgba(15, 23, 42, 0.18),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(18px);
+  border: 0;
+  border-radius: 0;
+  background: rgba(247, 248, 248, 0.98);
+  box-shadow: none;
+  backdrop-filter: none;
   opacity: 0;
   transform: translateY(18px) scale(0.82);
   transform-origin: 50% 48%;
@@ -1141,25 +1384,31 @@ svg {
 }
 
 .presento-step-room-standard {
-  inset: 86px 28px 28px 128px;
+  inset: 0;
+  border-radius: 0;
 }
 
 .presento-step-room-explore {
-  inset: 78px 28px 28px 112px;
+  inset: 0;
+  border-radius: 0;
 }
 
 .presento-step-room-immersive {
-  inset: 72px 20px 20px 104px;
-  border-radius: 24px;
+  inset: 0;
+  border-radius: 0;
 }
 
 .presento-step-room-header {
   display: flex;
-  min-height: 76px;
+  min-height: 84px;
   align-items: center;
   gap: 1rem;
   border-bottom: 1px solid var(--presento-border);
-  padding: 1rem 1.25rem;
+  padding:
+    1.2rem
+    var(--presento-detail-inline-gutter)
+    1rem
+    calc(var(--presento-detail-inline-gutter) + var(--presento-detail-safe-start));
 }
 
 .presento-step-room-scroll {
@@ -1169,8 +1418,11 @@ svg {
 
 .presento-step-room-body {
   min-height: 100%;
-  padding: 1.25rem;
-  content-visibility: auto;
+  padding:
+    1.5rem
+    var(--presento-detail-inline-gutter)
+    1.75rem
+    calc(var(--presento-detail-inline-gutter) + var(--presento-detail-safe-start));
 }
 
 .presento-room-card {
@@ -1942,6 +2194,14 @@ svg {
     padding-inline: 1rem;
   }
 
+  .presento-topbar-detail {
+    max-width: min(62vw, 280px);
+  }
+
+  .presento-topbar-detail-copy strong {
+    font-size: 0.96rem;
+  }
+
   .presento-brand-logo {
     height: 44px;
     max-width: min(58vw, 188px);
@@ -2018,6 +2278,19 @@ svg {
   .presento-step-room-header {
     align-items: flex-start;
     flex-direction: column;
+    padding:
+      1rem
+      1rem
+      0.9rem
+      1rem;
+  }
+
+  .presento-step-room-body {
+    padding:
+      1.25rem
+      1rem
+      1.25rem
+      1rem;
   }
 
   .presento-step-room-shell-body {
@@ -2051,6 +2324,24 @@ svg {
 @media (max-width: 767px) {
   .presento-project-switch {
     max-width: 156px;
+  }
+
+  .presento-topbar-detail {
+    max-width: min(50vw, 190px);
+    gap: 0.6rem;
+  }
+
+  .presento-topbar-back {
+    height: 32px;
+    width: 32px;
+  }
+
+  .presento-topbar-detail-copy span {
+    font-size: 0.62rem;
+  }
+
+  .presento-topbar-detail-copy strong {
+    font-size: 0.88rem;
   }
 
   .presento-graph-node {

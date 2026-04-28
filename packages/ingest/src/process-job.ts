@@ -10,6 +10,7 @@ import { extractIngestContent } from "./extract.ts";
 import { ingestLocalFile } from "./pipeline.ts";
 import { persistIngestedFile } from "./persist.ts";
 import { buildPresentationSlideRecords } from "./slides.ts";
+import { createNotebookRagClient } from "./notebook-rag-client.ts";
 
 export async function processFileIngestJob({
   projectId,
@@ -35,7 +36,14 @@ export async function processFileIngestJob({
 
     const absolutePath = resolveLocalStoragePath(file.storagePath, process.cwd());
     const buffer = await readFile(absolutePath);
-    const extracted = extractIngestContent(file, buffer);
+    const parsed = await parseWithSidecar(file, buffer).catch(() => null);
+    const extracted = parsed
+      ? {
+          content: contentFromParsedFile(parsed),
+          contentType: "sidecar",
+          synthetic: false,
+        }
+      : extractIngestContent(file, buffer);
 
     await fileRepository.updateTask(task.id, {
       status: "processing",
@@ -50,6 +58,7 @@ export async function processFileIngestJob({
       file,
       task,
       content: extracted.content,
+      parsed: parsed ?? undefined,
       createdAt: startedAt,
     });
     const slideArtifacts = buildPresentationSlideRecords({
@@ -74,6 +83,7 @@ export async function processFileIngestJob({
       knowledgeChunkCount: ingestResult.chunks.length,
       slideCount: slideArtifacts.slides.length,
       contentType: extracted.contentType,
+      parser: parsed ? "notebook-rag-sidecar" : "local-fallback",
     }).catch(() => undefined);
 
     return {
@@ -82,6 +92,7 @@ export async function processFileIngestJob({
       slideCount: slideArtifacts.slides.length,
       contentType: extracted.contentType,
       synthetic: extracted.synthetic,
+      parser: parsed ? "notebook-rag-sidecar" : "local-fallback",
     };
   } catch (error) {
     const failedAt = new Date().toISOString();
@@ -95,6 +106,34 @@ export async function processFileIngestJob({
     await jobRepository.markFailed(jobId, failedAt, message).catch(() => undefined);
     throw error;
   }
+}
+
+async function parseWithSidecar(file: DefenseFileRecord, buffer: Buffer) {
+  const client = createNotebookRagClient();
+  if (!client) return null;
+
+  return client.parseFile({
+    fileId: file.id,
+    fileName: file.name,
+    fileKind: file.kind,
+    mimeType: file.type,
+    storagePath: file.storagePath,
+    contentBase64: buffer.toString("base64"),
+  });
+}
+
+function contentFromParsedFile(parsed: Awaited<ReturnType<NonNullable<ReturnType<typeof createNotebookRagClient>>["parseFile"]>>) {
+  const chunkContent = parsed.chunks.map((chunk) => chunk.content.trim()).filter(Boolean);
+  if (chunkContent.length) return chunkContent.join("\n\n");
+
+  const previewText = parsed.preview.text?.trim();
+  if (previewText) return previewText;
+
+  return [
+    parsed.source.title,
+    parsed.source.summary,
+    ...(parsed.preview.outline ?? []),
+  ].filter(Boolean).join("\n");
 }
 
 export async function processClaimedIngestJob(job: JobRunRecord, runSql?: PsqlRunner) {

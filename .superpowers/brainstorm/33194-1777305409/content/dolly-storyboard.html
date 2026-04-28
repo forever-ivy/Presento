@@ -1,0 +1,251 @@
+<style>
+  .storyboard {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 24px;
+  }
+  .beat {
+    overflow: hidden;
+    border: 1px solid rgba(16, 24, 40, 0.08);
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 18px 46px rgba(15, 23, 42, 0.08);
+  }
+  .frame {
+    position: relative;
+    height: 190px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 78% 18%, rgba(20,184,166,.12), transparent 24%),
+      linear-gradient(135deg, #f8fbff, #edf3f7 58%, #fbfaf6);
+  }
+  .rail {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    z-index: 10;
+    display: grid;
+    gap: 5px;
+    padding: 5px;
+    border-radius: 13px;
+    background: rgba(255,255,255,.72);
+    box-shadow: 0 12px 30px rgba(15,23,42,.12), inset 0 0 0 1px rgba(255,255,255,.8);
+    transform: translateY(-50%);
+  }
+  .dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.08);
+  }
+  .dot.active {
+    background: #fff;
+    box-shadow: 0 8px 18px rgba(15,23,42,.14);
+  }
+  .map {
+    position: absolute;
+    inset: 12px 12px 12px 48px;
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 22% 44%, rgba(59,130,246,.30) 0 3px, transparent 4px),
+      radial-gradient(circle at 52% 36%, rgba(14,165,233,.28) 0 4px, transparent 5px),
+      radial-gradient(circle at 74% 62%, rgba(249,115,22,.24) 0 4px, transparent 5px),
+      radial-gradient(circle at 38% 72%, rgba(16,185,129,.24) 0 3px, transparent 4px),
+      linear-gradient(135deg, rgba(255,255,255,.8), rgba(244,248,251,.84));
+    box-shadow: inset 0 0 0 1px rgba(15,23,42,.06);
+  }
+  .node {
+    position: absolute;
+    left: 85px;
+    top: 75px;
+    width: 32px;
+    height: 32px;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 14px 30px rgba(15,23,42,.15), inset 0 0 0 1px rgba(255,255,255,.88);
+  }
+  .room {
+    position: absolute;
+    z-index: 6;
+    left: 56px;
+    right: 12px;
+    top: 14px;
+    bottom: 14px;
+    overflow: hidden;
+    border-radius: 18px;
+    background: rgba(255,255,255,.9);
+    box-shadow: 0 22px 58px rgba(15,23,42,.16), inset 0 0 0 1px rgba(255,255,255,.92);
+  }
+  .room::before,
+  .room::after {
+    content: "";
+    position: absolute;
+    left: 16px;
+    border-radius: 999px;
+    background: rgba(15,23,42,.1);
+  }
+  .room::before {
+    top: 18px;
+    width: 48%;
+    height: 9px;
+  }
+  .room::after {
+    top: 39px;
+    width: 70%;
+    height: 6px;
+    opacity: .5;
+  }
+  .blocks {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    display: grid;
+    grid-template-columns: 1fr .82fr;
+    gap: 8px;
+  }
+  .blocks div {
+    height: 58px;
+    border-radius: 12px;
+    background: rgba(15,23,42,.055);
+  }
+  .beat-1 .room { opacity: 0; transform: scale(.2); clip-path: inset(44% 44% 44% 44% round 16px); }
+  .beat-2 .map { transform: scale(1.035); }
+  .beat-2 .node { transform: scale(.86); box-shadow: 0 0 0 7px rgba(59,130,246,.10), 0 14px 30px rgba(15,23,42,.15); }
+  .beat-2 .room { opacity: 0; transform: scale(.2); clip-path: inset(44% 44% 44% 44% round 16px); }
+  .beat-3 .map { transform: scale(1.10); filter: blur(1px); opacity: .78; }
+  .beat-3 .node { transform: scale(1.38); opacity: .65; }
+  .beat-3 .room { opacity: .78; transform: scale(.94); clip-path: inset(16% 18% 16% 18% round 18px); }
+  .beat-4 .map { transform: scale(1.18); filter: blur(4px) saturate(.82); opacity: .18; }
+  .beat-4 .node { transform: scale(3); opacity: 0; }
+  .beat-4 .room { opacity: 1; transform: scale(1.012); clip-path: inset(0 0 0 0 round 18px); }
+  .beat-5 .map { transform: scale(1.16); filter: blur(5px) saturate(.8); opacity: .10; }
+  .beat-5 .node { opacity: 0; }
+  .beat-5 .room { opacity: 1; transform: scale(1); clip-path: inset(0 0 0 0 round 18px); box-shadow: 0 18px 48px rgba(15,23,42,.12), inset 0 0 0 1px rgba(255,255,255,.92); }
+  .beat-copy {
+    padding: 13px 14px 15px;
+  }
+  .time {
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 900;
+  }
+  .beat-copy h3 {
+    margin: 5px 0 6px;
+    font-size: 15px;
+  }
+  .beat-copy p {
+    margin: 0;
+    color: #667085;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .principles {
+    display: grid;
+    grid-template-columns: 1.1fr .9fr;
+    gap: 18px;
+    margin-top: 24px;
+  }
+  .principle {
+    border: 1px solid rgba(16, 24, 40, 0.08);
+    border-radius: 18px;
+    background: #fff;
+    padding: 18px;
+    box-shadow: 0 18px 46px rgba(15, 23, 42, 0.07);
+  }
+  .principle h3 {
+    margin: 0 0 10px;
+  }
+  .principle ul {
+    margin: 0;
+    padding-left: 18px;
+    color: #475467;
+    line-height: 1.7;
+  }
+  @media (max-width: 1100px) {
+    .storyboard { grid-template-columns: 1fr; }
+    .principles { grid-template-columns: 1fr; }
+  }
+</style>
+
+<h2>A 方向细化：电影镜头推进式页面进入</h2>
+<p class="subtitle">点击 dock 后，旧页面不是简单消失，而是作为“空间背景”退后；新页面从当前目标节点扩展成完整工作房间。</p>
+
+<div class="storyboard">
+  <div class="beat beat-1">
+    <div class="frame">
+      <div class="map"></div><div class="node"></div><div class="room"><div class="blocks"><div></div><div></div></div></div>
+      <div class="rail"><div class="dot"></div><div class="dot active"></div><div class="dot"></div></div>
+    </div>
+    <div class="beat-copy">
+      <div class="time">0ms</div>
+      <h3>当前页面保持清晰</h3>
+      <p>用户点击后，先保留上下文，让人知道自己从哪里进入。</p>
+    </div>
+  </div>
+  <div class="beat beat-2">
+    <div class="frame">
+      <div class="map"></div><div class="node"></div><div class="room"><div class="blocks"><div></div><div></div></div></div>
+      <div class="rail"><div class="dot"></div><div class="dot active"></div><div class="dot"></div></div>
+    </div>
+    <div class="beat-copy">
+      <div class="time">80-140ms</div>
+      <h3>目标节点短暂蓄力</h3>
+      <p>目标模块轻微下压再弹起，像镜头找到了焦点。</p>
+    </div>
+  </div>
+  <div class="beat beat-3">
+    <div class="frame">
+      <div class="map"></div><div class="node"></div><div class="room"><div class="blocks"><div></div><div></div></div></div>
+      <div class="rail"><div class="dot"></div><div class="dot active"></div><div class="dot"></div></div>
+    </div>
+    <div class="beat-copy">
+      <div class="time">140-430ms</div>
+      <h3>房间从焦点打开</h3>
+      <p>新页面由小窗口扩张，旧画布同步拉近并开始虚化。</p>
+    </div>
+  </div>
+  <div class="beat beat-4">
+    <div class="frame">
+      <div class="map"></div><div class="node"></div><div class="room"><div class="blocks"><div></div><div></div></div></div>
+      <div class="rail"><div class="dot"></div><div class="dot active"></div><div class="dot"></div></div>
+    </div>
+    <div class="beat-copy">
+      <div class="time">430-680ms</div>
+      <h3>页面铺满并略过冲</h3>
+      <p>目标页面到达完整尺寸时有极轻微过冲，形成丝滑落点。</p>
+    </div>
+  </div>
+  <div class="beat beat-5">
+    <div class="frame">
+      <div class="map"></div><div class="node"></div><div class="room"><div class="blocks"><div></div><div></div></div></div>
+      <div class="rail"><div class="dot"></div><div class="dot active"></div><div class="dot"></div></div>
+    </div>
+    <div class="beat-copy">
+      <div class="time">680-820ms</div>
+      <h3>内容分层落稳</h3>
+      <p>页面标题、主卡片、右侧内容依次进入，不同时全部出现。</p>
+    </div>
+  </div>
+</div>
+
+<div class="principles">
+  <div class="principle">
+    <h3>动效规则</h3>
+    <ul>
+      <li>总时长控制在 760-860ms，足够电影感，但不拖慢操作。</li>
+      <li>旧页面在背景中保留 8%-16% 透明度，增强空间连续性。</li>
+      <li>目标页面从点击对应的业务节点打开，而不是从屏幕中心硬切。</li>
+      <li>最终落点只允许轻微过冲，避免弹跳过度变“玩具感”。</li>
+    </ul>
+  </div>
+  <div class="principle">
+    <h3>页面强度差异</h3>
+    <ul>
+      <li>普通页面：更克制，扩张和虚化轻一点。</li>
+      <li>知识地图 / 薄弱点：保留探索感，镜头推进更明显。</li>
+      <li>模拟讲练：最沉浸，可以有更深的暗角和更强的空间感。</li>
+    </ul>
+  </div>
+</div>

@@ -16,6 +16,8 @@ import {
   Map,
   MessageSquareText,
   Mic,
+  Pin,
+  PinOff,
   Plus,
   Radio,
   Target,
@@ -141,10 +143,12 @@ function useAppShell() {
 
 export function PageWrap({
   children,
+  animateEntrance = true,
   width = "max-w-none",
   className,
 }: {
   children: ReactNode;
+  animateEntrance?: boolean;
   width?: string;
   className?: string;
 }) {
@@ -159,7 +163,7 @@ export function PageWrap({
         width,
         className,
       )}
-      initial={{ opacity: 0, y: 8 }}
+      initial={animateEntrance ? { opacity: 0, y: 8 } : false}
       transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
     >
       {children}
@@ -186,64 +190,191 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
   );
 }
 
-export function TopNav({ onNavigate }: { onNavigate?: (href: string) => void } = {}) {
+type TopNavDetailState = {
+  contextLabel: string;
+  title: string;
+  onBack: () => void;
+};
+
+type TopNavDetailTransition = {
+  direction: -1 | 1;
+  durationMs: number;
+  from: Pick<TopNavDetailState, "contextLabel" | "title">;
+  key: number;
+  to: Pick<TopNavDetailState, "contextLabel" | "title">;
+};
+
+type TopNavDetailEntrance = {
+  durationMs: number;
+  key: string | number;
+};
+
+type TopNavDetailExit = {
+  durationMs: number;
+  key: string | number;
+};
+
+export function TopNav({
+  onNavigate,
+  detailState,
+  detailEntrance,
+  detailExit,
+  detailTransition,
+  dockFixedSize = false,
+  backgroundHintPinned,
+  onToggleBackgroundHint,
+}: {
+  onNavigate?: (href: string) => void;
+  detailState?: TopNavDetailState;
+  detailEntrance?: TopNavDetailEntrance;
+  detailExit?: TopNavDetailExit;
+  detailTransition?: TopNavDetailTransition;
+  dockFixedSize?: boolean;
+  backgroundHintPinned?: boolean;
+  onToggleBackgroundHint?: () => void;
+} = {}) {
   const pathname = usePathname();
+  const titleTransition = {
+    duration: (detailTransition?.durationMs ?? 360) / 1000,
+    ease: [0.2, 0.72, 0.24, 1] as const,
+  };
+  const detailEntranceTransition = {
+    duration: (detailEntrance?.durationMs ?? 420) / 1000,
+    ease: [0.2, 0.72, 0.24, 1] as const,
+  };
+  const detailExitTransition = {
+    duration: (detailExit?.durationMs ?? 420) / 1000,
+    ease: [0.2, 0.72, 0.24, 1] as const,
+  };
+  const titleDrift = detailTransition ? detailTransition.direction * 18 : 0;
+  const showMapActions = !detailState || Boolean(detailExit);
 
   return (
     <>
       <header className="presento-topbar">
         <div className="flex min-w-0 items-center">
-          <BrandMark />
+          {detailState && detailExit ? (
+            <div className="presento-topbar-left-stage">
+              <motion.div
+                animate={{ opacity: 0, scale: 0.985, x: -12, y: -2 }}
+                className="presento-topbar-left-layer"
+                initial={{ opacity: 1, scale: 1, x: 0, y: 0 }}
+                key={`${detailExit.key}-detail-out`}
+                transition={detailExitTransition}
+              >
+                <TopNavDetailContent
+                  detailState={detailState}
+                  detailTransition={detailTransition}
+                  titleDrift={titleDrift}
+                  titleTransition={titleTransition}
+                />
+              </motion.div>
+              <motion.div
+                animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
+                className="presento-topbar-left-layer"
+                initial={{ opacity: 0, scale: 0.985, x: 12, y: 2 }}
+                key={`${detailExit.key}-brand-in`}
+                transition={detailExitTransition}
+              >
+                <BrandMark />
+              </motion.div>
+            </div>
+          ) : detailState ? (
+            <motion.div
+              animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
+              className="presento-topbar-detail"
+              initial={
+                detailEntrance
+                  ? { opacity: 0, scale: 0.985, x: 12, y: 2 }
+                  : false
+              }
+              key={detailEntrance?.key ?? "presento-topbar-detail"}
+              transition={detailEntranceTransition}
+            >
+              <TopNavDetailContent
+                detailState={detailState}
+                detailTransition={detailTransition}
+                titleDrift={titleDrift}
+                titleTransition={titleTransition}
+              />
+            </motion.div>
+          ) : (
+            <BrandMark />
+          )}
         </div>
 
         <div className="flex min-w-0 items-center justify-end gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger className="presento-project-switch">
-              <Box aria-hidden="true" />
-              <span className="truncate">智能点餐系统</span>
-              <ChevronDown aria-hidden="true" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="presento-project-menu">
-              <DropdownMenuLabel className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-[var(--presento-faint)]">
-                最近项目
-              </DropdownMenuLabel>
-              <DropdownMenuGroup>
-                {["智能点餐系统", "数据结构期末答辩", "大创比赛路演"].map((name, index) => (
-                  <DropdownMenuItem asChild key={name}>
-                    <Link
-                      className={cn(
-                        "flex items-center justify-between px-4 py-2 text-sm font-bold text-[var(--presento-muted)] transition hover:bg-[var(--presento-hover)]",
-                        index === 0 && "bg-emerald-50/60 text-[var(--presento-ink)]",
-                      )}
-                      href="/"
-                    >
-                      {name}
-                      {index === 0 ? <span className="size-2 rounded-full bg-[var(--presento-blue)]" /> : null}
-                    </Link>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator className="my-1 h-px bg-[var(--presento-border)]" />
-              <DropdownMenuItem asChild>
-                <Link
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-black text-[var(--presento-blue-active)] transition hover:bg-[var(--presento-hover)]"
-                  href="/projects/new"
-                >
-                  <Plus aria-hidden="true" />
-                  新建训练项目
-                </Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {showMapActions ? (
+            <motion.div
+              animate={{ opacity: 1, scale: 1, x: 0 }}
+              className="inline-flex min-w-0"
+              initial={detailExit ? { opacity: 0, scale: 0.985, x: 10 } : false}
+              transition={detailExitTransition}
+            >
+            <DropdownMenu>
+              <DropdownMenuTrigger className="presento-project-switch">
+                <Box aria-hidden="true" />
+                <span className="truncate">智能点餐系统</span>
+                <ChevronDown aria-hidden="true" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="presento-project-menu">
+                <DropdownMenuLabel className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-[var(--presento-faint)]">
+                  最近项目
+                </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  {["智能点餐系统", "数据结构期末答辩", "大创比赛路演"].map((name, index) => (
+                    <DropdownMenuItem asChild key={name}>
+                      <Link
+                        className={cn(
+                          "flex items-center justify-between px-4 py-2 text-sm font-bold text-[var(--presento-muted)] transition hover:bg-[var(--presento-hover)]",
+                          index === 0 && "bg-emerald-50/60 text-[var(--presento-ink)]",
+                        )}
+                        href="/"
+                      >
+                        {name}
+                        {index === 0 ? <span className="size-2 rounded-full bg-[var(--presento-blue)]" /> : null}
+                      </Link>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator className="my-1 h-px bg-[var(--presento-border)]" />
+                <DropdownMenuItem asChild>
+                  <Link
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-black text-[var(--presento-blue-active)] transition hover:bg-[var(--presento-hover)]"
+                    href="/projects/new"
+                  >
+                    <Plus aria-hidden="true" />
+                    新建训练项目
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            </motion.div>
+          ) : null}
+          {onToggleBackgroundHint ? (
+            <button
+              aria-label={backgroundHintPinned ? "关闭背景提示常驻" : "开启背景提示常驻"}
+              className={cn(
+                "presento-topbar-icon-button",
+                backgroundHintPinned && "presento-topbar-icon-button-active",
+              )}
+              onClick={onToggleBackgroundHint}
+              title={backgroundHintPinned ? "背景提示：常驻显示" : "背景提示：显示 10 秒"}
+              type="button"
+            >
+              {backgroundHintPinned ? <Pin aria-hidden="true" /> : <PinOff aria-hidden="true" />}
+            </button>
+          ) : null}
         </div>
       </header>
 
       <nav className="presento-dock-nav" aria-label="Presento navigation">
         <Dock
           className="presento-dock"
+          disableMagnification={dockFixedSize}
           iconDistance={110}
           iconMagnification={58}
-          iconSize={42}
+          iconSize={dockFixedSize ? 58 : 42}
           orientation="vertical"
         >
           {navigationItems.map((item) => {
@@ -298,6 +429,77 @@ export function TopNav({ onNavigate }: { onNavigate?: (href: string) => void } =
           );
         })}
       </nav>
+    </>
+  );
+}
+
+function TopNavDetailContent({
+  detailState,
+  detailTransition,
+  titleDrift,
+  titleTransition,
+}: {
+  detailState: TopNavDetailState;
+  detailTransition?: TopNavDetailTransition;
+  titleDrift: number;
+  titleTransition: {
+    duration: number;
+    ease: readonly [number, number, number, number];
+  };
+}) {
+  return (
+    <>
+      <button
+        aria-label="返回图谱"
+        className="presento-topbar-back"
+        onClick={detailState.onBack}
+        type="button"
+      >
+        <ArrowLeft aria-hidden="true" />
+      </button>
+      <div className="presento-topbar-detail-copy-stage">
+        {detailTransition ? (
+          <>
+            <motion.div
+              animate={{
+                opacity: 0,
+                scale: 0.985,
+                x: -titleDrift,
+              }}
+              className="presento-topbar-detail-copy presento-topbar-detail-copy-slide"
+              initial={{
+                opacity: 1,
+                scale: 1,
+                x: 0,
+              }}
+              key={`${detailTransition.key}-from`}
+              transition={titleTransition}
+            >
+              <span>{detailTransition.from.contextLabel}</span>
+              <strong>{detailTransition.from.title}</strong>
+            </motion.div>
+            <motion.div
+              animate={{ opacity: 1, scale: 1, x: 0 }}
+              className="presento-topbar-detail-copy presento-topbar-detail-copy-slide"
+              initial={{
+                opacity: 0,
+                scale: 0.985,
+                x: titleDrift,
+              }}
+              key={`${detailTransition.key}-to`}
+              transition={titleTransition}
+            >
+              <span>{detailTransition.to.contextLabel}</span>
+              <strong>{detailTransition.to.title}</strong>
+            </motion.div>
+          </>
+        ) : (
+          <div className="presento-topbar-detail-copy presento-topbar-detail-copy-static">
+            <span>{detailState.contextLabel}</span>
+            <strong>{detailState.title}</strong>
+          </div>
+        )}
+      </div>
     </>
   );
 }

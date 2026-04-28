@@ -38,6 +38,7 @@ export type FlowTransitionPreset = {
             };
         minZoom: number;
         maxZoom: number;
+        zoom?: number;
         offset: { x: number; y: number };
       }
     | {
@@ -136,15 +137,38 @@ export type FlowNodeMotionState = {
 };
 
 export type FlowCameraAction = "fit" | "center" | "hold";
+export type FlowBackgroundCopyBehavior = "hidden" | "timed" | "persistent";
+export type FlowBackgroundCopyAnimationMode =
+  | "hidden"
+  | "timed"
+  | "persistent"
+  | "exiting";
+
+export type FlowPortalOriginStyle = {
+  clipPath: string;
+  transformOrigin: string;
+};
 
 export const FLOW_MAP_OVERVIEW_MIN_ZOOM = 0.34;
 export const FLOW_MAP_OVERVIEW_MAX_ZOOM = 0.44;
+export const FLOW_NODE_FOCUS_MAX_ZOOM = 2.8;
 export const FLOW_MAP_OVERVIEW_PADDING = {
   top: "6%",
   right: "4%",
   bottom: "8%",
   left: "10%",
 } as const;
+
+export const flowDockStepOrder: FlowStepId[] = [
+  "knowledge",
+  "files",
+  "scripts",
+  "defense",
+  "deepDive",
+  "review",
+  "skills",
+  "pcg",
+];
 
 export const flowSteps: FlowStep[] = [
   {
@@ -346,10 +370,10 @@ export function getFlowTransitionPreset(
       },
       room: {
         visible: false,
-        duration: 280,
+        duration: 360,
         delay: 0,
-        scaleFrom: 0.92,
-        yFrom: 18,
+        scaleFrom: 0.86,
+        yFrom: 0,
       },
       portalShell: {
         visible: false,
@@ -371,17 +395,17 @@ export function getFlowTransitionPreset(
   return {
     name: roomKind,
     phase: mode === "entering" ? "focus" : "room",
-    ease: mode === "entering" ? "power2.out" : "power3.out",
+    ease: mode === "entering" ? "power3.out" : "power3.out",
     camera: {
       type: "center",
-      duration: mode === "entering" ? (immersive ? 760 : explore ? 720 : 680) : immersive ? 780 : explore ? 680 : 620,
+      duration: mode === "entering" ? (immersive ? 620 : explore ? 600 : 560) : immersive ? 780 : explore ? 680 : 620,
       zoom:
         mode === "entering"
           ? immersive
-            ? 1.66
+            ? 2.6
             : explore
-              ? 1.58
-              : 1.5
+              ? 2.42
+              : 2.26
           : immersive
             ? 1.48
             : explore
@@ -393,10 +417,10 @@ export function getFlowTransitionPreset(
       },
     },
     canvas: {
-      duration: mode === "entering" ? 360 : 420,
-      scale: mode === "entering" ? 0.96 : immersive ? 1.04 : explore ? 1.03 : 1.02,
+      duration: mode === "entering" ? 620 : 420,
+      scale: mode === "entering" ? 1 : immersive ? 1.04 : explore ? 1.03 : 1.02,
       blur: mode === "entering" ? 0 : 4,
-      opacity: 1,
+      opacity: mode === "entering" ? 1 : 0,
       saturation: mode === "entering" ? 1 : 0.84,
     },
     commandBar: {
@@ -413,13 +437,13 @@ export function getFlowTransitionPreset(
     },
     portalShell: {
       visible: true,
-      duration: mode === "entering" ? (immersive ? 430 : explore ? 460 : 440) : immersive ? 460 : explore ? 520 : 500,
-      delay: mode === "entering" ? 0 : immersive ? 0.06 : 0.08,
-      scaleFrom: immersive ? 0.16 : explore ? 0.18 : 0.2,
-      yFrom: immersive ? -4 : 0,
-      opacityTo: mode === "entering" ? 0.86 : 0.94,
+      duration: mode === "entering" ? (immersive ? 560 : explore ? 540 : 520) : immersive ? 460 : explore ? 520 : 500,
+      delay: mode === "entering" ? (immersive ? 0.62 : explore ? 0.6 : 0.56) : immersive ? 0.06 : 0.08,
+      scaleFrom: mode === "entering" ? 1 : immersive ? 0.14 : explore ? 0.16 : 0.18,
+      yFrom: immersive ? -6 : 0,
+      opacityTo: mode === "entering" ? (immersive ? 0.9 : 0.88) : 0.94,
       clipFrom: "inset(43% 42% 43% 42% round 22px)",
-      clipTo: immersive ? "inset(0% 0% 0% 0% round 24px)" : "inset(0% 0% 0% 0% round 28px)",
+      clipTo: "inset(0% 0% 0% 0% round 0px)",
     },
   };
 }
@@ -428,11 +452,109 @@ export function getFlowCameraAction(
   mode: FlowMode,
   targetMode: Exclude<FlowMode, "entering">,
 ): FlowCameraAction {
+  if (targetMode === "map") return mode === "map" ? "fit" : "hold";
+
   if (mode === "map") {
-    return targetMode === "map" ? "fit" : "hold";
+    return "hold";
   }
 
   return "center";
+}
+
+export function getFlowStepSlideDirection(from: FlowStepId, to: FlowStepId): -1 | 1 {
+  const fromIndex = flowDockStepOrder.indexOf(from);
+  const toIndex = flowDockStepOrder.indexOf(to);
+
+  if (fromIndex === -1 || toIndex === -1) return 1;
+  return toIndex >= fromIndex ? 1 : -1;
+}
+
+export function shouldRenderFlowRoomChrome({
+  dockFocusPending,
+  mode,
+}: {
+  dockFocusPending: boolean;
+  mode: FlowMode;
+}) {
+  if (mode === "map") return false;
+  return !dockFocusPending;
+}
+
+export function getFlowPortalOriginStyle({
+  containerHeight,
+  containerWidth,
+  padding = 10,
+  sourceHeight,
+  sourceLeft,
+  sourceTop,
+  sourceWidth,
+}: {
+  containerHeight: number;
+  containerWidth: number;
+  padding?: number;
+  sourceHeight: number;
+  sourceLeft: number;
+  sourceTop: number;
+  sourceWidth: number;
+}): FlowPortalOriginStyle {
+  if (
+    containerHeight <= 0 ||
+    containerWidth <= 0 ||
+    sourceHeight <= 0 ||
+    sourceWidth <= 0
+  ) {
+    return {
+      clipPath: "inset(43% 42% 43% 42% round 22px)",
+      transformOrigin: "50% 48%",
+    };
+  }
+
+  const top = toPercent((sourceTop - padding) / containerHeight);
+  const left = toPercent((sourceLeft - padding) / containerWidth);
+  const right = toPercent(
+    (containerWidth - sourceLeft - sourceWidth - padding) / containerWidth,
+  );
+  const bottom = toPercent(
+    (containerHeight - sourceTop - sourceHeight - padding) / containerHeight,
+  );
+  const originX = toPercent((sourceLeft + sourceWidth / 2) / containerWidth);
+  const originY = toPercent((sourceTop + sourceHeight / 2) / containerHeight);
+
+  return {
+    clipPath: `inset(${top} ${right} ${bottom} ${left} round 24px)`,
+    transformOrigin: `${originX} ${originY}`,
+  };
+}
+
+export function getFlowBackgroundCopyBehavior({
+  mode,
+  pinned,
+}: {
+  mode: Exclude<FlowMode, "entering"> | FlowMode;
+  pinned: boolean;
+}): FlowBackgroundCopyBehavior {
+  if (mode !== "map") return "hidden";
+  return pinned ? "persistent" : "timed";
+}
+
+function toPercent(value: number) {
+  return `${Number((clamp(value, 0, 0.96) * 100).toFixed(2))}%`;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+export function getFlowBackgroundCopyAnimationMode({
+  behavior,
+  exiting,
+}: {
+  behavior: FlowBackgroundCopyBehavior;
+  exiting: boolean;
+}): FlowBackgroundCopyAnimationMode {
+  if (behavior === "hidden") return "hidden";
+  if (exiting) return "exiting";
+  return behavior;
 }
 
 export function shouldAnimateFlowModeTransition({
@@ -453,8 +575,8 @@ export function getFlowNodeMotionState(mode: FlowMode, active: boolean): FlowNod
   if (active) {
     return {
       opacity: 1,
-      scale: mode === "inside" ? 1.24 : mode === "entering" ? 1.28 : 1.1,
-      y: mode === "inside" ? -12 : mode === "entering" ? -14 : -2,
+      scale: mode === "inside" ? 1.1 : 1.04,
+      y: mode === "inside" ? -8 : mode === "entering" ? -2 : -2,
     };
   }
 

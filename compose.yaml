@@ -18,5 +18,20 @@ services:
       timeout: 5s
       retries: 12
 
+  notebook-rag:
+    build:
+      context: ./services/notebook-rag
+    container_name: defense-coach-notebook-rag
+    restart: unless-stopped
+    environment:
+      NOTEBOOK_RAG_API_KEY: ${NOTEBOOK_RAG_API_KEY:-local-dev-key}
+    ports:
+      - "8011:8011"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
 volumes:
   defense-coach-postgres18-data:
