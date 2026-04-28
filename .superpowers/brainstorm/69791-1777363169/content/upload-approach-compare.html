@@ -1,0 +1,67 @@
+<h2>上传界面实现方向</h2>
+<p class="subtitle">已锁定：铺满导航栏下方区域，dock 浮在上面，dock 区域不遮挡内容；只做本地上传；新建页和项目内两处统一。</p>
+
+<div class="cards">
+  <div class="card" data-choice="approach-a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A · 单屏主上传区</div>
+        <div class="mockup-body">
+          <div style="height:28px; border-radius:999px; background:#eef2ff; margin-bottom:10px; display:flex; align-items:center; justify-content:center; font-size:12px; color:#5260ff;">Dock safe zone</div>
+          <div style="display:grid; grid-template-columns:1.5fr 1fr; gap:12px;">
+            <div class="placeholder" style="height:220px; border-style:dashed; display:flex; align-items:center; justify-content:center;">大拖拽上传区</div>
+            <div class="mock-content" style="height:220px;">支持类型表<br/>+ 处理说明</div>
+          </div>
+          <div class="mock-content" style="margin-top:12px;">已选文件列表</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 推荐</h3>
+      <p>上传区是主角，右侧固定支持类型表，下方是已选文件。结构稳定，最适合两处页面复用。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="approach-b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B · 上传区 + 底部文件托盘</div>
+        <div class="mockup-body">
+          <div style="height:28px; border-radius:999px; background:#eef2ff; margin-bottom:10px; display:flex; align-items:center; justify-content:center; font-size:12px; color:#5260ff;">Dock safe zone</div>
+          <div class="placeholder" style="height:220px; border-style:dashed; display:flex; align-items:center; justify-content:center;">大拖拽上传区</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px;">
+            <div class="mock-content">支持类型表</div>
+            <div class="mock-content">已选文件托盘</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 更偏工作台</h3>
+      <p>上传后反馈更直观，但首屏信息密度更高，创建页会略显重。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="approach-c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C · 单列叙事式</div>
+        <div class="mockup-body">
+          <div style="height:28px; border-radius:999px; background:#eef2ff; margin-bottom:10px; display:flex; align-items:center; justify-content:center; font-size:12px; color:#5260ff;">Dock safe zone</div>
+          <div class="placeholder" style="height:160px; border-style:dashed; display:flex; align-items:center; justify-content:center;">大拖拽上传区</div>
+          <div class="mock-content" style="margin-top:12px;">支持类型表</div>
+          <div class="mock-content" style="margin-top:12px;">已选文件列表</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 最稳但不够强</h3>
+      <p>移动端最自然，但视觉冲击力弱一些，没有参考图那种“上传工作区”感。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>建议</h3>
+  <p class="subtitle">推荐 A。它能把上传动作做成主视觉，同时把“规划中支持的类型”稳定放在右侧，不会和 dock 或文件列表互相争抢空间。</p>
+</div>

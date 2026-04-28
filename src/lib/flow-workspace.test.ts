@@ -63,6 +63,25 @@ test("distinguishes map overview routes from inside room routes", () => {
   assert.equal(flowRouteToMode("/projects/demo/defense"), "inside");
 });
 
+test("skips mode-transition animation on the initial inside-room render", () => {
+  assert.equal(
+    shouldAnimateFlowModeTransition({
+      isInitialRender: true,
+      previousTargetMode: null,
+      targetMode: "inside",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldAnimateFlowModeTransition({
+      isInitialRender: false,
+      previousTargetMode: "map",
+      targetMode: "inside",
+    }),
+    true,
+  );
+});
+
 test("returns the correct background copy visibility behavior", () => {
   assert.equal(getFlowBackgroundCopyBehavior({ mode: "map", pinned: false }), "timed");
   assert.equal(getFlowBackgroundCopyBehavior({ mode: "map", pinned: true }), "persistent");
@@ -333,7 +352,7 @@ test("only uses entering mode when crossing the map boundary", () => {
       previousTargetMode: null,
       targetMode: "inside",
     }),
-    true,
+    false,
   );
   assert.equal(
     shouldAnimateFlowModeTransition({

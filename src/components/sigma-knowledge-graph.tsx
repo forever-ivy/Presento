@@ -8,6 +8,13 @@ export type SigmaKnowledgeNode = {
   kind?: string;
   tone?: "blue" | "gray" | "orange" | "green" | "red" | "purple" | "cyan";
   summary?: string;
+  dimmed?: boolean;
+  active?: boolean;
+  depth?: 0 | 1 | 2 | 3;
+  position?: { x: number; y: number };
+  expandable?: boolean;
+  expanded?: boolean;
+  childCount?: number;
   metadata?: Record<string, unknown>;
 };
 
@@ -16,6 +23,9 @@ export type SigmaKnowledgeEdge = {
   fromNodeId: string;
   toNodeId: string;
   label?: string;
+  active?: boolean;
+  kind?: string;
+  emphasis?: "default" | "branch" | "active";
 };
 
 export type SigmaKnowledgeGraphProps = {

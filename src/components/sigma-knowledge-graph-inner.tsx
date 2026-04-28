@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import Graph from "graphology";
-import forceAtlas2 from "graphology-layout-forceatlas2";
 import {
   SigmaContainer,
+  useSigma,
   useLoadGraph,
   useRegisterEvents,
 } from "@react-sigma/core";
+import type { NodeHoverDrawingFunction } from "sigma/rendering";
 import type {
   SigmaKnowledgeEdge,
   SigmaKnowledgeGraphProps,
@@ -29,12 +30,18 @@ export default function SigmaKnowledgeGraphInner({
         graph={Graph}
         settings={{
           allowInvalidContainer: true,
-          defaultEdgeColor: "#9fb3d9",
+          defaultEdgeColor: "rgba(55, 65, 81, 0.52)",
           defaultEdgeType: "line",
-          labelDensity: 0.08,
-          labelGridCellSize: 90,
-          labelRenderedSizeThreshold: 8,
+          labelColor: { color: "#52606d" },
+          labelDensity: 0.14,
+          labelFont: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          labelGridCellSize: 72,
+          labelRenderedSizeThreshold: 4,
+          labelWeight: "600",
+          defaultDrawNodeHover: drawNodeOnlyHover,
           renderEdgeLabels: false,
+          minCameraRatio: 0.56,
+          maxCameraRatio: 1.9,
         }}
         style={{ height: "100%", width: "100%" }}
       >
@@ -49,6 +56,25 @@ export default function SigmaKnowledgeGraphInner({
   );
 }
 
+const drawNodeOnlyHover: NodeHoverDrawingFunction = (context, data) => {
+  context.save();
+
+  context.beginPath();
+  context.arc(data.x, data.y, data.size + 5, 0, Math.PI * 2);
+  context.fillStyle = "#ffffff";
+  context.fill();
+  context.lineWidth = 2;
+  context.strokeStyle = "rgba(71, 85, 105, 0.72)";
+  context.stroke();
+
+  context.beginPath();
+  context.arc(data.x, data.y, data.size + 0.5, 0, Math.PI * 2);
+  context.fillStyle = data.color;
+  context.fill();
+
+  context.restore();
+};
+
 function GraphLoader({
   nodes,
   edges,
@@ -62,20 +88,26 @@ function GraphLoader({
 }) {
   const loadGraph = useLoadGraph();
   const registerEvents = useRegisterEvents();
+  const sigma = useSigma();
+  const hasPositionedCameraRef = useRef(false);
+  const previousCameraNodeIdRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const graph = new Graph();
-    nodes.forEach((node, index) => {
-      const angle = (Math.PI * 2 * index) / Math.max(nodes.length, 1);
-      const isActive = node.id === activeId;
+    nodes.forEach((node) => {
+      const isActive = node.id === activeId || Boolean(node.active);
+      const isCenter = node.kind === "project";
+      const nodeSize = sizeForNode(node, isActive);
+
       graph.addNode(node.id, {
-        label: node.title,
-        x: Math.cos(angle) * (index === 0 ? 0.2 : 6),
-        y: Math.sin(angle) * (index === 0 ? 0.2 : 6),
-        size: isActive ? 18 : node.kind === "file" ? 13 : 10,
-        color: colorForTone(node.tone, isActive),
-        borderColor: isActive ? "#0b1220" : "#ffffff",
+        label: labelForNode(node),
+        x: node.position?.x ?? 0,
+        y: node.position?.y ?? 0,
+        size: nodeSize,
+        color: museumNodeColor(node, isActive, isCenter),
+        forceLabel: node.depth !== 2 || isActive || Boolean(node.expandable),
         kind: node.kind,
+        zIndex: isActive ? 3 : isCenter ? 2 : 1,
       });
     });
 
@@ -83,23 +115,11 @@ function GraphLoader({
       if (!graph.hasNode(edge.fromNodeId) || !graph.hasNode(edge.toNodeId)) return;
       graph.addEdgeWithKey(edge.id ?? `edge-${index}`, edge.fromNodeId, edge.toNodeId, {
         label: edge.label,
-        size: 1.4,
-        color: "#b4c1d8",
+        size: edge.emphasis === "active" ? 3.4 : edge.emphasis === "branch" ? 2.45 : 1.9,
+        color: edgeColor(edge),
+        zIndex: edge.emphasis === "active" ? 2 : 1,
       });
     });
-
-    if (graph.order > 1) {
-      forceAtlas2.assign(graph, {
-        iterations: 80,
-        settings: {
-          adjustSizes: true,
-          barnesHutOptimize: true,
-          gravity: 0.8,
-          scalingRatio: 8,
-          slowDown: 8,
-        },
-      });
-    }
 
     loadGraph(graph);
   }, [activeId, edges, loadGraph, nodes]);
@@ -110,7 +130,63 @@ function GraphLoader({
     });
   }, [onSelect, registerEvents]);
 
+  useEffect(() => {
+    const activeNode = nodes.find((node) => node.id === activeId) ?? nodes[0];
+    if (!activeNode) return;
+    const cameraTarget = cameraTargetForNode(nodes, activeNode);
+    const cameraState = {
+      x: cameraTarget.x,
+      y: cameraTarget.y,
+      ratio: cameraRatioForNode(activeNode),
+    };
+    const camera = sigma.getCamera();
+
+    if (!hasPositionedCameraRef.current) {
+      camera.setState(cameraState);
+      hasPositionedCameraRef.current = true;
+      previousCameraNodeIdRef.current = activeNode.id;
+      return;
+    }
+
+    if (previousCameraNodeIdRef.current === activeNode.id) {
+      camera.setState(cameraState);
+      return;
+    }
+
+    previousCameraNodeIdRef.current = activeNode.id;
+    void camera.animate(cameraState, { duration: 360 });
+  }, [activeId, nodes, sigma]);
+
   return null;
+}
+
+function cameraTargetForNode(nodes: SigmaKnowledgeNode[], node: SigmaKnowledgeNode) {
+  const positionedNodes = nodes
+    .map((item) => item.position)
+    .filter((position): position is { x: number; y: number } => Boolean(position));
+  const target = node.position ?? positionedNodes[0] ?? { x: 0, y: 0 };
+  if (!positionedNodes.length) return { x: 0.5, y: 0.5 };
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  positionedNodes.forEach((position) => {
+    minX = Math.min(minX, position.x);
+    maxX = Math.max(maxX, position.x);
+    minY = Math.min(minY, position.y);
+    maxY = Math.max(maxY, position.y);
+  });
+
+  const ratio = Math.max(maxX - minX, maxY - minY) || 1;
+  const centerX = (maxX + minX) / 2;
+  const centerY = (maxY + minY) / 2;
+
+  return {
+    x: 0.5 + (target.x - centerX) / ratio,
+    y: 0.5 + (target.y - centerY) / ratio,
+  };
 }
 
 function inferEdges(nodes: SigmaKnowledgeNode[]): SigmaKnowledgeEdge[] {
@@ -126,13 +202,45 @@ function inferEdges(nodes: SigmaKnowledgeNode[]): SigmaKnowledgeEdge[] {
     }));
 }
 
-function colorForTone(tone: SigmaKnowledgeNode["tone"], active: boolean) {
-  if (active) return "#f59e0b";
-  if (tone === "green") return "#16a34a";
-  if (tone === "purple") return "#7c3aed";
-  if (tone === "orange") return "#ea580c";
-  if (tone === "red") return "#dc2626";
-  if (tone === "cyan") return "#0891b2";
-  if (tone === "gray") return "#64748b";
-  return "#2563eb";
+function labelForNode(node: SigmaKnowledgeNode) {
+  if (!node.expandable || !node.childCount) return node.title;
+  return `${node.title}  +${node.childCount}`;
+}
+
+function sizeForNode(node: SigmaKnowledgeNode, active: boolean) {
+  if (node.kind === "project") return active ? 31 : 28;
+  if (node.depth === 1) return active ? 15 : node.expandable ? 13.6 : 12;
+  if (node.depth === 2) return active ? 11.5 : 9.8;
+  return active ? 10 : 8.5;
+}
+
+function cameraRatioForNode(node: SigmaKnowledgeNode) {
+  if (node.depth === 0) return 1.42;
+  if (node.depth === 1) return 1.55;
+  if (node.depth === 3) return 1.22;
+  return 1.38;
+}
+
+function museumNodeColor(
+  node: SigmaKnowledgeNode,
+  active: boolean,
+  isCenter?: boolean,
+) {
+  if (isCenter) return active ? "#10b981" : "#14b8a6";
+  if (active) return "#10b981";
+  if (node.dimmed) return "#64748b";
+  if (node.expanded) return "rgba(31, 119, 180, 0.96)";
+  if (node.tone === "green") return "#2a93a3";
+  if (node.tone === "purple") return "#3c81c7";
+  if (node.tone === "orange") return "#d89d4d";
+  if (node.tone === "red") return "#cb6d5e";
+  if (node.tone === "cyan") return "#67a7cf";
+  if (node.tone === "gray") return "#9ba4b2";
+  return "#4c91bc";
+}
+
+function edgeColor(edge: SigmaKnowledgeEdge) {
+  if (edge.emphasis === "active") return "rgba(3, 105, 161, 1)";
+  if (edge.emphasis === "branch") return "rgba(55, 65, 81, 0.82)";
+  return "rgba(55, 65, 81, 0.68)";
 }

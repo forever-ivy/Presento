@@ -191,7 +191,7 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
 }
 
 type TopNavDetailState = {
-  contextLabel: string;
+  contextLabel?: string;
   title: string;
   onBack: () => void;
 };
@@ -199,9 +199,9 @@ type TopNavDetailState = {
 type TopNavDetailTransition = {
   direction: -1 | 1;
   durationMs: number;
-  from: Pick<TopNavDetailState, "contextLabel" | "title">;
+  from: Pick<TopNavDetailState, "title"> & { contextLabel?: string };
   key: number;
-  to: Pick<TopNavDetailState, "contextLabel" | "title">;
+  to: Pick<TopNavDetailState, "title"> & { contextLabel?: string };
 };
 
 type TopNavDetailEntrance = {
@@ -475,7 +475,7 @@ function TopNavDetailContent({
               key={`${detailTransition.key}-from`}
               transition={titleTransition}
             >
-              <span>{detailTransition.from.contextLabel}</span>
+              {detailTransition.from.contextLabel ? <span>{detailTransition.from.contextLabel}</span> : null}
               <strong>{detailTransition.from.title}</strong>
             </motion.div>
             <motion.div
@@ -489,13 +489,13 @@ function TopNavDetailContent({
               key={`${detailTransition.key}-to`}
               transition={titleTransition}
             >
-              <span>{detailTransition.to.contextLabel}</span>
+              {detailTransition.to.contextLabel ? <span>{detailTransition.to.contextLabel}</span> : null}
               <strong>{detailTransition.to.title}</strong>
             </motion.div>
           </>
         ) : (
           <div className="presento-topbar-detail-copy presento-topbar-detail-copy-static">
-            <span>{detailState.contextLabel}</span>
+            {detailState.contextLabel ? <span>{detailState.contextLabel}</span> : null}
             <strong>{detailState.title}</strong>
           </div>
         )}

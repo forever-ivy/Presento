@@ -217,7 +217,7 @@ export const flowSteps: FlowStep[] = [
     shortLabel: "讲练",
     summary: "对着当前 PPT 页实时追问",
     stateLine: "建议下一步 · 第 2 页",
-    metrics: ["严格老师模式", "当前第 2 页", "准备开始"],
+    metrics: ["当前第 2 页", "准备开始"],
     status: "risk",
     roomKind: "immersive",
     tone: "orange",
@@ -566,8 +566,8 @@ export function shouldAnimateFlowModeTransition({
   previousTargetMode: Exclude<FlowMode, "entering"> | null;
   targetMode: Exclude<FlowMode, "entering">;
 }) {
-  if (targetMode === "map") return !isInitialRender;
-  if (isInitialRender) return true;
+  if (isInitialRender) return false;
+  if (targetMode === "map") return true;
   return previousTargetMode === "map";
 }
 

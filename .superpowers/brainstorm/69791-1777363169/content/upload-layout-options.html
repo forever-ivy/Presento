@@ -1,0 +1,66 @@
+<h2>上传界面落位</h2>
+<p class="subtitle">参考图是居中弹层，但当前页面是创建页表单。先选结构，再细化视觉和 Uppy 集成方式。</p>
+
+<div class="cards">
+  <div class="card" data-choice="modal" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 A · 居中弹层</div>
+        <div class="mockup-body">
+          <div class="placeholder" style="height:180px; border-style:dashed; display:flex; align-items:center; justify-content:center;">大上传投放区</div>
+          <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:12px;">
+            <div class="mock-content">Drive / Link</div>
+            <div class="mock-content">Paste text</div>
+            <div class="mock-content">支持类型表</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 完全按参考图</h3>
+      <p>点击“导入资料”后打开大弹层，创建页保留表单，上传能力集中在弹层里。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="inline" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 B · 页内嵌入</div>
+        <div class="mockup-body">
+          <div class="placeholder" style="height:180px; border-style:dashed; display:flex; align-items:center; justify-content:center;">大上传投放区</div>
+          <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:12px;">
+            <div class="mock-content">支持来源卡片</div>
+            <div class="mock-content">支持类型表</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 保留当前创建页结构</h3>
+      <p>不做弹层，直接把第 3 步“导入资料”升级成参考图风格的大型上传模块。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 C · 混合模式</div>
+        <div class="mockup-body">
+          <div style="display:flex; gap:12px; align-items:stretch;">
+            <div class="mock-content" style="flex:1;">页内摘要</div>
+            <div class="placeholder" style="flex:2; height:180px; border-style:dashed; display:flex; align-items:center; justify-content:center;">展开后进入弹层</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 混合</h3>
+      <p>创建页只显示已选文件和入口，复杂来源与支持类型放进弹层。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我的建议</h3>
+  <p class="subtitle">推荐 B。它最贴近当前页面信息结构，改动边界小，同时能把视觉升级到参考图那种“知识源接入舱”风格。A 更像独立上传工作流，后面会带出额外的打开/关闭/保存状态设计。</p>
+</div>

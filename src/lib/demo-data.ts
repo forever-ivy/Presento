@@ -293,6 +293,150 @@ export const demoSlideScripts = [
   },
 ];
 
+export type DemoDefenseSlide = {
+  accent: string;
+  duration: string;
+  evidence: string[];
+  image: string;
+  keywords: string[];
+  modules: string[];
+  page: string;
+  risks: string[];
+  speakerNote: string;
+  stat: string;
+  status: string;
+  summary: string;
+  title: string;
+};
+
+const extraDefenseSlides = [
+  {
+    page: "04",
+    title: "核心功能演示",
+    duration: "45 秒",
+    status: "可讲",
+    normal: "围绕用户点餐、订单确认、后厨接单和状态回传四个步骤完成演示。",
+    short: "这一页用一条订单串起完整功能闭环。",
+    keywords: ["点餐", "接单", "状态回传"],
+    risks: ["如果网络失败订单怎么处理？", "后厨刷新频率如何控制？"],
+    evidence: ["PPT 第 4 页", "README 功能说明", "routes/orders.ts"],
+  },
+  {
+    page: "05",
+    title: "后端订单模块",
+    duration: "60 秒",
+    status: "重点练习",
+    normal: "后端订单模块负责参数校验、权限判断、订单写入、状态变更和异常返回。",
+    short: "这一页重点讲我负责的订单接口和状态变更逻辑。",
+    keywords: ["接口校验", "权限判断", "异常处理"],
+    risks: ["哪些接口是你负责的？", "如何避免越权修改订单？"],
+    evidence: ["backend.zip / routes/orders.ts", "分工说明"],
+  },
+  {
+    page: "06",
+    title: "数据统计看板",
+    duration: "42 秒",
+    status: "待补强",
+    normal: "数据统计看板展示订单数量、菜品销量和营业额趋势，帮助店家判断高峰时段。",
+    short: "这一页解释数据从订单表汇总到看板指标。",
+    keywords: ["销量", "营业额", "高峰时段"],
+    risks: ["统计口径是什么？", "异常订单是否计入营业额？"],
+    evidence: ["订单数据.xlsx", "orders.sql", "PPT 第 6 页"],
+  },
+  {
+    page: "07",
+    title: "AI 推荐模块",
+    duration: "48 秒",
+    status: "可讲",
+    normal: "AI 推荐模块根据历史订单和菜品标签，为用户提供热销菜品和搭配建议。",
+    short: "这一页讲清推荐输入、输出和业务价值，不夸大模型能力。",
+    keywords: ["历史订单", "菜品标签", "搭配建议"],
+    risks: ["是真 AI 还是规则推荐？", "数据量不足时如何兜底？"],
+    evidence: ["README AI 模块", "PPT 第 7 页"],
+  },
+  {
+    page: "08",
+    title: "测试与结果",
+    duration: "40 秒",
+    status: "可讲",
+    normal: "我们用核心流程测试、接口测试和演示数据验证点餐、接单和统计链路。",
+    short: "这一页强调测试覆盖了主流程和高风险异常。",
+    keywords: ["接口测试", "主流程", "异常场景"],
+    risks: ["有没有真实用户测试？", "失败用例有哪些？"],
+    evidence: ["测试记录", "PPT 第 8 页"],
+  },
+  {
+    page: "09",
+    title: "个人贡献",
+    duration: "55 秒",
+    status: "高危",
+    normal: "我主要负责后端订单接口、订单状态流转、数据库表设计中的订单部分，以及答辩资料整理。",
+    short: "这一页要明确我的负责范围，避免把队友模块说成自己实现。",
+    keywords: ["订单接口", "状态流转", "数据库表"],
+    risks: ["哪些代码是你写的？", "遇到的最大技术问题是什么？"],
+    evidence: ["分工说明", "routes/orders.ts", "orders.sql"],
+  },
+  {
+    page: "10",
+    title: "总结与展望",
+    duration: "35 秒",
+    status: "收尾",
+    normal: "最后总结项目解决的问题、已经完成的能力和后续可以改进的真实部署、支付接入与推荐效果。",
+    short: "用问题、方案、结果和改进四句话收尾。",
+    keywords: ["总结", "部署", "推荐效果"],
+    risks: ["如果继续做你会先改哪里？", "项目最大的不足是什么？"],
+    evidence: ["PPT 第 10 页", "复盘记录"],
+  },
+];
+
+const defenseSlidePalette = [
+  ["#d9eee5", "#f7faf8", "#047857"],
+  ["#e7f1fb", "#fbfcfd", "#3d74a4"],
+  ["#fff1df", "#fffaf3", "#a66a12"],
+  ["#f0f5f2", "#ffffff", "#1f2937"],
+  ["#eaf7ef", "#f8fbf9", "#0f8f65"],
+];
+
+function createSlidePreviewImage(slide: { page: string; status: string; title: string }, index: number) {
+  const [start, end, accent] = defenseSlidePalette[index % defenseSlidePalette.length] ?? defenseSlidePalette[0];
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="900" height="540" viewBox="0 0 900 540">
+      <defs>
+        <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0" stop-color="${start}" />
+          <stop offset="1" stop-color="${end}" />
+        </linearGradient>
+      </defs>
+      <rect width="900" height="540" rx="34" fill="url(#bg)" />
+      <rect x="46" y="44" width="808" height="452" rx="28" fill="rgba(255,255,255,0.72)" stroke="rgba(31,35,41,0.10)" />
+      <text x="78" y="100" fill="#5f666d" font-family="Arial, sans-serif" font-size="26" font-weight="800">Slide ${slide.page} · ${slide.status}</text>
+      <text x="78" y="178" fill="#1a1d1f" font-family="Arial, sans-serif" font-size="58" font-weight="900">${slide.title}</text>
+      <rect x="78" y="238" width="420" height="14" rx="7" fill="${accent}" opacity="0.72" />
+      <rect x="78" y="282" width="590" height="18" rx="9" fill="#d8dedb" opacity="0.72" />
+      <rect x="78" y="320" width="500" height="18" rx="9" fill="#d8dedb" opacity="0.54" />
+      <rect x="624" y="270" width="160" height="130" rx="24" fill="${accent}" opacity="0.16" />
+      <text x="704" y="350" text-anchor="middle" fill="${accent}" font-family="Arial, sans-serif" font-size="54" font-weight="900">${slide.page}</text>
+    </svg>`;
+
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+export const demoDefenseSlides: DemoDefenseSlide[] = [...demoSlideScripts, ...extraDefenseSlides].map((slide, index) => ({
+  accent: defenseSlidePalette[index % defenseSlidePalette.length]?.[2] ?? "#047857",
+  duration: slide.duration,
+  evidence: slide.evidence,
+  image: createSlidePreviewImage(slide, index),
+  keywords: slide.keywords,
+  modules: slide.keywords.slice(0, 3),
+  page: slide.page,
+  risks: slide.risks,
+  speakerNote: slide.short,
+  stat: index === 1 ? "55 秒" : `${Math.max(28, 62 - index * 3)} 秒`,
+  status: slide.status,
+  summary: slide.normal,
+  title: slide.title,
+}));
+
 export const demoReviewMetrics = [
   { label: "表达清晰度", value: 82, desc: "结构完整，但系统架构页略啰嗦" },
   { label: "证据支撑度", value: 71, desc: "能引用 PPT，代码路径还需更具体" },
