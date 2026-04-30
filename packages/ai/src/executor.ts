@@ -14,8 +14,8 @@ import { createSkillToolLayer } from "./tools.ts";
 import { runDefenseChatGraph, runDefenseReviewGraph, runProjectBriefGraph } from "../../../src/lib/skill-graph.ts";
 import { createConfiguredLlmProvider } from "../../../src/lib/llm-provider.ts";
 import { generateDefenseCoachTurn, type DefenseCoachTurn, type DefenseTeacherRole } from "../../../src/lib/defense-chat-skill.ts";
-import { generateDefenseReview, type DefensePracticeTurn, type DefenseReview } from "../../../src/lib/defense-review.ts";
-import { generateProjectBrief, type ProjectBrief } from "../../../src/lib/project-brief-skill.ts";
+import { generateDefenseReview, type DefensePracticeTurn } from "../../../src/lib/defense-review.ts";
+import { generateProjectBrief } from "../../../src/lib/project-brief-skill.ts";
 import type { KnowledgeChunkRecord } from "../../../src/lib/knowledge-chunks.ts";
 import type { TrainingReviewTurn } from "../../../src/lib/training-session.ts";
 

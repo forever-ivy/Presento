@@ -1,5 +1,6 @@
 import type { ProjectBrief } from "./project-brief-skill";
 import type { ModelRuntimeStatus } from "./model-config";
+import { readApiErrorMessage } from "./api-error";
 
 export async function fetchProjectBrief(projectId: string) {
   const response = await fetch(`/api/projects/${projectId}/brief`, {
@@ -8,7 +9,7 @@ export async function fetchProjectBrief(projectId: string) {
   });
 
   if (!response.ok) {
-    const message = await readBriefError(response);
+    const message = await readApiErrorMessage(response);
     throw new Error(message || "项目速记卡生成失败");
   }
 
@@ -18,13 +19,4 @@ export async function fetchProjectBrief(projectId: string) {
     skillStatus?: "success" | "fallback" | "failed";
     modelStatus?: ModelRuntimeStatus;
   };
-}
-
-async function readBriefError(response: Response) {
-  try {
-    const payload = (await response.json()) as { error?: string };
-    return payload.error;
-  } catch {
-    return response.text();
-  }
 }

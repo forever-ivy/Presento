@@ -1,5 +1,6 @@
 import type { DefenseCoachTurn, DefenseTeacherRole } from "./defense-chat-skill";
 import type { ModelRuntimeStatus } from "./model-config";
+import { readApiErrorMessage } from "./api-error";
 
 export async function requestDefenseCoachTurn({
   projectId,
@@ -28,7 +29,7 @@ export async function requestDefenseCoachTurn({
   });
 
   if (!response.ok) {
-    const message = await readDefenseChatError(response);
+    const message = await readApiErrorMessage(response);
     throw new Error(message || "同屏追问生成失败");
   }
 
@@ -38,13 +39,4 @@ export async function requestDefenseCoachTurn({
     skillStatus?: "success" | "fallback" | "failed";
     modelStatus?: ModelRuntimeStatus;
   };
-}
-
-async function readDefenseChatError(response: Response) {
-  try {
-    const payload = (await response.json()) as { error?: string };
-    return payload.error;
-  } catch {
-    return response.text();
-  }
 }

@@ -4,7 +4,7 @@ import { resolveLocalStoragePath } from "./local-processing.ts";
 import type { DefenseFileRecord } from "./project-workspace.ts";
 
 export async function readStoredFileBuffer(
-  file: Pick<DefenseFileRecord, "storageKey" | "storagePath">,
+  file: { storageKey?: string | null; storagePath?: string | null },
   cwd = process.cwd(),
 ) {
   if (file.storageKey) {

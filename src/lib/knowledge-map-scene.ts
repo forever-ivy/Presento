@@ -141,6 +141,13 @@ export function projectKnowledgeMapScene(
   },
 ): ProjectKnowledgeMapScene {
   const activeNode = scene.nodesById[options.activeNodeId] ?? scene.nodesById[scene.rootId];
+  if (!activeNode) {
+    return {
+      autoExpandedBranchIds: new Set(),
+      edges: [],
+      nodes: [],
+    };
+  }
   const manualExpandedBranchIds = new Set(
     [...options.expandedBranchIds].filter((branchId) => scene.nodesById[branchId]?.depth === 1),
   );

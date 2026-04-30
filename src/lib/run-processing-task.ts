@@ -3,6 +3,7 @@ import type {
   DefenseProcessingArtifact,
   DefenseProcessingTask,
 } from "./project-workspace";
+import { readApiErrorMessage } from "./api-error";
 
 export async function runProcessingTask({
   projectId,
@@ -22,7 +23,7 @@ export async function runProcessingTask({
   });
 
   if (!response.ok) {
-    const message = await readProcessingError(response);
+    const message = await readApiErrorMessage(response);
     throw new Error(message || "解析任务失败");
   }
 
@@ -35,13 +36,4 @@ export async function runProcessingTask({
   }
 
   return payload.artifact;
-}
-
-async function readProcessingError(response: Response) {
-  try {
-    const payload = (await response.json()) as { error?: string };
-    return payload.error;
-  } catch {
-    return response.text();
-  }
 }

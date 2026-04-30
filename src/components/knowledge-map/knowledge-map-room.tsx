@@ -77,7 +77,6 @@ import {
 import {
   appendFileExplanationTurn,
   createFileExplanation,
-  createMockKnowledgeMap,
   getKnowledgeNodeActivation,
   loadFileNodePreview,
   loadKnowledgeMap,
@@ -173,16 +172,17 @@ type KnowledgeReaderFileGroup = {
   nodes: KnowledgeMapSceneNode[];
 };
 
-function shouldReuseKnowledgeMapState(current: KnowledgeMapUi, next: KnowledgeMapUi) {
-  if (current === next) return true;
-  if (current.source !== "mock" || next.source !== "mock") return false;
-  if (current.projectId !== next.projectId) return false;
-  if (current.nodes.length !== next.nodes.length || current.edges.length !== next.edges.length) return false;
+function createEmptyKnowledgeMap(projectId: string): KnowledgeMapUi {
+  return {
+    edges: [],
+    nodes: [],
+    projectId,
+    source: "api",
+  };
+}
 
-  const sameNodes = current.nodes.every((node, index) => node.id === next.nodes[index]?.id);
-  if (!sameNodes) return false;
-
-  return current.edges.every((edge, index) => edge.id === next.edges[index]?.id);
+function messageFromError(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 export function KnowledgeMapRoom({
@@ -196,16 +196,19 @@ export function KnowledgeMapRoom({
 }) {
   const router = useRouter();
   const isNarrowLayout = useIsNarrowKnowledgeLayout();
-  const [knowledgeMap, setKnowledgeMap] = useState(() => createMockKnowledgeMap(projectId));
-  const [activeNodeId, setActiveNodeId] = useState("project");
+  const [knowledgeMap, setKnowledgeMap] = useState<KnowledgeMapUi>(() => createEmptyKnowledgeMap(projectId));
+  const [activeNodeId, setActiveNodeId] = useState("");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<KnowledgeGraphFilter>("all");
   const [filterSlideDirection, setFilterSlideDirection] = useState<1 | -1>(1);
   const [expandedBranchIds, setExpandedBranchIds] = useState<Set<string>>(() => new Set());
+  const [isLoadingMap, setIsLoadingMap] = useState(true);
+  const [mapError, setMapError] = useState<string | null>(null);
   const [readerNodeId, setReaderNodeId] = useState<string | null>(null);
   const [mode, setMode] = useState<NotebookExplanationMode>("quick");
   const [preview, setPreview] = useState<FilePreviewUi | null>(null);
   const [explanation, setExplanation] = useState<FileExplanationUi | null>(null);
+  const [readerError, setReaderError] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [isLoadingExplanation, setIsLoadingExplanation] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -213,17 +216,30 @@ export function KnowledgeMapRoom({
   useEffect(() => {
     let cancelled = false;
 
-    loadKnowledgeMap(projectId)
+    void Promise.resolve()
+      .then(async () => {
+        if (cancelled) return null;
+        setIsLoadingMap(true);
+        setMapError(null);
+        return loadKnowledgeMap(projectId);
+      })
       .then((nextMap) => {
-        if (cancelled) return;
+        if (!nextMap || cancelled) return;
         startTransition(() => {
-          setKnowledgeMap((currentMap) => (
-            shouldReuseKnowledgeMapState(currentMap, nextMap) ? currentMap : nextMap
-          ));
-          setActiveNodeId((current) => nextMap.nodes.some((node) => node.id === current) ? current : nextMap.nodes[0]?.id ?? "project");
+          setKnowledgeMap(nextMap);
+          setActiveNodeId((current) => nextMap.nodes.some((node) => node.id === current) ? current : nextMap.nodes[0]?.id ?? "");
+          setExpandedBranchIds(new Set());
         });
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        if (cancelled) return;
+        setKnowledgeMap(createEmptyKnowledgeMap(projectId));
+        setActiveNodeId("");
+        setMapError(messageFromError(error, "知识地图读取失败。"));
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingMap(false);
+      });
 
     return () => {
       cancelled = true;
@@ -238,7 +254,7 @@ export function KnowledgeMapRoom({
     [expandedBranchIds, scene],
   );
   const activeNode = useMemo(
-    () => scene.nodesById[activeNodeId] ?? scene.nodesById[scene.rootId],
+    () => scene.nodesById[activeNodeId] ?? scene.nodesById[scene.rootId] ?? null,
     [activeNodeId, scene],
   );
   const overviewProjection = useMemo(
@@ -252,8 +268,8 @@ export function KnowledgeMapRoom({
   );
   const readerFileGroups = useMemo(() => buildKnowledgeReaderFileGroups(scene), [scene]);
   const activeOverviewNode = useMemo(
-    () => overviewProjection.nodes.find((node) => node.id === activeNode.id) ?? null,
-    [activeNode.id, overviewProjection.nodes],
+    () => activeNode ? overviewProjection.nodes.find((node) => node.id === activeNode.id) ?? null : null,
+    [activeNode, overviewProjection.nodes],
   );
   const readerNode = useMemo(
     () => readerNodeId ? scene.nodesById[readerNodeId] ?? null : null,
@@ -309,13 +325,24 @@ export function KnowledgeMapRoom({
   );
 
   useEffect(() => {
-    if (!readerNode) return;
     let cancelled = false;
+    if (!readerNode) {
+      void Promise.resolve().then(() => {
+        if (cancelled) return;
+        setPreview(null);
+        setExplanation(null);
+        setReaderError(null);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
 
     void Promise.resolve()
       .then(async () => {
         if (cancelled) return;
         setIsLoadingExplanation(true);
+        setReaderError(null);
         setPreview(readerNode.preview);
         setExplanation(null);
         const [nextPreview, nextExplanation] = await Promise.all([
@@ -329,6 +356,12 @@ export function KnowledgeMapRoom({
         if (!result || cancelled) return;
         setPreview(result.nextPreview);
         setExplanation(result.nextExplanation);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setReaderError(messageFromError(error, "资料讲解读取失败。"));
+        setPreview(readerNode.preview);
+        setExplanation(null);
       })
       .finally(() => {
         if (!cancelled) setIsLoadingExplanation(false);
@@ -405,10 +438,37 @@ export function KnowledgeMapRoom({
     if (!question || !explanation) return;
     setIsSending(true);
     setChatInput("");
-    const nextSession = await appendFileExplanationTurn(projectId, explanation, question);
-    setExplanation(nextSession);
-    setIsSending(false);
+    setReaderError(null);
+    try {
+      const nextSession = await appendFileExplanationTurn(projectId, explanation, question);
+      setExplanation(nextSession);
+    } catch (error) {
+      setReaderError(messageFromError(error, "追问发送失败。"));
+    } finally {
+      setIsSending(false);
+    }
   }
+
+  if (mapError || (!isLoadingMap && scene.nodes.length === 0)) {
+    return (
+      <KnowledgeResizableShell mode="overview">
+        <KnowledgeMapStatePanel
+          description={mapError ?? "当前项目还没有可展示的知识地图数据。上传并处理资料后，这里会显示文件、风险和训练入口。"}
+          title={mapError ? "知识地图读取失败" : "暂无知识地图"}
+        />
+      </KnowledgeResizableShell>
+    );
+  }
+
+  if (isLoadingMap && scene.nodes.length === 0) {
+    return (
+      <KnowledgeResizableShell mode="overview">
+        <KnowledgeMapStatePanel description="正在读取项目资料、文件节点和证据链。" loading title="正在加载知识地图" />
+      </KnowledgeResizableShell>
+    );
+  }
+
+  const overviewActiveNode = activeNode ?? scene.nodes[0]!;
 
   return (
     <KnowledgeResizableShell mode={readerNode ? "reader" : "overview"}>
@@ -428,10 +488,11 @@ export function KnowledgeMapRoom({
           onSubmit={handleSubmit}
           preview={preview ?? readerNode.preview}
           readerNode={readerNode}
+          readerError={readerError}
         />
       ) : (
         <KnowledgeOverviewPanels
-          activeNode={activeNode}
+          activeNode={overviewActiveNode}
           activeOverviewNode={activeOverviewNode}
           activeNodeId={activeNodeId}
           edges={sigmaEdges}
@@ -440,7 +501,7 @@ export function KnowledgeMapRoom({
           isNarrowLayout={isNarrowLayout}
           nodes={sigmaNodes}
           onFilterChange={handleFilterChange}
-          onNodeOpen={() => handleNodeOpen(activeNode.id)}
+          onNodeOpen={() => handleNodeOpen(overviewActiveNode.id)}
           onQueryChange={setQuery}
           onSelect={handleNodeSelect}
           query={query}
@@ -462,6 +523,34 @@ function useIsNarrowKnowledgeLayout() {
   }, []);
 
   return isNarrow;
+}
+
+function KnowledgeMapStatePanel({
+  description,
+  loading = false,
+  title,
+}: {
+  description: string;
+  loading?: boolean;
+  title: string;
+}) {
+  return (
+    <section className="presento-knowledge-pane flex min-h-[420px] items-center justify-center p-6">
+      <div className="max-w-md text-center">
+        <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+          <FolderIcon aria-hidden="true" />
+        </div>
+        <h2 className="mt-5 text-xl font-black text-[var(--presento-ink)]">{title}</h2>
+        <p className="mt-3 text-sm font-semibold leading-6 text-[var(--presento-muted)]">{description}</p>
+        {loading ? (
+          <div className="mt-6 space-y-2">
+            <Skeleton className="mx-auto h-3 w-64" />
+            <Skeleton className="mx-auto h-3 w-48" />
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
 }
 
 function KnowledgeResizableShell({
@@ -687,6 +776,7 @@ function KnowledgeReaderPanels({
   onSubmit,
   preview,
   readerNode,
+  readerError,
 }: {
   activeNodeId: string;
   chatInput: string;
@@ -702,6 +792,7 @@ function KnowledgeReaderPanels({
   onSubmit: (message: PromptInputMessage) => void | Promise<void>;
   preview: FilePreviewUi;
   readerNode: KnowledgeMapNodeUi;
+  readerError: string | null;
 }) {
   const reduceMotion = useReducedMotion();
   const explanationPanelRef = useRef<PanelImperativeHandle | null>(null);
@@ -767,6 +858,7 @@ function KnowledgeReaderPanels({
                 <ExplanationPanel
                   chatInput={chatInput}
                   explanation={explanation}
+                  error={readerError}
                   isLoading={isLoadingExplanation}
                   isSending={isSending}
                   mode={mode}
@@ -1046,6 +1138,7 @@ function PreviewSkeleton({ variant = "document" }: { variant?: "code" | "documen
 
 function ExplanationPanel({
   chatInput,
+  error,
   explanation,
   isLoading,
   isSending,
@@ -1057,6 +1150,7 @@ function ExplanationPanel({
   onSubmit,
 }: {
   chatInput: string;
+  error: string | null;
   explanation: FileExplanationUi | null;
   isLoading: boolean;
   isSending: boolean;
@@ -1081,9 +1175,6 @@ function ExplanationPanel({
               始终围绕答辩准备、证据引用和训练动作。
             </p>
           </div>
-          <Badge variant={explanation?.source === "api" ? "default" : "secondary"}>
-            {explanation?.source === "api" ? "API" : "Mock"}
-          </Badge>
           <button
             aria-label="收起 AI 资料讲解"
             className="presento-knowledge-explain-collapse"
@@ -1104,6 +1195,11 @@ function ExplanationPanel({
         <div className="presento-knowledge-summary">
           <div className="text-xs font-black text-[var(--presento-muted)]">当前文件</div>
           <div className="mt-1 text-sm font-black">{node.title}</div>
+          {error ? (
+            <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-bold leading-6 text-red-700">
+              {error}
+            </p>
+          ) : null}
           {isLoading || explanation?.summary || node.summary ? (
             <p className="mt-2 text-sm font-semibold leading-6 text-[var(--presento-muted)]">
               {isLoading ? "正在生成讲解..." : explanation?.summary ?? node.summary}

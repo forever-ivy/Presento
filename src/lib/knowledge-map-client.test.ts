@@ -2,13 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  appendMockFileExplanationTurn,
   getKnowledgeNodeActivation,
   loadFileNodePreview,
   loadKnowledgeMap,
   normalizeKnowledgeMapPayload,
 } from "./knowledge-map-client.ts";
-import type { FileExplanationSessionWithTurns, KnowledgeEdgeRecord, KnowledgeNodeRecord } from "../../packages/shared/src/domain.ts";
+import type { KnowledgeEdgeRecord, KnowledgeNodeRecord } from "../../packages/shared/src/domain.ts";
 
 const apiNode: KnowledgeNodeRecord = {
   id: "node-readme",
@@ -46,6 +45,9 @@ function jsonResponse(payload: unknown, ok = true) {
     async json() {
       return payload;
     },
+    async text() {
+      return JSON.stringify(payload);
+    },
   } as Response;
 }
 
@@ -67,23 +69,28 @@ test("normalizes API knowledge map payload into UI nodes and edges", () => {
   assert.equal(map.edges[0].kind, "evidence");
 });
 
-test("loadKnowledgeMap falls back to mock data for empty API results", async () => {
+test("loadKnowledgeMap keeps empty API results as real empty state", async () => {
   const map = await loadKnowledgeMap("demo", async () => jsonResponse({ nodes: [], edges: [] }));
 
-  assert.equal(map.source, "mock");
-  assert.ok(map.nodes.some((node) => node.kind === "file" && node.fileKind === "pdf"));
-  assert.ok(map.nodes.some((node) => node.kind === "file" && node.fileKind === "xlsx"));
-  assert.ok(map.nodes.some((node) => node.preview.assetUrl?.includes("/api/projects/demo/files/")));
-  assert.ok(map.edges.length > 0);
+  assert.equal(map.source, "api");
+  assert.equal(map.nodes.length, 0);
+  assert.equal(map.edges.length, 0);
 });
 
-test("loadKnowledgeMap falls back to mock data when fetch fails", async () => {
-  const map = await loadKnowledgeMap("demo", async () => {
-    throw new Error("database is not ready");
-  });
+test("loadKnowledgeMap surfaces fetch and API failures", async () => {
+  await assert.rejects(
+    () => loadKnowledgeMap("demo", async () => {
+      throw new Error("database is not ready");
+    }),
+    /database is not ready/,
+  );
 
-  assert.equal(map.source, "mock");
-  assert.ok(map.nodes.find((node) => node.id === "project"));
+  await assert.rejects(
+    () => loadKnowledgeMap("demo", async () => jsonResponse({
+      error: { message: "knowledge map storage is unavailable" },
+    }, false)),
+    /knowledge map storage is unavailable/,
+  );
 });
 
 test("loadFileNodePreview adds content asset url and code files from chunks", async () => {
@@ -147,33 +154,4 @@ test("classifies file node activation between reader, slide scripts, and detail 
     "reader",
   );
   assert.equal(getKnowledgeNodeActivation({ kind: "module" }), "details");
-});
-
-test("appendMockFileExplanationTurn adds cited user and assistant turns", () => {
-  const session = appendMockFileExplanationTurn(
-    {
-      id: "session-readme",
-      projectId: "demo",
-      nodeId: "node-readme",
-      fileId: "file-readme",
-      mode: "quick",
-      status: "ready",
-      summary: "README 说明项目目标。",
-      outline: ["项目背景"],
-      citations: [{ fileName: "README.md", page: 1 }],
-      metadata: {
-        followUps: ["老师会追问什么？"],
-      },
-      createdAt: "2026-04-26T00:00:00.000Z",
-      updatedAt: "2026-04-26T00:00:00.000Z",
-      turns: [],
-    } satisfies FileExplanationSessionWithTurns,
-    "老师最可能问什么？",
-  );
-
-  assert.equal(session.turns.length, 2);
-  assert.equal(session.turns[0].role, "user");
-  assert.equal(session.turns[1].role, "assistant");
-  assert.match(session.turns[1].content, /老师最可能问什么/);
-  assert.deepEqual(session.turns[1].citations, [{ fileName: "README.md", page: 1 }]);
 });

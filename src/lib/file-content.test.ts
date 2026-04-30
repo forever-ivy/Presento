@@ -72,22 +72,6 @@ test("readProjectFileContent rejects missing or unavailable files", async () => 
   );
 });
 
-test("readProjectFileContent serves allowlisted demo mock files", async () => {
-  const mockRoot = await mkdtemp(join(tmpdir(), "presento-mock-files-"));
-  await writeFile(join(mockRoot, "invoice.xlsx"), "fake workbook bytes");
-
-  const content = await readProjectFileContent({
-    fileId: "mock-invoice",
-    mockRoot,
-    projectId: "demo",
-    repository: { async read() { return null; } },
-  });
-
-  assert.equal(content.body.toString("utf8"), "fake workbook bytes");
-  assert.equal(content.contentType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  assert.equal(content.fileName, "invoice.xlsx");
-});
-
 test("inferContentType maps common preview file extensions", () => {
   assert.equal(inferContentType("report.pdf"), "application/pdf");
   assert.equal(inferContentType("orders.xlsx"), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

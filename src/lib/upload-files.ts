@@ -1,4 +1,5 @@
 import type { DefenseFileInput } from "./project-workspace";
+import { readApiErrorMessage } from "./api-error";
 
 export async function uploadDefenseFiles(files: File[], options?: { projectId?: string }): Promise<DefenseFileInput[]> {
   if (!files.length) return [];
@@ -17,7 +18,7 @@ export async function uploadDefenseFiles(files: File[], options?: { projectId?: 
   });
 
   if (!response.ok) {
-    const message = await readUploadError(response);
+    const message = await readApiErrorMessage(response);
     throw new Error(message || "文件上传失败");
   }
 
@@ -26,13 +27,4 @@ export async function uploadDefenseFiles(files: File[], options?: { projectId?: 
   };
 
   return payload.uploadedFiles ?? [];
-}
-
-async function readUploadError(response: Response) {
-  try {
-    const payload = (await response.json()) as { error?: string };
-    return payload.error;
-  } catch {
-    return response.text();
-  }
 }

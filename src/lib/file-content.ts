@@ -1,8 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { resolve, sep } from "node:path";
 import { createFileRepository } from "../../packages/db/src/repositories/files.ts";
-import { resolveLocalStoragePath } from "./local-processing.ts";
-import { getDemoMockFileFixture } from "./mock-file-fixtures.ts";
+import { readStoredFileBuffer } from "./stored-file-access.ts";
 
 type FileRepository = Pick<ReturnType<typeof createFileRepository>, "read">;
 
@@ -24,77 +21,29 @@ export class FileContentError extends Error {
 export async function readProjectFileContent({
   cwd = process.cwd(),
   fileId,
-  mockRoot = "/Users/Code/mock",
   projectId,
   repository = createFileRepository(),
 }: {
   cwd?: string;
   fileId: string;
-  mockRoot?: string;
   projectId: string;
   repository?: FileRepository;
 }) {
-  let file;
-  try {
-    file = await repository.read(projectId, fileId);
-  } catch (error) {
-    const mockContent = await readDemoMockFileContent({ fileId, mockRoot, projectId });
-    if (mockContent) return mockContent;
-    throw error;
-  }
+  const file = await repository.read(projectId, fileId);
   if (!file) {
-    const mockContent = await readDemoMockFileContent({ fileId, mockRoot, projectId });
-    if (mockContent) return mockContent;
     throw new FileContentError("File not found.", 404, "file_not_found");
   }
-  if (!file.storagePath) {
+  if (!file.storagePath && !file.storageKey) {
     throw new FileContentError("File content is not available.", 404, "file_content_unavailable");
   }
 
-  const absolutePath = resolveLocalStoragePath(file.storagePath, cwd);
-  const body = await readFile(absolutePath);
+  const body = await readStoredFileBuffer(file, cwd);
 
   return {
     body,
     contentType: file.mimeType || inferContentType(file.name),
     fileName: file.name,
   };
-}
-
-async function readDemoMockFileContent({
-  fileId,
-  mockRoot,
-  projectId,
-}: {
-  fileId: string;
-  mockRoot: string;
-  projectId: string;
-}) {
-  if (projectId !== "demo") return null;
-
-  const mockFile = getDemoMockFileFixture(fileId);
-  if (!mockFile) return null;
-
-  const root = resolve(mockRoot);
-  const absolutePath = resolve(root, mockFile.relativePath);
-  if (absolutePath !== root && !absolutePath.startsWith(`${root}${sep}`)) {
-    throw new FileContentError("Mock file path is outside the allowed directory.", 403, "mock_file_path_forbidden");
-  }
-
-  try {
-    const body = await readFile(absolutePath);
-    return {
-      body,
-      contentType: mockFile.mimeType || inferContentType(mockFile.fileName),
-      fileName: mockFile.fileName,
-    };
-  } catch (error) {
-    throw new FileContentError(
-      error instanceof Error ? error.message : "Mock file content is not available.",
-      404,
-      "file_content_unavailable",
-    );
-  }
 }
 
 export function inferContentType(fileName: string) {

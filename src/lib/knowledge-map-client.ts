@@ -1,21 +1,15 @@
 import type {
   FileExplanationSessionWithTurns,
-  FileExplanationTurnRecord,
   KnowledgeEdgeRecord,
   KnowledgeNodeKind,
   KnowledgeNodeRecord,
-  NotebookCitation,
   NotebookExplanationMode,
 } from "../../packages/shared/src/domain.ts";
-import {
-  createMockFileExplanationSession,
-  mockKnowledgeEdges,
-  mockKnowledgeNodes,
-} from "./knowledge-map-mock.ts";
+import { readApiErrorMessage } from "./api-error.ts";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
-export type KnowledgeMapSource = "api" | "mock";
+export type KnowledgeMapSource = "api";
 export type KnowledgeMapViewer = "details" | "pdf" | "docx" | "code" | "table" | "sql" | "presentation";
 export type KnowledgeNodeActivation = "details" | "reader" | "scripts";
 
@@ -107,15 +101,10 @@ export async function loadKnowledgeMap(
   projectId: string,
   fetcher: FetchLike = fetch,
 ): Promise<KnowledgeMapUi> {
-  try {
-    const response = await fetcher(`/api/projects/${projectId}/knowledge-map`);
-    if (!response.ok) throw new Error("Knowledge map request failed.");
-    const payload = await response.json() as { nodes?: KnowledgeNodeRecord[]; edges?: KnowledgeEdgeRecord[] };
-    if (!payload.nodes?.length) return createMockKnowledgeMap(projectId);
-    return normalizeKnowledgeMapPayload(projectId, payload, "api");
-  } catch {
-    return createMockKnowledgeMap(projectId);
-  }
+  const response = await fetcher(`/api/projects/${projectId}/knowledge-map`);
+  if (!response.ok) throw new Error(await readApiErrorMessage(response, "Knowledge map request failed."));
+  const payload = await response.json() as { nodes?: KnowledgeNodeRecord[]; edges?: KnowledgeEdgeRecord[] };
+  return normalizeKnowledgeMapPayload(projectId, payload, "api");
 }
 
 export async function loadFileNodePreview(
@@ -123,25 +112,21 @@ export async function loadFileNodePreview(
   node: KnowledgeMapNodeUi,
   fetcher: FetchLike = fetch,
 ): Promise<FilePreviewUi> {
-  try {
-    const response = await fetcher(`/api/projects/${projectId}/knowledge-map/nodes/${node.id}/preview`);
-    if (!response.ok) throw new Error("Preview request failed.");
-    const payload = await response.json() as {
-      chunks?: unknown;
-      file?: { id?: unknown; kind?: unknown; mimeType?: unknown };
-      preview?: unknown;
-      viewer?: unknown;
-    };
-    return normalizePreview(node, payload.preview, String(payload.viewer ?? payload.file?.kind ?? node.viewer), {
-      chunks: payload.chunks,
-      fileId: stringValue(payload.file?.id),
-      fileName: node.title,
-      mimeType: stringValue(payload.file?.mimeType),
-      projectId,
-    });
-  } catch {
-    return node.preview;
-  }
+  const response = await fetcher(`/api/projects/${projectId}/knowledge-map/nodes/${node.id}/preview`);
+  if (!response.ok) throw new Error(await readApiErrorMessage(response, "Preview request failed."));
+  const payload = await response.json() as {
+    chunks?: unknown;
+    file?: { id?: unknown; kind?: unknown; mimeType?: unknown };
+    preview?: unknown;
+    viewer?: unknown;
+  };
+  return normalizePreview(node, payload.preview, String(payload.viewer ?? payload.file?.kind ?? node.viewer), {
+    chunks: payload.chunks,
+    fileId: stringValue(payload.file?.id),
+    fileName: node.title,
+    mimeType: stringValue(payload.file?.mimeType),
+    projectId,
+  });
 }
 
 export async function createFileExplanation(
@@ -150,22 +135,15 @@ export async function createFileExplanation(
   mode: NotebookExplanationMode,
   fetcher: FetchLike = fetch,
 ): Promise<FileExplanationUi> {
-  try {
-    const response = await fetcher(`/api/projects/${projectId}/knowledge-map/nodes/${node.id}/explanations`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode }),
-    });
-    if (!response.ok) throw new Error("Explanation request failed.");
-    const payload = await response.json() as { session?: FileExplanationSessionWithTurns };
-    if (!payload.session) throw new Error("Explanation response is missing session.");
-    return { ...payload.session, source: "api" };
-  } catch {
-    return {
-      ...createMockFileExplanationSession(projectId, node.raw, mode),
-      source: "mock",
-    };
-  }
+  const response = await fetcher(`/api/projects/${projectId}/knowledge-map/nodes/${node.id}/explanations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+  if (!response.ok) throw new Error(await readApiErrorMessage(response, "Explanation request failed."));
+  const payload = await response.json() as { session?: FileExplanationSessionWithTurns };
+  if (!payload.session) throw new Error("Explanation response is missing session.");
+  return { ...payload.session, source: "api" };
 }
 
 export async function appendFileExplanationTurn(
@@ -174,73 +152,21 @@ export async function appendFileExplanationTurn(
   question: string,
   fetcher: FetchLike = fetch,
 ): Promise<FileExplanationUi> {
-  try {
-    const response = await fetcher(`/api/projects/${projectId}/file-explanations/${session.id}/turns`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
-    });
-    if (!response.ok) throw new Error("Explanation turn request failed.");
-    const payload = await response.json() as { session?: FileExplanationSessionWithTurns };
-    if (!payload.session) throw new Error("Explanation turn response is missing session.");
-    return { ...payload.session, source: "api" };
-  } catch {
-    return { ...appendMockFileExplanationTurn(session, question), source: "mock" };
-  }
-}
-
-export function appendMockFileExplanationTurn(
-  session: FileExplanationSessionWithTurns,
-  question: string,
-): FileExplanationSessionWithTurns {
-  const now = new Date().toISOString();
-  const citations = session.citations.length ? session.citations : citationsFromMetadata(session.metadata);
-  const userTurn: FileExplanationTurnRecord = {
-    id: `mock-user-${crypto.randomUUID()}`,
-    sessionId: session.id,
-    projectId: session.projectId,
-    role: "user",
-    content: question,
-    citations: [],
-    metadata: { mocked: true },
-    createdAt: now,
-  };
-  const assistantTurn: FileExplanationTurnRecord = {
-    id: `mock-assistant-${crypto.randomUUID()}`,
-    sessionId: session.id,
-    projectId: session.projectId,
-    role: "assistant",
-    content: [
-      `针对“${question}”，可以从资料证据、个人负责范围和答辩风险三步回答。`,
-      "先引用当前文件中的直接依据，再说明它如何支撑 PPT 表达，最后准备一个边界条件的兜底说法。",
-    ].join("\n"),
-    citations,
-    metadata: { mocked: true },
-    createdAt: now,
-  };
-
-  return {
-    ...session,
-    updatedAt: now,
-    turns: [...session.turns, userTurn, assistantTurn],
-  };
+  const response = await fetcher(`/api/projects/${projectId}/file-explanations/${session.id}/turns`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+  if (!response.ok) throw new Error(await readApiErrorMessage(response, "Explanation turn request failed."));
+  const payload = await response.json() as { session?: FileExplanationSessionWithTurns };
+  if (!payload.session) throw new Error("Explanation turn response is missing session.");
+  return { ...payload.session, source: "api" };
 }
 
 export function getKnowledgeNodeActivation(node: Pick<KnowledgeMapNodeUi, "kind" | "fileKind"> | { kind?: string; fileKind?: string }) {
   if (node.kind !== "file") return "details";
   if (node.fileKind === "ppt" || node.fileKind === "presentation-pdf") return "scripts";
   return "reader";
-}
-
-export function createMockKnowledgeMap(projectId: string): KnowledgeMapUi {
-  return normalizeKnowledgeMapPayload(
-    projectId,
-    {
-      nodes: mockKnowledgeNodes.map((node) => ({ ...node, projectId })),
-      edges: mockKnowledgeEdges.map((edge) => ({ ...edge, projectId })),
-    },
-    "mock",
-  );
 }
 
 export function filterKnowledgeMapNodes({
@@ -481,11 +407,6 @@ function defaultActionsForKind(kind: KnowledgeNodeKind) {
   if (kind === "file") return ["速通讲解", "精通拆解"];
   if (kind === "training") return ["开始讲练"];
   return ["查看证据链", "进入讲练"];
-}
-
-function citationsFromMetadata(metadata: Record<string, unknown>): NotebookCitation[] {
-  const citations = metadata.citations;
-  return Array.isArray(citations) ? citations.filter(isRecord) as NotebookCitation[] : [];
 }
 
 function stringFromMetadata(metadata: Record<string, unknown>, key: string) {

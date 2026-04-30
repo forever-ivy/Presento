@@ -2,30 +2,32 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { KnowledgeEdgeRecord, KnowledgeNodeRecord } from "../../packages/shared/src/domain.ts";
-import { createMockKnowledgeMap } from "./knowledge-map-client.ts";
+import { normalizeKnowledgeMapPayload } from "./knowledge-map-client.ts";
+import { mockKnowledgeEdges, mockKnowledgeNodes } from "./knowledge-map-mock.ts";
 import {
   buildKnowledgeMapScene,
   projectKnowledgeMapScene,
 } from "./knowledge-map-scene.ts";
 
+function createKnowledgeMapFixture(projectId: string) {
+  return normalizeKnowledgeMapPayload(projectId, {
+    edges: mockKnowledgeEdges.map((edge) => ({ ...edge, projectId })),
+    nodes: mockKnowledgeNodes.map((node) => ({ ...node, projectId })),
+  });
+}
+
 test("buildKnowledgeMapScene derives conceptual depth, scene parents, and branch ownership", () => {
-  const map = createMockKnowledgeMap("demo");
+  const map = createKnowledgeMapFixture("demo");
   const scene = buildKnowledgeMapScene(map);
 
   assert.equal(scene.rootId, "project");
   assert.equal(scene.nodesById.project.depth, 0);
-  assert.equal(scene.nodesById["source-presentation"].depth, 1);
-  assert.equal(scene.nodesById["file-ppt"].depth, 2);
-  assert.deepEqual(scene.nodesById["file-ppt"].sceneParentIds, ["source-presentation"]);
+  assert.equal(scene.nodesById["source-python"].depth, 1);
+  assert.equal(scene.nodesById["file-python-intro"].depth, 2);
+  assert.deepEqual(scene.nodesById["file-python-intro"].sceneParentIds, ["source-python"]);
   assert.equal(scene.nodesById["training-node"].depth, 3);
-  assert.deepEqual(
-    scene.nodesById["training-node"].sceneParentIds.toSorted(),
-    ["risk-order-state", "weak-db-snapshot"],
-  );
-  assert.deepEqual(
-    scene.nodesById["training-node"].branchIds.toSorted(),
-    ["file-orders-sql", "module-order"],
-  );
+  assert.deepEqual(scene.nodesById["training-node"].sceneParentIds, ["risk-viewer-coverage"]);
+  assert.deepEqual(scene.nodesById["training-node"].branchIds, ["risk-viewer-coverage"]);
 });
 
 test("buildKnowledgeMapScene falls back to layout ring hints when graph depth is unavailable", () => {
@@ -70,11 +72,11 @@ test("buildKnowledgeMapScene falls back to layout ring hints when graph depth is
 
   const scene = buildKnowledgeMapScene({
     projectId: "demo",
-    source: "mock",
+    source: "api",
     nodes: nodes.map((node) => ({
-      ...createMockKnowledgeMap("demo").nodes[0],
+      ...createKnowledgeMapFixture("demo").nodes[0],
       ...node,
-      preview: createMockKnowledgeMap("demo").nodes[0].preview,
+      preview: createKnowledgeMapFixture("demo").nodes[0].preview,
       evidence: [],
       actions: [],
       relatedFiles: [],
@@ -96,8 +98,27 @@ test("buildKnowledgeMapScene falls back to layout ring hints when graph depth is
   assert.equal(scene.nodesById["dangling-training"].depth, 3);
 });
 
+test("projectKnowledgeMapScene handles real empty maps", () => {
+  const scene = buildKnowledgeMapScene({
+    edges: [],
+    nodes: [],
+    projectId: "demo",
+    source: "api",
+  });
+
+  const projected = projectKnowledgeMapScene(scene, {
+    activeNodeId: "",
+    expandedBranchIds: new Set(),
+    filter: "all",
+    query: "",
+  });
+
+  assert.deepEqual(projected.nodes, []);
+  assert.deepEqual(projected.edges, []);
+});
+
 test("projectKnowledgeMapScene hides third-layer nodes by default and expands multiple branches in parallel", () => {
-  const map = createMockKnowledgeMap("demo");
+  const map = createKnowledgeMapFixture("demo");
   const scene = buildKnowledgeMapScene(map);
 
   const collapsed = projectKnowledgeMapScene(scene, {
@@ -107,38 +128,37 @@ test("projectKnowledgeMapScene hides third-layer nodes by default and expands mu
     query: "",
   });
 
-  assert.ok(collapsed.nodes.some((node) => node.id === "source-presentation"));
-  assert.ok(!collapsed.nodes.some((node) => node.id === "file-ppt"));
+  assert.ok(collapsed.nodes.some((node) => node.id === "source-python"));
+  assert.ok(!collapsed.nodes.some((node) => node.id === "file-python-intro"));
   assert.ok(!collapsed.nodes.some((node) => node.id === "training-node"));
 
   const expanded = projectKnowledgeMapScene(scene, {
-    activeNodeId: "module-order",
-    expandedBranchIds: new Set(["source-presentation", "module-order"]),
+    activeNodeId: "source-code",
+    expandedBranchIds: new Set(["source-python", "source-code"]),
     filter: "all",
     query: "",
   });
 
-  assert.ok(expanded.nodes.some((node) => node.id === "file-ppt"));
-  assert.ok(expanded.nodes.some((node) => node.id === "file-ppt-source"));
-  assert.ok(expanded.nodes.some((node) => node.id === "file-code-orders"));
-  assert.ok(expanded.nodes.some((node) => node.id === "risk-order-state"));
+  assert.ok(expanded.nodes.some((node) => node.id === "file-python-intro"));
+  assert.ok(expanded.nodes.some((node) => node.id === "file-python-function"));
+  assert.ok(expanded.nodes.some((node) => node.id === "file-python-hello"));
 });
 
 test("projectKnowledgeMapScene shows training nodes only when the parent chain is expanded and focused", () => {
-  const map = createMockKnowledgeMap("demo");
+  const map = createKnowledgeMapFixture("demo");
   const scene = buildKnowledgeMapScene(map);
 
   const unfocused = projectKnowledgeMapScene(scene, {
-    activeNodeId: "module-order",
-    expandedBranchIds: new Set(["module-order", "file-orders-sql"]),
+    activeNodeId: "source-python",
+    expandedBranchIds: new Set(["risk-viewer-coverage"]),
     filter: "all",
     query: "",
   });
   assert.ok(!unfocused.nodes.some((node) => node.id === "training-node"));
 
   const focused = projectKnowledgeMapScene(scene, {
-    activeNodeId: "risk-order-state",
-    expandedBranchIds: new Set(["module-order"]),
+    activeNodeId: "risk-viewer-coverage",
+    expandedBranchIds: new Set(["risk-viewer-coverage"]),
     filter: "all",
     query: "",
   });
@@ -146,28 +166,27 @@ test("projectKnowledgeMapScene shows training nodes only when the parent chain i
 });
 
 test("projectKnowledgeMapScene auto-expands folded matches and keeps ancestor chains for filters", () => {
-  const map = createMockKnowledgeMap("demo");
+  const map = createKnowledgeMapFixture("demo");
   const scene = buildKnowledgeMapScene(map);
 
   const searched = projectKnowledgeMapScene(scene, {
     activeNodeId: "project",
     expandedBranchIds: new Set(),
     filter: "all",
-    query: "订单数据.xlsx",
+    query: "invoice.xlsx",
   });
 
-  assert.ok(searched.nodes.some((node) => node.id === "file-order-data"));
-  assert.ok(searched.nodes.some((node) => node.id === "file-orders-sql"));
-  assert.ok(searched.autoExpandedBranchIds.has("file-orders-sql"));
+  assert.ok(searched.nodes.some((node) => node.id === "file-invoice"));
+  assert.ok(searched.nodes.some((node) => node.id === "source-data"));
+  assert.ok(searched.autoExpandedBranchIds.has("source-data"));
 
   const filtered = projectKnowledgeMapScene(scene, {
     activeNodeId: "project",
     expandedBranchIds: new Set(),
-    filter: "weakness",
+    filter: "risk",
     query: "",
   });
 
-  assert.ok(filtered.nodes.some((node) => node.id === "weak-db-snapshot"));
-  assert.ok(filtered.nodes.some((node) => node.id === "file-orders-sql"));
+  assert.ok(filtered.nodes.some((node) => node.id === "risk-viewer-coverage"));
   assert.ok(filtered.nodes.some((node) => node.id === "project"));
 });

@@ -1,4 +1,5 @@
 import type { DefenseWorkspace } from "./project-workspace";
+import { readApiErrorMessage } from "./api-error";
 
 export async function fetchServerWorkspace(): Promise<DefenseWorkspace | null> {
   const response = await fetch("/api/workspace", {
@@ -25,7 +26,7 @@ export async function persistServerWorkspace(workspace: DefenseWorkspace) {
   });
 
   if (!response.ok) {
-    const message = await readWorkspaceError(response);
+    const message = await readApiErrorMessage(response);
     throw new Error(message || "工作区同步失败");
   }
 
@@ -34,13 +35,4 @@ export async function persistServerWorkspace(workspace: DefenseWorkspace) {
   };
 
   return payload.workspace ?? workspace;
-}
-
-async function readWorkspaceError(response: Response) {
-  try {
-    const payload = (await response.json()) as { error?: string };
-    return payload.error;
-  } catch {
-    return response.text();
-  }
 }
