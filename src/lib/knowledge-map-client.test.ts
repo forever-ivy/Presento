@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   appendMockFileExplanationTurn,
   getKnowledgeNodeActivation,
+  loadFileNodePreview,
   loadKnowledgeMap,
   normalizeKnowledgeMapPayload,
 } from "./knowledge-map-client.ts";
@@ -71,7 +72,8 @@ test("loadKnowledgeMap falls back to mock data for empty API results", async () 
 
   assert.equal(map.source, "mock");
   assert.ok(map.nodes.some((node) => node.kind === "file" && node.fileKind === "pdf"));
-  assert.ok(map.nodes.some((node) => node.kind === "file" && node.fileKind === "ppt"));
+  assert.ok(map.nodes.some((node) => node.kind === "file" && node.fileKind === "xlsx"));
+  assert.ok(map.nodes.some((node) => node.preview.assetUrl?.includes("/api/projects/demo/files/")));
   assert.ok(map.edges.length > 0);
 });
 
@@ -82,6 +84,53 @@ test("loadKnowledgeMap falls back to mock data when fetch fails", async () => {
 
   assert.equal(map.source, "mock");
   assert.ok(map.nodes.find((node) => node.id === "project"));
+});
+
+test("loadFileNodePreview adds content asset url and code files from chunks", async () => {
+  const map = normalizeKnowledgeMapPayload("demo", {
+    nodes: [{
+      ...apiNode,
+      metadata: {
+        ...apiNode.metadata,
+        fileKind: "code",
+        viewer: "code-ide",
+      },
+      title: "backend.zip",
+    }],
+    edges: [],
+  });
+
+  const preview = await loadFileNodePreview("demo", map.nodes[0], async () => jsonResponse({
+    file: {
+      id: "file-readme",
+      kind: "code",
+      mimeType: "application/zip",
+    },
+    viewer: "code-ide",
+    preview: {
+      codePath: "routes/orders.ts",
+      language: "typescript",
+      text: "fallback",
+    },
+    chunks: [
+      {
+        content: "export const ok = true;",
+        metadata: {
+          codePath: "routes/orders.ts",
+          language: "typescript",
+          lineStart: 1,
+          lineEnd: 1,
+        },
+      },
+    ],
+  }));
+
+  assert.equal(preview.viewer, "code");
+  assert.equal(preview.assetUrl, "/api/projects/demo/files/file-readme/content");
+  assert.equal(preview.mimeType, "application/zip");
+  assert.equal(preview.codeFiles.length, 1);
+  assert.equal(preview.codeFiles[0].path, "routes/orders.ts");
+  assert.equal(preview.codeFiles[0].content, "export const ok = true;");
 });
 
 test("classifies file node activation between reader, slide scripts, and detail panel", () => {

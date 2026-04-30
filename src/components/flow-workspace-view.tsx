@@ -2,6 +2,7 @@
 
 import {
   Bot,
+  ChevronRight,
   CheckCircle2,
   Code,
   FileQuestion,
@@ -17,14 +18,15 @@ import {
 } from "lucide-react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, type MotionProps } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { PanelSize } from "react-resizable-panels";
+import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import {
   startTransition,
   forwardRef,
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -62,6 +64,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AnimatedBeam } from "@/components/ui/animated-beam";
 import {
   HoverCard,
@@ -73,7 +76,6 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DotPattern } from "@/components/magicui/dot-pattern";
 import {
@@ -82,6 +84,10 @@ import {
 } from "@/components/ui/scroll-based-velocity";
 import { KnowledgeMapRoom } from "@/components/knowledge-map/knowledge-map-room";
 import { ProjectUploadWorkspace } from "@/components/project-upload-workspace";
+import {
+  RichScriptEditor,
+  type RichScriptEditorHandle,
+} from "@/components/rich-script-editor";
 import {
   FLOW_MAP_OVERVIEW_MAX_ZOOM,
   FLOW_MAP_OVERVIEW_MIN_ZOOM,
@@ -117,7 +123,6 @@ import {
   demoReviewMetrics,
   demoSkillInvocations,
   demoSkillPacks,
-  demoSlideScripts,
 } from "@/lib/demo-data";
 import { presentoBrandLogo } from "@/lib/brand";
 import { useWorkspace } from "@/lib/use-workspace";
@@ -140,48 +145,41 @@ const BACKGROUND_COPY_PINNED_STORAGE_KEY = "presento.background-copy-pinned";
 const DEFENSE_GALLERY_EXPANDED_SIZE = "168px";
 const DEFENSE_GALLERY_COLLAPSED_SIZE = "20px";
 const DEFENSE_GALLERY_COLLAPSED_THRESHOLD = 30;
-const QQ_LOGO_DATA_URI =
-  "data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20width='56'%20height='35'%20fill='none'%20viewBox='0%200%2056%2035'%3e%3cpath%20fill='%23f9ae08'%20d='M9.56%2028.668c-1.981%200-3.8-.666-4.972-1.662-.594.179-1.355.466-1.835.823-.41.305-.359.615-.285.741.325.55%205.577.351%207.094.18v-.082z'/%3e%3cpath%20fill='%23f9ae08'%20d='M9.56%2028.668c1.98%200%203.8-.666%204.971-1.662.595.179%201.356.466%201.836.823.41.305.359.615.285.741-.326.55-5.578.351-7.094.18v-.082z'/%3e%3cpath%20fill='%23000'%20d='M9.573%2016.55c3.272-.023%205.894-.476%206.784-.72a.84.84%200%200%200%20.325-.163c0-.03.013-.535.013-.796-.002-4.39-2.063-8.802-7.135-8.802-5.073%200-7.134%204.411-7.134%208.802%200%20.261.013.767.013.796%200%200%20.093.098.261.145.821.229%203.493.715%206.849.738zM18.465%2020.391c-.204-.655-.48-1.42-.76-2.157%200%200-.188-.005-.285.016-2.33.503-5.536.869-7.847.841h-.024c-2.311.028-5.632-.356-7.847-.84-.098-.021-.285-.017-.285-.017-.28.735-.558%201.5-.76%202.157-.893%202.785-.71%204.331-.413%204.444.423.163%201.99-2.347%201.99-2.347%200%202.457%202.207%206.227%207.26%206.263h.135c5.053-.036%207.26-3.806%207.26-6.263%200%200%201.567%202.508%201.99%202.347.295-.113.478-1.659-.411-4.444z'/%3e%3cpath%20fill='%23f9ae08'%20d='M9.573%2015.111c1.68%200%203.268-.597%204.005-1.117.258-.182.189-.453-.082-.58-.31-.147-.635-.236-1.005-.322a13.4%2013.4%200%200%200-2.917-.332H9.55c-.934%200-1.98.114-2.917.332-.37.085-.695.175-1.004.322-.271.127-.34.398-.082.58.737.52%202.325%201.117%204.005%201.117h.024z'/%3e%3cpath%20fill='%23fff'%20d='M9.571%2019.078h-.024c-1.569.02-3.471-.053-5.314-.417a15%2015%200%200%200-.172%203.449c.207%203.477%202.262%205.663%205.435%205.695h.128c3.172-.032%205.228-2.218%205.435-5.695a15%2015%200%200%200-.172-3.449c-1.843.366-3.745.437-5.316.417'/%3e%3cpath%20fill='%23f10824'%20d='M5.07%2022.237c0%20.087.063.163.15.175.856.13%201.864.178%202.835.104a.177%200%200%200%20.162-.178v-3.395c-.997-.056-2.072-.14-3.146-.322z'/%3e%3cpath%20fill='%23f10824'%20d='M9.549%2019.23c-2.53%200-5.424-.294-8.132-.994l1.024-2.568s3.014.756%207.108.756h.024c4.093%200%207.108-.755%207.108-.755l1.024%202.567c-2.709.702-5.602.994-8.132.994z'/%3e%3cpath%20fill='%23fff'%20d='M7.755%2012.44c-.687.031-1.275-.756-1.312-1.756-.037-1.002.49-1.84%201.178-1.872.687-.03%201.274.757%201.312%201.759.037%201.002-.489%201.84-1.178%201.87M12.677%2010.684c-.037%201.001-.625%201.789-1.312%201.757-.688-.03-1.215-.868-1.178-1.87s.625-1.79%201.312-1.76%201.215.87%201.178%201.873'/%3e%3cpath%20fill='%23000'%20d='M8.58%2010.737c.034.431-.201.815-.525.856-.325.042-.615-.273-.65-.705-.034-.432.201-.815.523-.857.326-.042.617.274.651.706M10.552%2010.83c.305-.527%201.02-.693%201.543-.407.374.2.106.657-.232.473-.32-.172-.764-.16-.998.139-.185.235-.456.041-.313-.207zM53.977%2023.041a8.06%208.06%200%200%200%202.013-5.77c-.207-4.095-3.517-7.423-7.592-7.63-4.76-.244-8.67%203.686-8.429%208.47.207%204.096%203.518%207.422%207.594%207.63a7.97%207.97%200%200%200%204.881-1.355l.674.902c.05.07.133.11.218.11h2.208c.079%200%20.125-.09.077-.155l-1.643-2.202zm-5.998.809c-3.307%200-5.99-2.758-5.99-6.16%200-3.401%202.683-6.159%205.99-6.159s5.991%202.758%205.991%206.16a6.24%206.24%200%200%201-1.213%203.714l-1.27-1.703a.27.27%200%200%200-.219-.11H49.06a.097.097%200%200%200-.077.155l2.3%203.081a5.85%205.85%200%200%201-3.304%201.022M38.344%2017.273c-.207-4.096-3.518-7.423-7.592-7.631-4.76-.243-8.669%203.687-8.428%208.47.206%204.096%203.517%207.423%207.593%207.63a7.97%207.97%200%200%200%204.882-1.354l.673.902c.051.069.133.11.218.11h2.209c.078%200%20.124-.091.076-.155l-1.642-2.202a8.06%208.06%200%200%200%202.013-5.77zm-4.504%202.43a.27.27%200%200%200-.218-.109h-2.208a.097.097%200%200%200-.077.155l2.3%203.081a5.85%205.85%200%200%201-3.303%201.021c-3.308%200-5.991-2.757-5.991-6.159s2.683-6.16%205.99-6.16c3.309%200%205.992%202.758%205.992%206.16a6.24%206.24%200%200%201-1.214%203.714z'/%3e%3c/svg%3e";
-const PCG_OUTPUT_LOGOS = [
-  { alt: "QQ", height: 70, src: QQ_LOGO_DATA_URI, width: 112 },
-  { alt: "Weishi", height: 128, src: "/brand/tencent-weishi-icon.png", width: 128 },
-  { alt: "Tencent Video", height: 128, src: "/brand/tencent-video-logo.png", width: 128 },
-] as const;
 const pcgNodeDetails = {
-  file: {
-    title: "项目资料",
-    description: "PPT、报告、代码和数据表进入 Presento，作为训练和二次创作的证据源。",
-    items: ["知识源", "可引用", "可追问"],
+  weiyun: {
+    title: "腾讯微云",
+    description: "项目资料来源：PPT、报告、代码、录屏进入 Presento，作为表达增强的原始证据。",
+    items: ["PPT", "报告", "代码", "录屏"],
+  },
+  inputDocs: {
+    title: "腾讯文档",
+    description: "协同内容来源：报告、讲稿、小组分工沉淀为可继续加工的表达素材。",
+    items: ["报告", "讲稿", "分工"],
   },
   inputQq: {
-    title: "QQ 小组群",
-    description: "收集小组讨论、分工提醒和答辩倒计时，补齐协作上下文。",
-    items: ["分工", "提醒", "讨论"],
-  },
-  github: {
-    title: "GitHub 仓库",
-    description: "读取代码结构、提交记录和个人负责范围，用于支撑技术解释。",
-    items: ["代码", "提交", "职责"],
+    title: "QQ 群资料",
+    description: "小组沟通来源：讨论记录、分工、训练提醒补齐协作过程上下文。",
+    items: ["讨论记录", "分工", "训练提醒"],
   },
   presento: {
     title: "Presento",
-    description: "把资料、协作和代码统一整理成答辩训练与内容分发的中枢。",
-    items: ["解析", "训练", "生成"],
+    description: "AI 公共表达增强引擎：理解资料、提炼价值、重构表达、模拟追问。",
+    items: ["理解资料", "提炼价值", "重构表达", "模拟追问"],
   },
   outputQq: {
-    title: "QQ 分享",
-    description: "生成训练摘要、分工提醒和高危追问，回流到小组沟通。",
-    items: ["摘要", "追问", "提醒"],
+    title: "QQ",
+    description: "小组训练房、分享卡、进度同步回流到日常沟通。",
+    items: ["训练房", "分享卡", "进度同步"],
   },
-  weishi: {
-    title: "微视口播",
-    description: "把讲稿和高质量回答压缩成 30 秒校园项目介绍。",
-    items: ["亮点", "镜头", "口播"],
+  outputDocs: {
+    title: "腾讯文档",
+    description: "逐页讲稿、Q&A、复盘报告沉淀为团队可编辑、可复用的协作文档。",
+    items: ["逐页讲稿", "Q&A", "复盘报告"],
   },
   tencentVideo: {
-    title: "腾讯视频展示",
-    description: "生成 5 分钟项目展示脚本、简介和项目 FAQ。",
-    items: ["脚本", "简介", "FAQ"],
+    title: "腾讯视频",
+    description: "项目展示视频、答辩高光、成长复盘形成面向外部展示的内容资产。",
+    items: ["项目展示", "答辩高光", "成长复盘"],
   },
 } as const;
 let pendingReturnStepId: FlowStepId | null = null;
@@ -190,7 +188,6 @@ let pendingDockEntryToken = 0;
 let pendingDockEntryViewport: Viewport | null = null;
 let pendingSettledDockEntryStepId: FlowStepId | null = null;
 let pendingRoomSwitch: RoomSwitchState | null = null;
-let pendingRoomSwitchViewport: Viewport | null = null;
 let pendingSettledMapReturn = false;
 
 type RoomSwitchState = {
@@ -254,6 +251,8 @@ export function FlowWorkspaceView() {
   const [roomSwitch, setRoomSwitch] = useState<RoomSwitchState | null>(() => resumedRoomSwitch);
   const [roomSwitchSettledStepId, setRoomSwitchSettledStepId] = useState<FlowStepId | null>(null);
   const [roomContentReady, setRoomContentReady] = useState(true);
+  const [knowledgeReaderMode, setKnowledgeReaderMode] = useState(false);
+  const knowledgeReaderBackHandlerRef = useRef<(() => void) | null>(null);
   const backgroundCopyPinned = useBackgroundCopyPinnedPreference();
   const [backgroundCopyCycle, setBackgroundCopyCycle] = useState(0);
   const [backgroundCopyExiting, setBackgroundCopyExiting] = useState(false);
@@ -385,7 +384,6 @@ export function FlowWorkspaceView() {
     roomSwitchTimerRef.current = window.setTimeout(() => {
       roomSwitchTimerRef.current = null;
       pendingRoomSwitch = null;
-      pendingRoomSwitchViewport = null;
       setRoomSwitchSettledStepId(roomSwitch.to.id);
       setRoomSwitch(null);
     }, remainingMs);
@@ -480,7 +478,6 @@ export function FlowWorkspaceView() {
       setRoomContentReady(true);
       pendingDockEntryViewport = null;
       pendingRoomSwitch = nextSwitch;
-      pendingRoomSwitchViewport = flowInstanceRef.current?.getViewport() ?? null;
       setLastRoomStep(targetStep);
       setRoomSwitch(nextSwitch);
       setMode("inside");
@@ -538,7 +535,6 @@ export function FlowWorkspaceView() {
     pendingDockEntryToken += 1;
     pendingDockEntryViewport = null;
     pendingRoomSwitch = null;
-    pendingRoomSwitchViewport = null;
     setDockEntryHref(null);
     setDockFocusPending(false);
     setBackgroundCopyExiting(false);
@@ -556,6 +552,11 @@ export function FlowWorkspaceView() {
     }, EXIT_MS);
   }
 
+  function exitKnowledgeReader() {
+    knowledgeReaderBackHandlerRef.current?.();
+    setKnowledgeReaderMode(false);
+  }
+
   function toggleBackgroundHint() {
     const next = !backgroundCopyPinned;
     setBackgroundCopyPinnedPreference(next);
@@ -569,7 +570,11 @@ export function FlowWorkspaceView() {
     targetMode === "inside" || pendingDockEntryHref
       ? {
           title: topNavStep.label,
-          onBack: pendingDockEntryHref ? cancelDockEntry : exitStep,
+          onBack: pendingDockEntryHref
+            ? cancelDockEntry
+            : activeStep.id === "knowledge" && knowledgeReaderMode
+              ? exitKnowledgeReader
+              : exitStep,
         }
       : undefined;
   const topNavDetailEntrance = pendingDockEntryHref
@@ -602,6 +607,7 @@ export function FlowWorkspaceView() {
     mode,
   });
   const suppressRoomIntro = settledDockEntry || roomSwitchSettledStepId === visibleRoomStep.id;
+  const backgroundAnimationStep = roomSwitch ? roomSwitch.from : transitionStep;
 
   return (
     <AppFrame>
@@ -627,7 +633,7 @@ export function FlowWorkspaceView() {
             />
           ) : null}
           <FlowTransitionDirector
-            activeStep={transitionStep}
+            activeStep={backgroundAnimationStep}
             dockEntryActive={pendingDockEntryHref !== null || resumedDockEntry || settledDockEntry}
             dockFocusPending={dockFocusPending}
             mode={mode}
@@ -639,13 +645,11 @@ export function FlowWorkspaceView() {
           />
           <ReactFlowProvider>
             <FlowWorkspaceCanvas
-              activeId={transitionStep.id}
+              activeId={backgroundAnimationStep.id}
               initialViewport={
                 resumedDockEntry || settledDockEntry
                   ? pendingDockEntryViewport
-                  : roomSwitch
-                    ? pendingRoomSwitchViewport
-                    : null
+                  : null
               }
               instantCameraFocusKey={resumedDockEntryToken}
               mode={mode}
@@ -660,17 +664,30 @@ export function FlowWorkspaceView() {
           </ReactFlowProvider>
 
           {renderRoomChrome ? (
-            roomSwitch ? (
-              <StepRoomSlideTransition transition={roomSwitch} />
-            ) : (
-              (mode === "inside" || returningToMap) && roomContentReady ? (
+            <>
+              {(mode === "inside" || returningToMap || roomSwitch) && roomContentReady ? (
                 <StepRoom
-                  activeId={visibleRoomStep.id}
-                  instant={suppressRoomIntro}
-                  key={visibleRoomStep.id}
+                  activeId={roomSwitch ? roomSwitch.from.id : visibleRoomStep.id}
+                  className={roomSwitch ? "presento-room-slide presento-room-slide-outgoing" : undefined}
+                  instant={roomSwitch ? false : suppressRoomIntro}
+                  key={roomSwitch ? roomSwitch.from.id : visibleRoomStep.id}
+                  motionProps={roomSwitch ? getRoomSwitchMotionProps(roomSwitch, "outgoing") : undefined}
+                  onKnowledgeReaderBackHandlerChange={(handler) => {
+                    knowledgeReaderBackHandlerRef.current = handler;
+                  }}
+                  onKnowledgeReaderModeChange={setKnowledgeReaderMode}
                 />
-              ) : null
-            )
+              ) : null}
+              {roomSwitch ? (
+                <StepRoomIncomingSlide
+                  onKnowledgeReaderBackHandlerChange={(handler) => {
+                    knowledgeReaderBackHandlerRef.current = handler;
+                  }}
+                  onKnowledgeReaderModeChange={setKnowledgeReaderMode}
+                  transition={roomSwitch}
+                />
+              ) : null}
+            </>
           ) : null}
         </section>
       </PageWrap>
@@ -711,18 +728,32 @@ function FlowTransitionDirector({
       const room = ".presento-step-room";
       const shell = ".presento-step-room-shell";
       const getPortalOrigin = () => getActiveStepPortalOrigin(scopeRef.current!, activeStep.id);
-      const roomElement = scopeRef.current.querySelector(room);
+      const canvasElement = scopeRef.current.querySelector<HTMLElement>(canvas);
+      const roomElement = scopeRef.current.querySelector<HTMLElement>(room);
+      const shellElement = scopeRef.current.querySelector<HTMLElement>(shell);
+
+      if (!canvasElement) return;
+
+      if (mode === "inside" && roomSwitchActive) {
+        gsap.set(canvasElement, {
+          opacity: preset.canvas.opacity,
+          scale: preset.canvas.scale,
+        });
+        return;
+      }
 
       if (reduceMotion) {
-        gsap.set(canvas, {
+        gsap.set(canvasElement, {
           opacity: preset.canvas.opacity,
           scale: mode === "inside" ? preset.canvas.scale : 1,
         });
-        gsap.set(shell, {
-          opacity: mode === "map" ? 0 : preset.portalShell.opacityTo,
-          scale: 1,
-          y: 0,
-        });
+        if (shellElement) {
+          gsap.set(shellElement, {
+            opacity: mode === "map" ? 0 : preset.portalShell.opacityTo,
+            scale: 1,
+            y: 0,
+          });
+        }
         if (roomElement) {
           gsap.set(roomElement, {
             opacity: mode === "inside" ? 1 : 0,
@@ -738,22 +769,26 @@ function FlowTransitionDirector({
       });
 
       if (mode === "inside" && roomIntroSuppressed) {
-        gsap.set(shell, {
-          opacity: preset.portalShell.opacityTo,
-          scale: 1,
-          y: 0,
-        });
-        gsap.set(room, {
-          opacity: 1,
-          scale: 1,
-          y: 0,
-        });
+        if (shellElement) {
+          gsap.set(shellElement, {
+            opacity: preset.portalShell.opacityTo,
+            scale: 1,
+            y: 0,
+          });
+        }
+        if (roomElement) {
+          gsap.set(roomElement, {
+            opacity: 1,
+            scale: 1,
+            y: 0,
+          });
+        }
         return;
       }
 
       if (mode === "map") {
         timeline
-          .to(canvas, {
+          .to(canvasElement, {
             duration: mapPreset.canvas.duration / 1000,
             scale: mapPreset.canvas.scale,
             opacity: mapPreset.canvas.opacity,
@@ -764,32 +799,40 @@ function FlowTransitionDirector({
 
       if (mode === "entering" && targetMode === "map") {
         const portalOrigin = getPortalOrigin();
+
+        if (shellElement) {
+          timeline.to(shellElement, {
+            duration: EXIT_MS / 1000,
+            opacity: 0,
+            scale: portalOrigin.exitScale,
+            transformOrigin: portalOrigin.transformOrigin,
+            y: portalOrigin.exitY,
+            ease: "expo.inOut",
+          }, 0);
+        }
+
+        if (roomElement) {
+          timeline
+            .fromTo(roomElement, {
+              opacity: 1,
+              scale: 1,
+              transformOrigin: portalOrigin.transformOrigin,
+              y: 0,
+            }, {
+              duration: EXIT_MS / 1000,
+              scale: portalOrigin.exitScale,
+              y: portalOrigin.exitY,
+              ease: "expo.inOut",
+            }, 0)
+            .to(roomElement, {
+              duration: 0.18,
+              opacity: 0,
+              ease: "power2.out",
+            }, (EXIT_MS - 190) / 1000);
+        }
+
         timeline
-          .to(shell, {
-            duration: EXIT_MS / 1000,
-            opacity: 0,
-            scale: portalOrigin.exitScale,
-            transformOrigin: portalOrigin.transformOrigin,
-            y: portalOrigin.exitY,
-            ease: "expo.inOut",
-          }, 0)
-          .fromTo(room, {
-            opacity: 1,
-            scale: 1,
-            transformOrigin: portalOrigin.transformOrigin,
-            y: 0,
-          }, {
-            duration: EXIT_MS / 1000,
-            scale: portalOrigin.exitScale,
-            y: portalOrigin.exitY,
-            ease: "expo.inOut",
-          }, 0)
-          .to(room, {
-            duration: 0.18,
-            opacity: 0,
-            ease: "power2.out",
-          }, (EXIT_MS - 190) / 1000)
-          .to(canvas, {
+          .to(canvasElement, {
             duration: 0.58,
             scale: mapPreset.canvas.scale,
             opacity: mapPreset.canvas.opacity,
@@ -799,7 +842,7 @@ function FlowTransitionDirector({
       }
 
       timeline
-        .to(canvas, {
+        .to(canvasElement, {
           duration: preset.canvas.duration / 1000,
           scale: preset.canvas.scale,
           opacity: preset.canvas.opacity,
@@ -813,20 +856,22 @@ function FlowTransitionDirector({
 
       if (mode === "entering") {
         const portalShellDelay = dockEntryActive ? 0 : preset.portalShell.delay;
-        timeline
-          .set(shell, {
-            opacity: 0,
-            scale: preset.portalShell.scaleFrom,
-            y: preset.portalShell.yFrom,
-            transformOrigin: () => getPortalOrigin().transformOrigin,
-          }, portalShellDelay)
-          .to(shell, {
-            duration: preset.portalShell.duration / 1000,
-            opacity: preset.portalShell.opacityTo,
-            scale: 1,
-            y: 0,
-            ease: "expo.out",
-          }, portalShellDelay);
+        if (shellElement) {
+          timeline
+            .set(shellElement, {
+              opacity: 0,
+              scale: preset.portalShell.scaleFrom,
+              y: preset.portalShell.yFrom,
+              transformOrigin: () => getPortalOrigin().transformOrigin,
+            }, portalShellDelay)
+            .to(shellElement, {
+              duration: preset.portalShell.duration / 1000,
+              opacity: preset.portalShell.opacityTo,
+              scale: 1,
+              y: 0,
+              ease: "expo.out",
+            }, portalShellDelay);
+        }
       }
 
       if (mode === "inside" && !roomSwitchActive) {
@@ -835,17 +880,19 @@ function FlowTransitionDirector({
         const roomFromY = dockEntryActive ? 0 : preset.room.yFrom;
         const roomOrigin = dockEntryActive ? getPortalOrigin().transformOrigin : "50% 48%";
 
-        timeline
-          .to(shell, {
-            duration: preset.portalShell.duration / 1000,
-            opacity: preset.portalShell.opacityTo,
-            scale: 1,
-            y: 0,
-            ease: "power3.out",
-          }, 0);
+        if (shellElement) {
+          timeline
+            .to(shellElement, {
+              duration: preset.portalShell.duration / 1000,
+              opacity: preset.portalShell.opacityTo,
+              scale: 1,
+              y: 0,
+              ease: "power3.out",
+            }, 0);
+        }
 
-        if (roomContentReady) {
-          timeline.fromTo(room, {
+        if (roomContentReady && roomElement) {
+          timeline.fromTo(roomElement, {
             opacity: roomFromOpacity,
             scale: roomFromScale,
             y: roomFromY,
@@ -1351,11 +1398,10 @@ function FlowStepNode({ id, data }: NodeProps<Node<FlowWorkspaceNodeData>>) {
   );
 }
 
-function StepRoomSlideTransition({
-  transition,
-}: {
-  transition: RoomSwitchState;
-}) {
+function getRoomSwitchMotionProps(
+  transition: RoomSwitchState,
+  phase: "incoming" | "outgoing",
+): Pick<MotionProps, "animate" | "initial" | "transition"> {
   const offset = `${transition.direction * 100}%`;
   const reverseOffset = `${transition.direction * -100}%`;
   const slideTransition = {
@@ -1363,36 +1409,56 @@ function StepRoomSlideTransition({
     ease: [0.16, 1, 0.3, 1] as const,
   };
 
+  if (phase === "outgoing") {
+    return {
+      animate: { opacity: 0.62, scale: 0.985, x: reverseOffset },
+      initial: { opacity: 1, scale: 1, x: "0%" },
+      transition: slideTransition,
+    };
+  }
+
+  return {
+    animate: { opacity: 1, scale: 1, x: "0%" },
+    initial: { opacity: 0.92, scale: 0.995, x: offset },
+    transition: slideTransition,
+  };
+}
+
+function StepRoomIncomingSlide({
+  onKnowledgeReaderBackHandlerChange,
+  onKnowledgeReaderModeChange,
+  transition,
+}: {
+  onKnowledgeReaderBackHandlerChange: (handler: (() => void) | null) => void;
+  onKnowledgeReaderModeChange: (isReaderMode: boolean) => void;
+  transition: RoomSwitchState;
+}) {
   return (
-    <div className="presento-room-slide-stage">
-      <motion.div
-        animate={{ opacity: 0.62, scale: 0.985, x: reverseOffset }}
-        className="presento-room-slide presento-room-slide-outgoing"
-        initial={{ opacity: 1, scale: 1, x: "0%" }}
-        key={`${transition.key}-${transition.from.id}-out`}
-        transition={slideTransition}
-      >
-        <StepRoom activeId={transition.from.id} instant />
-      </motion.div>
-      <motion.div
-        animate={{ opacity: 1, scale: 1, x: "0%" }}
-        className="presento-room-slide presento-room-slide-incoming"
-        initial={{ opacity: 0.92, scale: 0.995, x: offset }}
-        key={`${transition.key}-${transition.to.id}-in`}
-        transition={slideTransition}
-      >
-        <StepRoom activeId={transition.to.id} instant />
-      </motion.div>
-    </div>
+    <StepRoom
+      activeId={transition.to.id}
+      className="presento-room-slide presento-room-slide-incoming"
+      key={`${transition.key}-${transition.to.id}-in`}
+      motionProps={getRoomSwitchMotionProps(transition, "incoming")}
+      onKnowledgeReaderBackHandlerChange={onKnowledgeReaderBackHandlerChange}
+      onKnowledgeReaderModeChange={onKnowledgeReaderModeChange}
+    />
   );
 }
 
 function StepRoom({
   activeId,
+  className,
   instant = false,
+  motionProps,
+  onKnowledgeReaderBackHandlerChange,
+  onKnowledgeReaderModeChange,
 }: {
   activeId: FlowStepId;
+  className?: string;
   instant?: boolean;
+  motionProps?: Pick<MotionProps, "animate" | "initial" | "transition">;
+  onKnowledgeReaderBackHandlerChange: (handler: (() => void) | null) => void;
+  onKnowledgeReaderModeChange: (isReaderMode: boolean) => void;
 }) {
   const step = getFlowStepById(activeId);
   const roomBody = (
@@ -1401,34 +1467,57 @@ function StepRoom({
         "presento-step-room-body",
         activeId === "knowledge" && "presento-step-room-body-knowledge",
         activeId === "files" && "presento-step-room-body-files",
+        activeId === "scripts" && "presento-step-room-body-scripts",
         activeId === "defense" && "presento-step-room-body-defense",
         activeId === "pcg" && "presento-step-room-body-pcg",
       )}
     >
-      <StepRoomContent stepId={activeId} />
+      <StepRoomContent
+        onKnowledgeReaderBackHandlerChange={onKnowledgeReaderBackHandlerChange}
+        onKnowledgeReaderModeChange={onKnowledgeReaderModeChange}
+        stepId={activeId}
+      />
     </main>
   );
 
   return (
-    <section
-      className={cn("presento-step-room", roomKindClass(step.roomKind))}
-      style={instant ? { opacity: 1, transform: "translateY(0) scale(1)" } : undefined}
+    <motion.section
+      animate={motionProps?.animate}
+      className={cn("presento-step-room", roomKindClass(step.roomKind), className)}
+      initial={motionProps?.initial ?? false}
+      style={instant && !motionProps ? { opacity: 1, transform: "translateY(0) scale(1)" } : undefined}
+      transition={motionProps?.transition}
     >
-      {activeId === "knowledge" || activeId === "defense" || activeId === "pcg" ? roomBody : <ScrollArea className="presento-step-room-scroll">{roomBody}</ScrollArea>}
-    </section>
+      {activeId === "knowledge" || activeId === "scripts" || activeId === "defense" || activeId === "pcg" ? roomBody : <ScrollArea className="presento-step-room-scroll">{roomBody}</ScrollArea>}
+    </motion.section>
   );
 }
 
-function StepRoomContent({ stepId }: { stepId: FlowStepId }) {
+const StepRoomContent = memo(function StepRoomContent({
+  onKnowledgeReaderBackHandlerChange,
+  onKnowledgeReaderModeChange,
+  stepId,
+}: {
+  onKnowledgeReaderBackHandlerChange: (handler: (() => void) | null) => void;
+  onKnowledgeReaderModeChange: (isReaderMode: boolean) => void;
+  stepId: FlowStepId;
+}) {
   if (stepId === "files") return <FilesRoom />;
-  if (stepId === "knowledge") return <KnowledgeRoom />;
+  if (stepId === "knowledge") {
+    return (
+      <KnowledgeRoom
+        onReaderBackHandlerChange={onKnowledgeReaderBackHandlerChange}
+        onReaderModeChange={onKnowledgeReaderModeChange}
+      />
+    );
+  }
   if (stepId === "scripts") return <ScriptsRoom />;
   if (stepId === "defense") return <DefenseRoom />;
   if (stepId === "review") return <ReviewRoom />;
   if (stepId === "deepDive") return <DeepDiveRoom />;
   if (stepId === "skills") return <SkillsRoom />;
   return <PCGRoom />;
-}
+});
 
 function FilesRoom() {
   const { workspace, addFiles } = useWorkspace();
@@ -1444,59 +1533,405 @@ function FilesRoom() {
   );
 }
 
-function KnowledgeRoom() {
-  return <KnowledgeMapRoom projectId={demoProject.id} />;
+function KnowledgeRoom({
+  onReaderBackHandlerChange,
+  onReaderModeChange,
+}: {
+  onReaderBackHandlerChange: (handler: (() => void) | null) => void;
+  onReaderModeChange: (isReaderMode: boolean) => void;
+}) {
+  return (
+    <KnowledgeMapRoom
+      onReaderBackHandlerChange={onReaderBackHandlerChange}
+      onReaderModeChange={onReaderModeChange}
+      projectId={demoProject.id}
+    />
+  );
+}
+
+type ScriptVersion = "normal" | "short" | "keywords";
+type DemoScriptSlide = (typeof demoDefenseSlides)[number];
+
+const scriptVersions: { id: ScriptVersion; label: string }[] = [
+  { id: "normal", label: "完整版" },
+  { id: "short", label: "简练版" },
+  { id: "keywords", label: "关键词版" },
+];
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function listHtml(items: string[]) {
+  return items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+}
+
+function buildScriptEditorContent(slide: DemoScriptSlide, version: ScriptVersion) {
+  if (version === "keywords") {
+    return `
+      <h2>${escapeHtml(slide.title)}关键词提词</h2>
+      <p>这一页先用一句话讲清：${escapeHtml(slide.speakerNote)}</p>
+      <ul>${listHtml(slide.keywords)}</ul>
+      <p><mark data-presento-token="pause">停顿提示：讲完关键词后停顿 2 秒，切回 PPT 图示。</mark></p>
+      <h3>高危追问</h3>
+      <ul>${listHtml(slide.risks)}</ul>
+    `;
+  }
+
+  const body = version === "short" ? slide.speakerNote : slide.summary;
+  const transition =
+    version === "short"
+      ? "接下来我用一条订单流转把这页讲清楚。"
+      : "这页的核心不是堆技术名词，而是讲清楚数据从哪里来、经过哪里、最后支撑什么能力。";
+
+  return `
+    <p>${escapeHtml(body)}</p>
+    <p>${escapeHtml(transition)}</p>
+    <ul>${listHtml(slide.keywords.map((keyword) => `关键词：${keyword}`))}</ul>
+    <h3>证据来源</h3>
+    <p>${slide.evidence.map((item) => `<mark>${escapeHtml(item)}</mark>`).join(" ")}</p>
+    <h3>老师可能追问</h3>
+    <ul>${listHtml(slide.risks)}</ul>
+  `;
+}
+
+function buildDeepDiveAnswerContent() {
+  return `
+    <p>如果后厨已经接单，订单会从待处理进入制作中。这个状态下用户端不再直接取消，而是进入人工确认或异常处理流程，避免后厨已经备餐但前端仍撤单造成数据和履约不一致。</p>
+    <p><mark data-presento-token="card">答辩卡片：用“状态机 + 权限边界 + 异常处理”三句话回答。</mark></p>
+  `;
+}
+
+function buildReviewReportContent() {
+  return `
+    <h2>本轮薄弱点</h2>
+    <ul>
+      <li>系统架构页表达偏散，状态流转和接口权限需要更紧。</li>
+      <li>数据库金额快照的解释还不够具体，需要绑定 orders.sql。</li>
+      <li>个人负责范围要明确落到后端订单接口和订单状态变更。</li>
+    </ul>
+    <h2>建议背熟回答</h2>
+    <p>订单模块的核心是：前端只提交业务请求，后端校验权限和状态后写入订单，再由后厨看板读取待处理订单。这样可以避免前端篡改状态，也能保证订单数据一致。</p>
+    <h2>下一轮训练重点</h2>
+    <ol>
+      <li>专项练第 2 页系统架构，控制在 55 秒内。</li>
+      <li>准备 30 秒版数据库冗余字段解释。</li>
+      <li>把高质量回答加入逐页讲稿。</li>
+    </ol>
+  `;
 }
 
 function ScriptsRoom() {
-  const activeSlide = demoSlideScripts[1];
+  const isNarrowLayout = useIsNarrowDefenseLayout();
+  const [activeSlideIndex, setActiveSlideIndex] = useState(1);
+  const [scriptVersion, setScriptVersion] = useState<ScriptVersion>("normal");
+  const [aiSuggestion, setAiSuggestion] = useState("这段讲稿可以更口语化，并补充后厨接单、订单写入、看板读取三段链路，让表达更完整。");
+  const [rewriteRequest, setRewriteRequest] = useState("");
+  const [isScriptsAiCollapsed, setIsScriptsAiCollapsed] = useState(false);
+  const [isScriptsGalleryCollapsed, setIsScriptsGalleryCollapsed] = useState(false);
+  const editorRef = useRef<RichScriptEditorHandle | null>(null);
+  const filmstripRef = useRef<HTMLElement | null>(null);
+  const scriptsAiPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const activeSlide = demoDefenseSlides[activeSlideIndex] ?? demoDefenseSlides[1] ?? demoDefenseSlides[0];
+  const editorContent = useMemo(
+    () => buildScriptEditorContent(activeSlide, scriptVersion),
+    [activeSlide, scriptVersion],
+  );
+  const scriptsAiCollapsedSize = "20px";
+  const scriptsAiCollapsedThreshold = 42;
+  const scriptsAiPanelMotion: Pick<MotionProps, "animate" | "exit" | "initial" | "transition"> = {
+    animate: { filter: "blur(0px)", opacity: 1, x: 0 },
+    exit: { filter: "blur(6px)", opacity: 0, x: 18 },
+    initial: { filter: "blur(6px)", opacity: 0, x: 18 },
+    transition: { duration: 0.26, ease: "easeOut" },
+  };
+  const quickActions = [
+    {
+      label: "口语化表达",
+      prompt: "已经把表达调成更像现场答辩的说法，保留证据链但减少书面语。",
+      snippet: `<p>口语化版本：这一页我主要想让老师看到，用户下单以后，订单不是直接显示在前端，而是先经过后端校验、写入数据库，再同步给后厨看板。</p>`,
+    },
+    {
+      label: "压缩到 30 秒",
+      prompt: "建议先讲数据流，再补一句为什么这样设计，控制在 30 秒左右。",
+      replace: true,
+      snippet: `<p>${escapeHtml(activeSlide.speakerNote)}</p><p>我会重点说明这一页和订单链路的关系，避免展开太多实现细节。</p>`,
+    },
+    {
+      label: "增强逻辑性",
+      prompt: "建议按“输入、处理、输出、价值”四段组织，老师更容易跟上。",
+      snippet: `<ol><li>输入：用户点餐并提交订单。</li><li>处理：后端校验权限、写入订单和明细。</li><li>输出：后厨看板读取待处理订单并更新状态。</li></ol>`,
+    },
+    {
+      label: "补充技术细节",
+      prompt: "可补充接口权限、状态枚举和数据库写入三个技术点，不要泛泛而谈。",
+      snippet: `<p><mark data-presento-token="question">老师可能追问：状态枚举有哪些？哪些接口允许用户端调用，哪些只能由后厨端调用？</mark></p>`,
+    },
+    {
+      label: "加入过渡句",
+      prompt: "过渡句已经补到当前讲稿后面，用来连接下一页。",
+      snippet: `<p>讲完整体架构以后，下一页我会具体说明数据库为什么这样拆表，以及订单金额为什么要保存快照。</p>`,
+    },
+    {
+      label: "生成老师追问",
+      prompt: "已根据当前页证据生成追问，可以加入答辩卡片继续练。",
+      snippet: `<ul>${listHtml(activeSlide.risks.map((risk) => `老师追问：${risk}`))}</ul>`,
+    },
+  ];
+  const applyQuickAction = useCallback((action: (typeof quickActions)[number]) => {
+    setAiSuggestion(action.prompt);
+    if (action.replace) {
+      editorRef.current?.replaceContent(action.snippet);
+      return;
+    }
+    editorRef.current?.appendContent(action.snippet);
+  }, []);
+  const handleOneClickRewrite = useCallback(() => {
+    const request = rewriteRequest.trim();
+    const requestCopy = request ? `按照“${request}”的要求，` : "";
+    setAiSuggestion(`${requestCopy}已生成一段更适合答辩现场的版本，并补上证据来源。`);
+    editorRef.current?.appendContent(`
+      <p>${requestCopy}我会把这一页讲成“问题、流程、证据、价值”四步：先说明它解决什么问题，再讲清订单如何流转，最后用 ${escapeHtml(activeSlide.evidence[0] ?? "PPT 证据")} 作为依据收住。</p>
+    `);
+  }, [activeSlide.evidence, rewriteRequest]);
+  const selectSlide = useCallback((index: number) => {
+    startTransition(() => setActiveSlideIndex(index));
+  }, []);
+  const resetFilmstripScroll = useCallback(() => {
+    const viewport = filmstripRef.current?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']");
+    if (viewport) {
+      viewport.scrollTo({ left: 0, behavior: "auto" });
+      viewport.scrollLeft = 0;
+    }
+  }, []);
+  const scheduleFilmstripReset = useCallback(() => {
+    resetFilmstripScroll();
+    requestAnimationFrame(resetFilmstripScroll);
+    window.setTimeout(resetFilmstripScroll, 120);
+    window.setTimeout(resetFilmstripScroll, 360);
+  }, [resetFilmstripScroll]);
+  const handleFilmstripWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+
+    const viewport = event.currentTarget.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']");
+    if (!viewport) return;
+
+    viewport.scrollLeft += event.deltaY;
+  }, []);
+  const handleScriptsAiResize = useCallback((panelSize: PanelSize) => {
+    const shouldCollapse = Boolean(scriptsAiPanelRef.current?.isCollapsed()) || panelSize.inPixels <= scriptsAiCollapsedThreshold;
+    setIsScriptsAiCollapsed((current) => current === shouldCollapse ? current : shouldCollapse);
+  }, [scriptsAiCollapsedThreshold]);
+  const collapseScriptsAiPanel = useCallback(() => {
+    scriptsAiPanelRef.current?.collapse();
+    setIsScriptsAiCollapsed(true);
+  }, []);
+  const handleScriptsGalleryResize = useCallback((panelSize: PanelSize) => {
+    const shouldCollapse = panelSize.inPixels <= DEFENSE_GALLERY_COLLAPSED_THRESHOLD;
+    setIsScriptsGalleryCollapsed((current) => current === shouldCollapse ? current : shouldCollapse);
+  }, []);
+
+  useLayoutEffect(() => {
+    scheduleFilmstripReset();
+  }, [activeSlideIndex, scheduleFilmstripReset]);
+
+  useEffect(() => {
+    scheduleFilmstripReset();
+  }, [scheduleFilmstripReset]);
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[280px_1fr_360px]">
-      <RoomCard icon={<FileQuestion aria-hidden="true" />} title="PPT 页" description="选择页面后生成对应讲解路径。">
-        <div className="flex flex-col gap-2">
-          {demoSlideScripts.slice(0, 5).map((slide) => (
-            <button className={cn("presento-slide-thumb", slide.page === activeSlide.page && "presento-slide-thumb-active")} key={slide.page} type="button">
-              <span>Slide {slide.page}</span>
-              <strong>{slide.title}</strong>
-              <small>{slide.duration} · {slide.status}</small>
-            </button>
-          ))}
-        </div>
-      </RoomCard>
+    <div className="presento-scripts-workbench">
+      <ResizablePanelGroup
+        className="presento-scripts-resizable presento-scripts-resizable-root"
+        orientation="vertical"
+      >
+        <ResizablePanel defaultSize="78%" minSize="56%">
+          <ResizablePanelGroup
+            className="presento-scripts-upper-resizable"
+            orientation={isNarrowLayout ? "vertical" : "horizontal"}
+          >
+            <ResizablePanel defaultSize={isNarrowLayout ? "62%" : "72%"} minSize={isNarrowLayout ? "42%" : "52%"}>
+              <main className="presento-scripts-main">
+                <Tabs
+                  className="presento-scripts-version-tabs"
+                  onValueChange={(value) => setScriptVersion(value as ScriptVersion)}
+                  value={scriptVersion}
+                >
+                  <TabsList aria-label="讲稿版本" className="presento-scripts-version-tabs-list">
+                    {scriptVersions.map((version) => (
+                      <TabsTrigger
+                        className="presento-scripts-version-tab"
+                        key={version.id}
+                        onFocus={() => setScriptVersion(version.id)}
+                        onMouseDownCapture={() => setScriptVersion(version.id)}
+                        onPointerDownCapture={() => setScriptVersion(version.id)}
+                        onClick={() => setScriptVersion(version.id)}
+                        value={version.id}
+                      >
+                        <strong>{version.label}</strong>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
 
-      <RoomCard icon={<FileText aria-hidden="true" />} title={`Slide ${activeSlide.page} · ${activeSlide.title}`} description="正常版、30 秒版和关键词版都绑定当前页证据链。">
-        <Tabs className="gap-4" defaultValue="normal">
-          <TabsList className="bg-[var(--presento-hover)]">
-            <TabsTrigger value="normal">正常版</TabsTrigger>
-            <TabsTrigger value="short">30 秒版</TabsTrigger>
-            <TabsTrigger value="keywords">关键词版</TabsTrigger>
-          </TabsList>
-          <TabsContent value="normal">
-            <Textarea className="min-h-72 rounded-2xl border-[var(--presento-border)] bg-white/92 text-sm font-semibold leading-7" defaultValue={activeSlide.normal} />
-          </TabsContent>
-          <TabsContent value="short">
-            <Textarea className="min-h-72 rounded-2xl border-[var(--presento-border)] bg-white/92 text-sm font-semibold leading-7" defaultValue={activeSlide.short} />
-          </TabsContent>
-          <TabsContent value="keywords">
-            <div className="flex min-h-72 flex-wrap content-start gap-2 rounded-2xl border border-[var(--presento-border)] bg-white/92 p-4">
-              {activeSlide.keywords.map((keyword) => (
-                <Badge className="presento-room-badge-blue" key={keyword}>{keyword}</Badge>
-              ))}
-            </div>
-          </TabsContent>
-        </Tabs>
-      </RoomCard>
+                <RichScriptEditor
+                  className="presento-scripts-editor"
+                  initialContent={editorContent}
+                  key={`${activeSlide.page}-${scriptVersion}`}
+                  minHeight={390}
+                  ref={editorRef}
+                  showFooterMeta={false}
+                  statusLabel={`${scriptVersions.find((version) => version.id === scriptVersion)?.label ?? "完整版"} · 本地草稿`}
+                  variant="script"
+                />
+              </main>
+            </ResizablePanel>
+            <ResizableHandle className="presento-defense-resize-handle presento-scripts-resize-handle" withHandle />
+            <ResizablePanel
+              collapsedSize={scriptsAiCollapsedSize}
+              collapsible
+              defaultSize={isNarrowLayout ? "38%" : "28%"}
+              minSize={isNarrowLayout ? "28%" : "22%"}
+              onResize={handleScriptsAiResize}
+              panelRef={scriptsAiPanelRef}
+            >
+              <div className="presento-scripts-ai-shell">
+                <AnimatePresence initial={false} mode="wait">
+                  {isScriptsAiCollapsed ? null : (
+                    <motion.aside className="presento-defense-ai-pane presento-scripts-ai" key="scripts-ai-panel" {...scriptsAiPanelMotion}>
+                      <header className="presento-defense-ai-header presento-scripts-ai-header">
+                        <span className="presento-defense-ai-icon presento-scripts-ai-icon">
+                          <Sparkles aria-hidden="true" />
+                        </span>
+                        <div className="presento-scripts-ai-heading">
+                          <h2>AI 改稿助手</h2>
+                          <p>基于演讲场景优化你的讲稿表达</p>
+                        </div>
+                        <button
+                          aria-label="收起 AI 改稿助手"
+                          className="presento-scripts-ai-collapse"
+                          onClick={collapseScriptsAiPanel}
+                          type="button"
+                        >
+                          <ChevronRight aria-hidden="true" />
+                        </button>
+                      </header>
 
-      <RoomCard icon={<Target aria-hidden="true" />} title="本页高危" description="讲稿从这里直接进入同屏讲练。">
-        <QuestionList items={activeSlide.risks} />
-        <Button asChild className="mt-4 w-full rounded-xl bg-[var(--presento-navy)] font-black text-white">
-          <Link href="/projects/demo/defense">
-            <Mic data-icon="inline-start" aria-hidden="true" />
-            用这一页开练
-          </Link>
-        </Button>
-      </RoomCard>
+                      <section className="presento-defense-ai-question presento-scripts-ai-suggestion">
+                        <span>当前建议</span>
+                        <p>{aiSuggestion}</p>
+                      </section>
+
+                      <label className="presento-defense-console presento-defense-console-ai presento-scripts-ai-request">
+                        <span>告诉 AI 你的改稿需求</span>
+                        <Textarea
+                          maxLength={200}
+                          onChange={(event) => setRewriteRequest(event.target.value)}
+                          placeholder="输入你的改稿需求，例如：更像答辩口语 / 压缩到 30 秒 / 更有逻辑性..."
+                          value={rewriteRequest}
+                        />
+                        <small>{rewriteRequest.length}/200</small>
+                      </label>
+
+                      <Button className="presento-defense-submit-button presento-scripts-ai-primary" onClick={handleOneClickRewrite} type="button">
+                        <Sparkles data-icon="inline-start" aria-hidden="true" />
+                        一键改稿
+                      </Button>
+
+                      <section className="presento-defense-ai-actions presento-scripts-ai-actions">
+                        <span>快速优化</span>
+                        <div>
+                          {quickActions.map((action) => (
+                            <Button key={action.label} onClick={() => applyQuickAction(action)} type="button" variant="outline">
+                              {action.label}
+                            </Button>
+                          ))}
+                        </div>
+                      </section>
+
+                      <section className="presento-defense-evidence presento-scripts-ai-evidence">
+                        <span>高危追问</span>
+                        <QuestionList items={activeSlide.risks} />
+                        <Button asChild className="rounded-xl bg-[var(--presento-navy)] font-black text-white">
+                          <Link href="/projects/demo/defense">
+                            <Mic data-icon="inline-start" aria-hidden="true" />
+                            用这一页开练
+                          </Link>
+                        </Button>
+                      </section>
+                    </motion.aside>
+                  )}
+                </AnimatePresence>
+              </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </ResizablePanel>
+        <ResizableHandle className="presento-defense-resize-handle" withHandle />
+        <ResizablePanel
+          className="presento-defense-gallery-panel"
+          collapsedSize={DEFENSE_GALLERY_COLLAPSED_SIZE}
+          collapsible
+          defaultSize={DEFENSE_GALLERY_EXPANDED_SIZE}
+          maxSize={DEFENSE_GALLERY_EXPANDED_SIZE}
+          minSize="82px"
+          onResize={handleScriptsGalleryResize}
+        >
+          <motion.section
+            className={cn("presento-defense-gallery-shell", isScriptsGalleryCollapsed && "presento-defense-gallery-shell-collapsed")}
+            data-collapsed={isScriptsGalleryCollapsed}
+            layout
+            ref={filmstripRef}
+            transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <AnimatePresence initial={false}>
+              {!isScriptsGalleryCollapsed ? (
+                <motion.div
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  className="presento-defense-gallery-motion"
+                  exit={{ opacity: 0, y: 8, filter: "blur(4px)" }}
+                  initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
+                  key="scripts-gallery-track"
+                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <ScrollArea className="presento-defense-gallery-scroll" onWheel={handleFilmstripWheel}>
+                    <div className="presento-defense-thumbnail-track">
+                      {demoDefenseSlides.map((slide, index) => (
+                        <Button
+                          aria-pressed={index === activeSlideIndex}
+                          className={cn("presento-defense-thumbnail", index === activeSlideIndex && "presento-defense-thumbnail-active")}
+                          key={`${slide.page}-${slide.title}`}
+                          onClick={() => selectSlide(index)}
+                          type="button"
+                          variant="ghost"
+                        >
+                          <Image
+                            alt=""
+                            aria-hidden="true"
+                            className="presento-defense-thumbnail-image"
+                            height={108}
+                            src={slide.image}
+                            unoptimized
+                            width={192}
+                          />
+                          <span className="presento-defense-thumbnail-label">
+                            {slide.page} · {slide.title}
+                          </span>
+                        </Button>
+                      ))}
+                    </div>
+                    <ScrollBar orientation="horizontal" />
+                  </ScrollArea>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </motion.section>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }
@@ -1505,6 +1940,7 @@ function DefenseRoom() {
   const isNarrowLayout = useIsNarrowDefenseLayout();
   const [activeSlideIndex, setActiveSlideIndex] = useState(1);
   const [isGalleryCollapsed, setIsGalleryCollapsed] = useState(false);
+  const galleryShellRef = useRef<HTMLElement | null>(null);
   const activeSlide = demoDefenseSlides[activeSlideIndex] ?? demoDefenseSlides[1] ?? demoDefenseSlides[0];
   const activeRisks = activeSlide.risks.slice(0, 3);
   const coachTurns = [
@@ -1524,6 +1960,10 @@ function DefenseRoom() {
   const selectSlide = useCallback((index: number) => {
     startTransition(() => setActiveSlideIndex(index));
   }, []);
+  const resetGalleryScroll = useCallback(() => {
+    const viewport = galleryShellRef.current?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']");
+    if (viewport) viewport.scrollLeft = 0;
+  }, []);
   const handleGalleryResize = useCallback((panelSize: PanelSize) => {
     const shouldCollapse = panelSize.inPixels <= DEFENSE_GALLERY_COLLAPSED_THRESHOLD;
     setIsGalleryCollapsed((current) => current === shouldCollapse ? current : shouldCollapse);
@@ -1536,6 +1976,10 @@ function DefenseRoom() {
 
     viewport.scrollLeft += event.deltaY;
   }, []);
+
+  useLayoutEffect(() => {
+    if (!isGalleryCollapsed) resetGalleryScroll();
+  }, [activeSlideIndex, isGalleryCollapsed, resetGalleryScroll]);
 
   return (
     <div className="presento-defense-room">
@@ -1654,6 +2098,7 @@ function DefenseRoom() {
         </ResizablePanel>
         <ResizableHandle className="presento-defense-resize-handle" withHandle />
         <ResizablePanel
+          className="presento-defense-gallery-panel"
           collapsedSize={DEFENSE_GALLERY_COLLAPSED_SIZE}
           collapsible
           defaultSize={DEFENSE_GALLERY_EXPANDED_SIZE}
@@ -1665,6 +2110,7 @@ function DefenseRoom() {
             className={cn("presento-defense-gallery-shell", isGalleryCollapsed && "presento-defense-gallery-shell-collapsed")}
             data-collapsed={isGalleryCollapsed}
             layout
+            ref={galleryShellRef}
             transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
           >
             <AnimatePresence initial={false}>
@@ -1743,6 +2189,16 @@ function ReviewRoom() {
           ))}
         </div>
       </RoomCard>
+      <RoomCard className="lg:col-span-2" icon={<FileText aria-hidden="true" />} title="复盘报告编辑器" description="可继续编辑、收藏或导出为下一轮训练材料。">
+        <RichScriptEditor
+          initialContent={buildReviewReportContent()}
+          minHeight={300}
+          placeholder="整理这一轮模拟答辩后的薄弱点和下一步训练重点..."
+          showScriptTools={false}
+          statusLabel="复盘报告 · 本地草稿"
+          variant="review"
+        />
+      </RoomCard>
       <RoomCard icon={<Target aria-hidden="true" />} title="下一轮训练任务" description="复盘结果会回流到薄弱点和知识地图。">
         <QuestionList items={["补数据库金额快照解释", "专项练第 2 页系统架构", "明确个人负责订单接口范围", "把高质量回答转成 30 秒口播"]} />
       </RoomCard>
@@ -1788,9 +2244,12 @@ function DeepDiveRoom() {
       </RoomCard>
 
       <RoomCard icon={<FileText aria-hidden="true" />} title="改答版本" description={first.evidence}>
-        <Textarea
-          className="min-h-56 rounded-2xl border-[var(--presento-border)] bg-white/92 text-sm font-semibold leading-7"
-          defaultValue="如果后厨已经接单，订单会从待处理进入制作中。这个状态下用户端不再直接取消，而是进入人工确认或异常处理流程，避免后厨已经备餐但前端仍撤单造成数据和履约不一致。"
+        <RichScriptEditor
+          initialContent={buildDeepDiveAnswerContent()}
+          minHeight={230}
+          placeholder="把 AI 推荐回答改成你自己的答辩表达..."
+          statusLabel="推荐回答 · 本地草稿"
+          variant="answer"
         />
         <div className="mt-4 grid gap-2">
           <Button asChild className="rounded-xl bg-[var(--presento-navy)] font-black text-white">
@@ -1851,12 +2310,12 @@ function SkillsRoom() {
 
 function PCGRoom() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const fileRef = useRef<HTMLDivElement>(null);
+  const weiyunRef = useRef<HTMLDivElement>(null);
+  const inputDocsRef = useRef<HTMLDivElement>(null);
   const inputQqRef = useRef<HTMLDivElement>(null);
-  const githubRef = useRef<HTMLDivElement>(null);
   const presentoRef = useRef<HTMLDivElement>(null);
   const qqRef = useRef<HTMLDivElement>(null);
-  const weishiRef = useRef<HTMLDivElement>(null);
+  const outputDocsRef = useRef<HTMLDivElement>(null);
   const tencentVideoRef = useRef<HTMLDivElement>(null);
 
   return (
@@ -1880,17 +2339,22 @@ function PCGRoom() {
       <div className="relative z-20 flex h-full min-h-0 flex-col items-center justify-center gap-12 md:flex-row md:justify-between md:gap-16">
         <div className="relative z-10 flex flex-row items-center justify-center gap-4 md:flex-col md:gap-5">
           <BeamHoverNode
-            detail={pcgNodeDetails.file}
-            ref={fileRef}
-            className="size-32 bg-white/94"
-            ringClassName="shadow-[0_18px_40px_rgba(17,24,39,0.08)]"
+            detail={pcgNodeDetails.weiyun}
+            ref={weiyunRef}
+            className="size-32 bg-white/94 p-4"
+            ringClassName="shadow-[0_18px_42px_rgba(41,128,255,0.12)]"
             side="right"
           >
-            <FileText
-              aria-hidden="true"
-              className="text-[var(--presento-muted)]"
-              style={{ height: 86, width: 86 }}
-            />
+            <TencentWeiyunMark />
+          </BeamHoverNode>
+          <BeamHoverNode
+            detail={pcgNodeDetails.inputDocs}
+            ref={inputDocsRef}
+            className="size-32 bg-white/94 p-4"
+            ringClassName="shadow-[0_18px_42px_rgba(43,101,244,0.12)]"
+            side="right"
+          >
+            <TencentDocsMark />
           </BeamHoverNode>
           <BeamHoverNode
             detail={pcgNodeDetails.inputQq}
@@ -1900,15 +2364,6 @@ function PCGRoom() {
             side="right"
           >
             <QqMark />
-          </BeamHoverNode>
-          <BeamHoverNode
-            detail={pcgNodeDetails.github}
-            ref={githubRef}
-            className="size-32 bg-white/94 p-4"
-            ringClassName="shadow-[0_18px_42px_rgba(31,35,41,0.08)]"
-            side="right"
-          >
-            <GithubMark />
           </BeamHoverNode>
         </div>
         <BeamHoverNode
@@ -1938,36 +2393,22 @@ function PCGRoom() {
             <QqMark />
           </BeamHoverNode>
           <BeamHoverNode
-            detail={pcgNodeDetails.weishi}
-            ref={weishiRef}
+            detail={pcgNodeDetails.outputDocs}
+            ref={outputDocsRef}
             className="size-32 bg-white/94 p-4"
-            ringClassName="shadow-[0_18px_42px_rgba(31,35,41,0.08)]"
+            ringClassName="shadow-[0_18px_42px_rgba(43,101,244,0.12)]"
             side="left"
           >
-            <Image
-              alt=""
-              aria-hidden="true"
-              className="h-auto max-h-20 w-auto max-w-24 object-contain"
-              height={PCG_OUTPUT_LOGOS[1].height}
-              src={PCG_OUTPUT_LOGOS[1].src}
-              width={PCG_OUTPUT_LOGOS[1].width}
-            />
+            <TencentDocsMark />
           </BeamHoverNode>
           <BeamHoverNode
             detail={pcgNodeDetails.tencentVideo}
             ref={tencentVideoRef}
             className="size-32 bg-white/94 p-4"
-            ringClassName="shadow-[0_18px_42px_rgba(31,35,41,0.08)]"
+            ringClassName="shadow-[0_18px_42px_rgba(16,171,242,0.12)]"
             side="left"
           >
-            <Image
-              alt=""
-              aria-hidden="true"
-              className="h-auto max-h-20 w-auto max-w-24 object-contain"
-              height={PCG_OUTPUT_LOGOS[2].height}
-              src={PCG_OUTPUT_LOGOS[2].src}
-              width={PCG_OUTPUT_LOGOS[2].width}
-            />
+            <TencentVideoMark />
           </BeamHoverNode>
         </div>
       </div>
@@ -1976,8 +2417,8 @@ function PCGRoom() {
         curvature={-58}
         duration={7}
         endYOffset={-2}
-        fromRef={fileRef}
-        gradientStartColor="#9aa1a8"
+        fromRef={weiyunRef}
+        gradientStartColor="#2980ff"
         gradientStopColor="#10b981"
         pathColor="rgba(31,35,41,0.24)"
         pathWidth={4}
@@ -1989,8 +2430,8 @@ function PCGRoom() {
         containerRef={containerRef}
         curvature={0}
         duration={7}
-        fromRef={inputQqRef}
-        gradientStartColor="#f9ae08"
+        fromRef={inputDocsRef}
+        gradientStartColor="#2b65f4"
         gradientStopColor="#10b981"
         pathColor="rgba(31,35,41,0.24)"
         pathWidth={4}
@@ -2001,8 +2442,8 @@ function PCGRoom() {
         containerRef={containerRef}
         curvature={58}
         duration={7}
-        fromRef={githubRef}
-        gradientStartColor="#111827"
+        fromRef={inputQqRef}
+        gradientStartColor="#f9ae08"
         gradientStopColor="#10b981"
         pathColor="rgba(31,35,41,0.24)"
         pathWidth={4}
@@ -2027,11 +2468,11 @@ function PCGRoom() {
         duration={7}
         fromRef={presentoRef}
         gradientStartColor="#10b981"
-        gradientStopColor="#ec4899"
+        gradientStopColor="#2b65f4"
         pathColor="rgba(31,35,41,0.24)"
         pathWidth={4}
         repeatDelay={0.1}
-        toRef={weishiRef}
+        toRef={outputDocsRef}
       />
       <AnimatedBeam
         containerRef={containerRef}
@@ -2039,7 +2480,7 @@ function PCGRoom() {
         duration={7}
         fromRef={presentoRef}
         gradientStartColor="#10b981"
-        gradientStopColor="#6a9fd8"
+        gradientStopColor="#10abf2"
         pathColor="rgba(31,35,41,0.24)"
         pathWidth={4}
         repeatDelay={0.1}
@@ -2159,16 +2600,74 @@ function QqMark() {
   );
 }
 
-function GithubMark() {
+function TencentDocsMark() {
   return (
     <svg
       aria-hidden="true"
-      fill="currentColor"
-      style={{ height: 82, width: 82 }}
-      viewBox="0 0 24 24"
+      style={{ height: 84, width: 84 }}
+      viewBox="0 0 1024 1024"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path d="M12 0C5.37 0 0 5.5 0 12.28c0 5.43 3.44 10.03 8.2 11.66.6.11.82-.27.82-.59 0-.29-.01-1.25-.02-2.27-3.34.74-4.04-1.46-4.04-1.46-.55-1.42-1.33-1.8-1.33-1.8-1.09-.76.08-.74.08-.74 1.2.09 1.84 1.27 1.84 1.27 1.07 1.88 2.81 1.34 3.5 1.02.11-.79.42-1.34.76-1.64-2.67-.31-5.47-1.37-5.47-6.08 0-1.34.47-2.44 1.24-3.3-.13-.31-.54-1.56.12-3.25 0 0 1.01-.33 3.3 1.26A11.2 11.2 0 0 1 12 5.95c1.02.01 2.04.14 3 .41 2.29-1.59 3.3-1.26 3.3-1.26.66 1.69.25 2.94.12 3.25.77.86 1.24 1.96 1.24 3.3 0 4.73-2.81 5.76-5.49 6.07.43.38.81 1.12.81 2.26 0 1.63-.01 2.94-.01 3.34 0 .33.21.71.82.59A12.26 12.26 0 0 0 24 12.28C24 5.5 18.63 0 12 0z" />
+      <path
+        d="M720.288 144H258.624a92.512 92.512 0 0 0-90.848 84.928L128.224 795.072A78.112 78.112 0 0 0 207.168 880h566.016A92.448 92.448 0 0 0 864 795.072l31.648-452.448z"
+        fill="#2B65F4"
+      />
+      <path
+        d="M791.712 342.624h104.32L720.672 144l-7.936 113.728a78.144 78.144 0 0 0 78.976 84.896z"
+        fill="#00DBFE"
+      />
+      <path
+        d="M655.072 305.44H221.152a28.32 28.32 0 0 0-21.216 47.04l111.744 126.592a28.352 28.352 0 0 0 21.216 9.6h421.152a28.32 28.32 0 0 0 21.216-47.04z"
+        fill="#FFFFFF"
+      />
+      <path
+        d="M491.104 190.272L394.272 880h226.4l74.304-529.344-154.624-175.168a28.288 28.288 0 0 0-49.248 14.784z"
+        fill="#FFFFFF"
+      />
+    </svg>
+  );
+}
+
+function TencentVideoMark() {
+  return (
+    <svg
+      aria-hidden="true"
+      style={{ height: 88, width: 88 }}
+      viewBox="0 0 1024 1024"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M327.68 92.16c28.16-2.56 56.32 2.56 81.92 12.8 58.88 20.48 115.2 46.08 168.96 74.24 92.16 48.64 179.2 104.96 263.68 166.4 35.84 28.16 74.24 56.32 102.4 92.16 17.92 20.48 30.72 48.64 28.16 76.8-5.12 33.28-25.6 61.44-48.64 84.48-92.16 92.16-192 176.64-302.08 245.76-56.32 35.84-115.2 66.56-176.64 89.6-38.4 15.36-81.92 28.16-122.88 23.04-25.6-2.56-48.64-12.8-66.56-33.28-15.36-17.92-23.04-38.4-28.16-61.44v-2.56c17.92-5.12 35.84-10.24 56.32-15.36 76.8-20.48 153.6-53.76 225.28-89.6 76.8-40.96 151.04-87.04 220.16-140.8 23.04-17.92 48.64-35.84 58.88-64 10.24-20.48 7.68-46.08-5.12-64-12.8-23.04-33.28-40.96-51.2-56.32-23.04-17.92-48.64-35.84-74.24-48.64-48.64-30.72-99.84-56.32-151.04-84.48-58.88-30.72-120.32-56.32-181.76-76.8-28.16-7.68-56.32-17.92-84.48-25.6 2.56-12.8 7.68-25.6 12.8-38.4 15.36-35.84 43.52-58.88 74.24-64z"
+        fill="#10ABF2"
+      />
+      <path
+        d="M156.16 197.12c25.6-12.8 56.32-10.24 84.48-5.12-10.24 38.4-15.36 79.36-20.48 117.76 0 17.92-2.56 33.28-5.12 51.2-2.56 20.48-2.56 43.52-5.12 64 0 25.6-2.56 48.64-2.56 74.24-2.56 23.04 0 48.64-2.56 71.68 0 35.84 0 71.68 2.56 107.52 2.56 53.76 5.12 110.08 12.8 163.84v7.68c-25.6 5.12-56.32 10.24-79.36-7.68-23.04-17.92-30.72-48.64-38.4-76.8-12.8-84.48-20.48-176.64-20.48-268.8 0-48.64 5.12-94.72 12.8-140.8 5.12-38.4 12.8-76.8 25.6-112.64 5.12-20.48 17.92-38.4 35.84-46.08z"
+        fill="#FF8F21"
+      />
+      <path
+        d="M240.64 189.44h5.12c28.16 7.68 56.32 17.92 84.48 25.6 61.44 20.48 122.88 48.64 181.76 76.8 51.2 28.16 102.4 53.76 151.04 84.48 25.6 15.36 51.2 30.72 74.24 48.64 20.48 15.36 38.4 33.28 51.2 56.32 10.24 17.92 12.8 43.52 5.12 64-12.8 28.16-38.4 46.08-58.88 64-71.68 56.32-145.92 102.4-222.72 143.36-71.68 38.4-145.92 69.12-225.28 89.6-17.92 5.12-35.84 10.24-56.32 15.36-2.56 0-7.68 2.56-10.24 2.56 0-5.12 0-10.24-2.56-15.36-7.68-53.76-10.24-110.08-12.8-163.84-2.56-35.84-2.56-71.68-2.56-107.52 0-23.04 0-48.64 2.56-71.68 0-25.6 2.56-48.64 2.56-74.24 2.56-20.48 2.56-43.52 5.12-64 2.56-17.92 2.56-33.28 5.12-51.2 7.68-40.96 12.8-81.92 23.04-122.88m104.96 143.36c-10.24 2.56-15.36 15.36-15.36 25.6v317.44c0 10.24 2.56 23.04 10.24 25.6 10.24 2.56 20.48 0 28.16-7.68l215.04-153.6c10.24-7.68 17.92-17.92 17.92-30.72s-10.24-20.48-20.48-28.16c-71.68-48.64-145.92-97.28-217.6-145.92-2.56 0-10.24-5.12-17.92-2.56z"
+        fill="#7DE621"
+      />
+      <path
+        d="M345.6 332.8c7.68-2.56 15.36 2.56 20.48 5.12 71.68 48.64 145.92 97.28 217.6 145.92 10.24 5.12 20.48 15.36 20.48 28.16 0 12.8-7.68 23.04-17.92 30.72l-215.04 153.6c-7.68 5.12-17.92 10.24-28.16 7.68-10.24-5.12-12.8-17.92-10.24-25.6v-125.44c-2.56-48.64 0-94.72 0-143.36-2.56-15.36-2.56-30.72 0-48.64-2.56-12.8 2.56-25.6 12.8-28.16z"
+        fill="#FFFFFF"
+      />
+    </svg>
+  );
+}
+
+function TencentWeiyunMark() {
+  return (
+    <svg
+      aria-hidden="true"
+      style={{ height: 76, width: 98 }}
+      viewBox="0 0 1379 1024"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M987.909224 900.576653c10.971429-8.986122 21.545796-18.348408 31.681307-28.212245 96.193306-93.748245 149.169633-222.187102 149.169632-361.680979 0-14.524082-0.543347-28.88098-1.609143-43.070694a243.168653 243.168653 0 0 1 91.324082 189.962449c0 143.318204-103.006041 234.809469-270.607673 242.980571l0.041795 0.020898z m-532.500897 0.647837c-110.592 0-199.68-26.791184-257.609143-77.406041-50.823837-44.408163-77.656816-107.52-77.656817-182.522776 0-79.307755 28.065959-148.145633 79.119674-193.870367a211.800816 211.800816 0 0 1 142.774857-54.104816c8.463673 0 16.990041 0.459755 25.558204 1.421061 63.38351 7.000816 112.64 37.114776 135.188898 82.546939 16.509388 33.353143 15.610776 69.820082-2.507755 99.996734-14.085224 23.44751-33.248653 37.908898-56.967837 42.987103-27.397224 5.851429-60.666776-1.191184-84.78302-18.014041l-60.144327 104.155428c50.364082 31.764898 113.099755 43.509551 170.067592 31.305143 56.717061-12.099918 103.340408-46.205388 134.791837-98.617469 39.079184-64.992653 41.712327-145.387102 7.188898-215.123592-36.884898-74.396735-108.105143-125.680327-198.133551-143.777959a257.609143 257.609143 0 0 1 61.565387-84.365061c53.707755-48.817633 129.107592-75.692408 212.365062-75.692409 99.22351 0 190.840163 39.998694 257.94351 112.681796 67.37502 72.933878 104.489796 171.593143 104.489796 277.859266 0 106.788571-40.124082 204.716408-112.911674 275.602285-77.176163 75.190857-183.484082 114.938776-307.388081 114.938776h-172.95151z m677.302857-587.734204C1061.219265 127.749224 890.420245 0 686.226286 0c-113.204245 0-217.338776 37.971592-293.198368 106.976653a381.471347 381.471347 0 0 0-107.770775 170.819918A329.310041 329.310041 0 0 0 119.118367 357.982041C42.360163 426.736327 0 527.36 0 641.295673 0 751.992163 41.085388 846.367347 118.742204 914.285714c80.164571 70.029061 196.545306 107.081143 336.666123 107.081143h507.611428c248.602122 0 415.618612-146.181224 415.618612-363.791673 0-159.346939-103.026939-295.01649-245.885387-344.084898h-0.041796z"
+        fill="#2980FF"
+      />
     </svg>
   );
 }

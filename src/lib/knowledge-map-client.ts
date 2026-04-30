@@ -60,11 +60,22 @@ export type KnowledgeMapUi = {
 };
 
 export type FilePreviewUi = {
+  assetUrl?: string;
+  fileId?: string;
+  fileName?: string;
+  mimeType?: string;
   viewer: KnowledgeMapViewer;
   title: string;
   text: string;
   outline: string[];
   pages: Array<{ page: number; title: string; text: string }>;
+  codeFiles: Array<{
+    path: string;
+    language?: string;
+    content: string;
+    lineStart?: number;
+    lineEnd?: number;
+  }>;
   codePath?: string;
   language?: string;
   sheetName?: string;
@@ -116,11 +127,18 @@ export async function loadFileNodePreview(
     const response = await fetcher(`/api/projects/${projectId}/knowledge-map/nodes/${node.id}/preview`);
     if (!response.ok) throw new Error("Preview request failed.");
     const payload = await response.json() as {
+      chunks?: unknown;
+      file?: { id?: unknown; kind?: unknown; mimeType?: unknown };
       preview?: unknown;
       viewer?: unknown;
-      file?: { kind?: unknown };
     };
-    return normalizePreview(node, payload.preview, String(payload.viewer ?? payload.file?.kind ?? node.viewer));
+    return normalizePreview(node, payload.preview, String(payload.viewer ?? payload.file?.kind ?? node.viewer), {
+      chunks: payload.chunks,
+      fileId: stringValue(payload.file?.id),
+      fileName: node.title,
+      mimeType: stringValue(payload.file?.mimeType),
+      projectId,
+    });
   } catch {
     return node.preview;
   }
@@ -304,13 +322,44 @@ function normalizeEdge(edge: KnowledgeEdgeRecord, active: boolean): KnowledgeMap
   };
 }
 
-function normalizePreview(node: KnowledgeNodeRecord | KnowledgeMapNodeUi, preview: unknown, viewerInput: string): FilePreviewUi {
+function normalizePreview(
+  node: KnowledgeNodeRecord | KnowledgeMapNodeUi,
+  preview: unknown,
+  viewerInput: string,
+  options: {
+    chunks?: unknown;
+    fileId?: string;
+    fileName?: string;
+    mimeType?: string;
+    projectId?: string;
+  } = {},
+): FilePreviewUi {
   const record = isRecord(preview) ? preview : {};
   const viewer = normalizeViewer(viewerInput);
+  const metadata = "metadata" in node && isRecord(node.metadata) ? node.metadata : {};
+  const nodeFileId = "fileId" in node && typeof node.fileId === "string"
+    ? node.fileId
+    : stringValue(metadata.fileId);
+  const fileId = options.fileId ?? nodeFileId;
+  const fileName = options.fileName ?? ("title" in node ? node.title : undefined);
+  const mimeType = options.mimeType ?? stringValue(metadata.mimeType);
+  const projectId = options.projectId ?? ("projectId" in node && typeof node.projectId === "string" ? node.projectId : undefined);
+  const text = stringValue(record.text) ?? ("summary" in node ? node.summary : "");
+  const codeFiles = codeFilesFromPreview({
+    chunks: options.chunks,
+    fallbackLanguage: stringValue(record.language),
+    fallbackPath: stringValue(record.codePath) ?? fileName,
+    fallbackText: text,
+  });
   return {
+    assetUrl: stringValue(record.assetUrl) ?? (fileId && projectId ? `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}/content` : undefined),
+    codeFiles,
+    fileId,
+    fileName,
+    mimeType,
     viewer,
     title: node.title,
-    text: stringValue(record.text) ?? ("summary" in node ? node.summary : ""),
+    text,
     outline: stringArray(record.outline),
     pages: pageArray(record.pages),
     codePath: stringValue(record.codePath),
@@ -339,7 +388,85 @@ function normalizeViewer(value: string): KnowledgeMapViewer {
   }
   if (value === "xlsx" || value === "csv") return "table";
   if (value === "ppt" || value === "presentation-pdf") return "presentation";
+  if (value === "code-ide") return "code";
+  if (value === "document" || value === "markdown" || value === "txt") return "docx";
+  if (value === "slide-script") return "presentation";
   return "details";
+}
+
+function codeFilesFromPreview({
+  chunks,
+  fallbackLanguage,
+  fallbackPath,
+  fallbackText,
+}: {
+  chunks?: unknown;
+  fallbackLanguage?: string;
+  fallbackPath?: string;
+  fallbackText: string;
+}): FilePreviewUi["codeFiles"] {
+  const chunkList = Array.isArray(chunks) ? chunks.filter(isRecord) : [];
+  const grouped = new Map<string, Array<{ content: string; lineStart?: number; lineEnd?: number; language?: string }>>();
+
+  for (const chunk of chunkList) {
+    const content = stringValue(chunk.content);
+    if (!content) continue;
+    const metadata = isRecord(chunk.metadata) ? chunk.metadata : {};
+    const path = stringValue(metadata.codePath) ?? inferCodePathFromChunk(content) ?? fallbackPath ?? "source";
+    const group = grouped.get(path) ?? [];
+    group.push({
+      content: stripCodeMarker(content, path),
+      language: stringValue(metadata.language) ?? fallbackLanguage ?? languageFromPath(path),
+      lineEnd: numberValue(metadata.lineEnd),
+      lineStart: numberValue(metadata.lineStart),
+    });
+    grouped.set(path, group);
+  }
+
+  if (grouped.size === 0 && fallbackText.trim()) {
+    return [{
+      content: fallbackText,
+      language: fallbackLanguage ?? languageFromPath(fallbackPath ?? ""),
+      path: fallbackPath ?? "source",
+    }];
+  }
+
+  return [...grouped.entries()].map(([path, parts]) => {
+    const sorted = [...parts].sort((left, right) => (left.lineStart ?? 0) - (right.lineStart ?? 0));
+    return {
+      content: sorted.map((part) => part.content).join("\n\n"),
+      language: sorted.find((part) => part.language)?.language ?? languageFromPath(path),
+      lineEnd: sorted.at(-1)?.lineEnd,
+      lineStart: sorted[0]?.lineStart,
+      path,
+    };
+  });
+}
+
+function inferCodePathFromChunk(content: string) {
+  const match = /^---\s+(.+?)\s+---/u.exec(content.trim());
+  return match?.[1];
+}
+
+function stripCodeMarker(content: string, path: string) {
+  return content.replace(new RegExp(`^---\\s+${escapeRegExp(path)}\\s+---\\s*`, "u"), "");
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function languageFromPath(path: string) {
+  const extension = path.toLowerCase().split(".").pop();
+  if (extension === "ts" || extension === "tsx") return "typescript";
+  if (extension === "js" || extension === "jsx") return "javascript";
+  if (extension === "py") return "python";
+  if (extension === "sql") return "sql";
+  if (extension === "json") return "json";
+  if (extension === "md") return "markdown";
+  if (extension === "css") return "css";
+  if (extension === "html") return "html";
+  return undefined;
 }
 
 function riskLevelFromMetadata(metadata: Record<string, unknown>): KnowledgeMapNodeUi["riskLevel"] {
@@ -372,6 +499,10 @@ function booleanFromMetadata(metadata: Record<string, unknown>, key: string, fal
 
 function stringValue(value: unknown) {
   return typeof value === "string" ? value : undefined;
+}
+
+function numberValue(value: unknown) {
+  return typeof value === "number" ? value : undefined;
 }
 
 function stringArray(value: unknown) {

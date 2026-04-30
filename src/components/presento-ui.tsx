@@ -31,6 +31,7 @@ import {
   createContext,
   startTransition,
   useContext,
+  useEffect,
   useMemo,
   type ReactNode,
 } from "react";
@@ -92,6 +93,8 @@ type AppShellContextValue = {
 };
 
 const AppShellContext = createContext<AppShellContextValue | null>(null);
+const presentoScrollLockClass = "presento-app-scroll-lock";
+let presentoScrollLockCount = 0;
 
 const navigationItems: Array<{
   href: string;
@@ -110,6 +113,18 @@ const navigationItems: Array<{
 ];
 
 export function AppFrame({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    presentoScrollLockCount += 1;
+    document.documentElement.classList.add(presentoScrollLockClass);
+
+    return () => {
+      presentoScrollLockCount = Math.max(0, presentoScrollLockCount - 1);
+      if (presentoScrollLockCount === 0) {
+        document.documentElement.classList.remove(presentoScrollLockClass);
+      }
+    };
+  }, []);
+
   return (
     <AppShellContext.Provider value={{ leftExpanded: false, setLeftExpanded: () => undefined }}>
       <main className="presento-shell">
@@ -374,7 +389,7 @@ export function TopNav({
           disableMagnification={dockFixedSize}
           iconDistance={110}
           iconMagnification={58}
-          iconSize={dockFixedSize ? 58 : 42}
+          iconSize={dockFixedSize ? 52 : 42}
           orientation="vertical"
         >
           {navigationItems.map((item) => {

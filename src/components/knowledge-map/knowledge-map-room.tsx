@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowLeft,
   BookOpen,
   CheckCircle2,
   Code2,
@@ -20,10 +19,14 @@ import {
   Sparkles,
   Table2,
   Target,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion, type MotionProps } from "framer-motion";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { startTransition, useEffect, useMemo, useState, type ReactNode } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import {
   Conversation,
   ConversationContent,
@@ -50,12 +53,21 @@ import {
 import { SigmaKnowledgeGraph } from "@/components/sigma-knowledge-graph";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Collapsible,
@@ -72,6 +84,7 @@ import {
   type FileExplanationUi,
   type FilePreviewUi,
   type KnowledgeMapNodeUi,
+  type KnowledgeMapUi,
 } from "@/lib/knowledge-map-client";
 import {
   buildKnowledgeMapScene,
@@ -80,6 +93,38 @@ import {
   type KnowledgeMapSceneNode,
   type KnowledgeMapSceneRenderNode,
 } from "@/lib/knowledge-map-scene";
+
+const PdfFileViewer = dynamic(
+  () => import("./pdf-file-viewer").then((module) => module.PdfFileViewer),
+  {
+    ssr: false,
+    loading: () => <PreviewSkeleton variant="pdf" />,
+  },
+);
+
+const CodeFileViewer = dynamic(
+  () => import("./code-file-viewer").then((module) => module.CodeFileViewer),
+  {
+    ssr: false,
+    loading: () => <PreviewSkeleton variant="code" />,
+  },
+);
+
+const TableFileViewer = dynamic(
+  () => import("./table-file-viewer").then((module) => module.TableFileViewer),
+  {
+    ssr: false,
+    loading: () => <PreviewSkeleton variant="table" />,
+  },
+);
+
+const DocumentFileViewer = dynamic(
+  () => import("./document-file-viewer").then((module) => module.DocumentFileViewer),
+  {
+    ssr: false,
+    loading: () => <PreviewSkeleton variant="document" />,
+  },
+);
 import type { NotebookCitation, NotebookExplanationMode } from "@shared/domain";
 import { cn } from "@/lib/utils";
 
@@ -90,6 +135,8 @@ const graphFilters = [
   { id: "file", label: "文件" },
   { id: "training", label: "训练入口" },
 ] as const;
+
+type KnowledgeGraphFilter = (typeof graphFilters)[number]["id"];
 
 const overviewDetailMaxSize = "43%";
 const overviewDetailMinReadableSize = "24%";
@@ -126,13 +173,34 @@ type KnowledgeReaderFileGroup = {
   nodes: KnowledgeMapSceneNode[];
 };
 
-export function KnowledgeMapRoom({ projectId = "demo" }: { projectId?: string }) {
+function shouldReuseKnowledgeMapState(current: KnowledgeMapUi, next: KnowledgeMapUi) {
+  if (current === next) return true;
+  if (current.source !== "mock" || next.source !== "mock") return false;
+  if (current.projectId !== next.projectId) return false;
+  if (current.nodes.length !== next.nodes.length || current.edges.length !== next.edges.length) return false;
+
+  const sameNodes = current.nodes.every((node, index) => node.id === next.nodes[index]?.id);
+  if (!sameNodes) return false;
+
+  return current.edges.every((edge, index) => edge.id === next.edges[index]?.id);
+}
+
+export function KnowledgeMapRoom({
+  onReaderBackHandlerChange,
+  onReaderModeChange,
+  projectId = "demo",
+}: {
+  onReaderBackHandlerChange?: (handler: (() => void) | null) => void;
+  onReaderModeChange?: (isReaderMode: boolean) => void;
+  projectId?: string;
+}) {
   const router = useRouter();
   const isNarrowLayout = useIsNarrowKnowledgeLayout();
   const [knowledgeMap, setKnowledgeMap] = useState(() => createMockKnowledgeMap(projectId));
   const [activeNodeId, setActiveNodeId] = useState("project");
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<(typeof graphFilters)[number]["id"]>("all");
+  const [filter, setFilter] = useState<KnowledgeGraphFilter>("all");
+  const [filterSlideDirection, setFilterSlideDirection] = useState<1 | -1>(1);
   const [expandedBranchIds, setExpandedBranchIds] = useState<Set<string>>(() => new Set());
   const [readerNodeId, setReaderNodeId] = useState<string | null>(null);
   const [mode, setMode] = useState<NotebookExplanationMode>("quick");
@@ -148,8 +216,12 @@ export function KnowledgeMapRoom({ projectId = "demo" }: { projectId?: string })
     loadKnowledgeMap(projectId)
       .then((nextMap) => {
         if (cancelled) return;
-        setKnowledgeMap(nextMap);
-        setActiveNodeId((current) => nextMap.nodes.some((node) => node.id === current) ? current : nextMap.nodes[0]?.id ?? "project");
+        startTransition(() => {
+          setKnowledgeMap((currentMap) => (
+            shouldReuseKnowledgeMapState(currentMap, nextMap) ? currentMap : nextMap
+          ));
+          setActiveNodeId((current) => nextMap.nodes.some((node) => node.id === current) ? current : nextMap.nodes[0]?.id ?? "project");
+        });
       })
       .catch(() => undefined);
 
@@ -187,6 +259,19 @@ export function KnowledgeMapRoom({ projectId = "demo" }: { projectId?: string })
     () => readerNodeId ? scene.nodesById[readerNodeId] ?? null : null,
     [readerNodeId, scene],
   );
+
+  useEffect(() => {
+    onReaderModeChange?.(Boolean(readerNode));
+  }, [onReaderModeChange, readerNode]);
+
+  useEffect(() => () => {
+    onReaderModeChange?.(false);
+  }, [onReaderModeChange]);
+
+  useEffect(() => {
+    onReaderBackHandlerChange?.(() => setReaderNodeId(null));
+    return () => onReaderBackHandlerChange?.(null);
+  }, [onReaderBackHandlerChange]);
 
   const sigmaNodes = useMemo(
     () => overviewProjection.nodes.map((node) => ({
@@ -305,6 +390,16 @@ export function KnowledgeMapRoom({ projectId = "demo" }: { projectId?: string })
     });
   }
 
+  function handleFilterChange(nextFilter: KnowledgeGraphFilter) {
+    if (nextFilter === filter) return;
+
+    const currentIndex = graphFilters.findIndex((item) => item.id === filter);
+    const nextIndex = graphFilters.findIndex((item) => item.id === nextFilter);
+    setFilterSlideDirection(nextIndex >= currentIndex ? 1 : -1);
+
+    startTransition(() => setFilter(nextFilter));
+  }
+
   async function handleSubmit(message: PromptInputMessage) {
     const question = message.text.trim();
     if (!question || !explanation) return;
@@ -327,7 +422,6 @@ export function KnowledgeMapRoom({ projectId = "demo" }: { projectId?: string })
           isNarrowLayout={isNarrowLayout}
           isSending={isSending}
           mode={mode}
-          onBack={() => setReaderNodeId(null)}
           onFileSelect={handleReaderFileSelect}
           onInputChange={setChatInput}
           onModeChange={setMode}
@@ -342,9 +436,10 @@ export function KnowledgeMapRoom({ projectId = "demo" }: { projectId?: string })
           activeNodeId={activeNodeId}
           edges={sigmaEdges}
           filter={filter}
+          filterSlideDirection={filterSlideDirection}
           isNarrowLayout={isNarrowLayout}
           nodes={sigmaNodes}
-          onFilterChange={setFilter}
+          onFilterChange={handleFilterChange}
           onNodeOpen={() => handleNodeOpen(activeNode.id)}
           onQueryChange={setQuery}
           onSelect={handleNodeSelect}
@@ -369,20 +464,6 @@ function useIsNarrowKnowledgeLayout() {
   return isNarrow;
 }
 
-function useHasDesktopDockLayout() {
-  const [hasDesktopDock, setHasDesktopDock] = useState(false);
-
-  useEffect(() => {
-    const query = window.matchMedia("(min-width: 1024px)");
-    const sync = () => setHasDesktopDock(query.matches);
-    sync();
-    query.addEventListener("change", sync);
-    return () => query.removeEventListener("change", sync);
-  }, []);
-
-  return hasDesktopDock;
-}
-
 function KnowledgeResizableShell({
   children,
   mode,
@@ -391,20 +472,12 @@ function KnowledgeResizableShell({
   mode: "overview" | "reader";
 }) {
   const reduceMotion = useReducedMotion();
-  const hasDesktopDock = useHasDesktopDockLayout();
   const transition = reduceMotion
     ? { duration: 0 }
     : { type: "spring" as const, stiffness: 260, damping: 32, mass: 0.82 };
 
   return (
-    <div
-      className="presento-knowledge-room"
-      style={
-        hasDesktopDock
-          ? { paddingLeft: "calc(var(--presento-detail-safe-start) + var(--presento-detail-inline-gutter))" }
-          : undefined
-      }
-    >
+    <div className="presento-knowledge-room">
       <AnimatePresence initial={false} mode="wait">
         <motion.div
           animate={{ opacity: 1, x: 0, scale: 1 }}
@@ -427,6 +500,7 @@ function KnowledgeOverviewPanels({
   activeNodeId,
   edges,
   filter,
+  filterSlideDirection,
   isNarrowLayout,
   nodes,
   onFilterChange,
@@ -439,10 +513,11 @@ function KnowledgeOverviewPanels({
   activeOverviewNode: KnowledgeMapSceneRenderNode | null;
   activeNodeId: string;
   edges: KnowledgeSigmaEdge[];
-  filter: (typeof graphFilters)[number]["id"];
+  filter: KnowledgeGraphFilter;
+  filterSlideDirection: 1 | -1;
   isNarrowLayout: boolean;
   nodes: KnowledgeSigmaNode[];
-  onFilterChange: (filter: (typeof graphFilters)[number]["id"]) => void;
+  onFilterChange: (filter: KnowledgeGraphFilter) => void;
   onNodeOpen: () => void;
   onQueryChange: (query: string) => void;
   onSelect: (nodeId: string) => void;
@@ -459,6 +534,7 @@ function KnowledgeOverviewPanels({
             activeNodeId={activeNodeId}
             edges={edges}
             filter={filter}
+            filterSlideDirection={filterSlideDirection}
             nodes={nodes}
             onFilterChange={onFilterChange}
             onQueryChange={onQueryChange}
@@ -485,6 +561,7 @@ function KnowledgeGraphPane({
   activeNodeId,
   edges,
   filter,
+  filterSlideDirection,
   nodes,
   onFilterChange,
   onQueryChange,
@@ -493,13 +570,47 @@ function KnowledgeGraphPane({
 }: {
   activeNodeId: string;
   edges: KnowledgeSigmaEdge[];
-  filter: (typeof graphFilters)[number]["id"];
+  filter: KnowledgeGraphFilter;
+  filterSlideDirection: 1 | -1;
   nodes: KnowledgeSigmaNode[];
-  onFilterChange: (filter: (typeof graphFilters)[number]["id"]) => void;
+  onFilterChange: (filter: KnowledgeGraphFilter) => void;
   onQueryChange: (query: string) => void;
   onSelect: (nodeId: string) => void;
   query: string;
 }) {
+  const reduceMotion = useReducedMotion();
+  const graphTransition = reduceMotion
+    ? { duration: 0 }
+    : { duration: 0.34, ease: [0.22, 1, 0.36, 1] as const };
+  const graphSlideVariants = {
+    enter: (direction: number) => ({
+      clipPath: reduceMotion
+        ? "inset(0% 0% 0% 0%)"
+        : direction > 0
+          ? "inset(0% 12% 0% 0%)"
+          : "inset(0% 0% 0% 12%)",
+      opacity: reduceMotion ? 1 : 0,
+      scale: reduceMotion ? 1 : 0.985,
+      x: reduceMotion ? 0 : direction * 42,
+    }),
+    center: {
+      clipPath: "inset(0% 0% 0% 0%)",
+      opacity: 1,
+      scale: 1,
+      x: 0,
+    },
+    exit: (direction: number) => ({
+      clipPath: reduceMotion
+        ? "inset(0% 0% 0% 0%)"
+        : direction > 0
+          ? "inset(0% 0% 0% 12%)"
+          : "inset(0% 12% 0% 0%)",
+      opacity: reduceMotion ? 1 : 0,
+      scale: reduceMotion ? 1 : 0.985,
+      x: reduceMotion ? 0 : direction * -42,
+    }),
+  };
+
   return (
     <section className="presento-knowledge-pane presento-knowledge-graph-pane">
       <div className="presento-knowledge-graph-content">
@@ -513,25 +624,48 @@ function KnowledgeGraphPane({
             />
           </label>
           <div className="presento-knowledge-filter-row">
-            {graphFilters.map((item) => (
-              <button
-                className={cn("presento-knowledge-filter", filter === item.id && "presento-knowledge-filter-active")}
-                key={item.id}
-                onClick={() => onFilterChange(item.id)}
-                type="button"
+            <span className="presento-knowledge-filter-label">筛选</span>
+            <Select value={filter} onValueChange={(nextFilter) => onFilterChange(nextFilter as KnowledgeGraphFilter)}>
+              <SelectTrigger
+                aria-label="筛选知识图谱节点"
+                className="presento-knowledge-filter-select-trigger"
+                data-testid="knowledge-map-filter-select-trigger"
+                size="sm"
               >
-                {item.label}
-              </button>
-            ))}
+                <SelectValue placeholder="选择筛选条件" />
+              </SelectTrigger>
+              <SelectContent className="presento-knowledge-filter-select-content" position="popper">
+                <SelectGroup>
+                  {graphFilters.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <div className="presento-knowledge-graph-stage">
-          <SigmaKnowledgeGraph
-            activeId={activeNodeId}
-            edges={edges}
-            nodes={nodes}
-            onSelect={onSelect}
-          />
+          <AnimatePresence custom={filterSlideDirection} initial={false} mode="wait">
+            <motion.div
+              animate="center"
+              className="presento-knowledge-graph-motion"
+              custom={filterSlideDirection}
+              exit="exit"
+              initial="enter"
+              key={filter}
+              transition={graphTransition}
+              variants={graphSlideVariants}
+            >
+              <SigmaKnowledgeGraph
+                activeId={activeNodeId}
+                edges={edges}
+                nodes={nodes}
+                onSelect={onSelect}
+              />
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
     </section>
@@ -547,7 +681,6 @@ function KnowledgeReaderPanels({
   isNarrowLayout,
   isSending,
   mode,
-  onBack,
   onFileSelect,
   onInputChange,
   onModeChange,
@@ -563,7 +696,6 @@ function KnowledgeReaderPanels({
   isNarrowLayout: boolean;
   isSending: boolean;
   mode: NotebookExplanationMode;
-  onBack: () => void;
   onFileSelect: (nodeId: string) => void;
   onInputChange: (value: string) => void;
   onModeChange: (mode: NotebookExplanationMode) => void;
@@ -571,37 +703,83 @@ function KnowledgeReaderPanels({
   preview: FilePreviewUi;
   readerNode: KnowledgeMapNodeUi;
 }) {
+  const reduceMotion = useReducedMotion();
+  const explanationPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const [isExplanationCollapsed, setIsExplanationCollapsed] = useState(false);
+  const explanationCollapsedPercent = 0;
+  const explanationPanelMotion: Pick<MotionProps, "animate" | "exit" | "initial" | "transition"> = reduceMotion
+    ? {
+        animate: { opacity: 1, scale: 1, x: 0 },
+        exit: { opacity: 0, scale: 1, x: 0 },
+        initial: { opacity: 0, scale: 1, x: 0 },
+        transition: { duration: 0 },
+      }
+    : {
+        animate: { opacity: 1, scale: 1, x: 0 },
+        exit: { opacity: 0, scale: 0.992, x: -18 },
+        initial: { opacity: 0, scale: 0.992, x: 18 },
+        transition: { type: "spring", stiffness: 260, damping: 32, mass: 0.82 },
+      };
+  const handleExplanationResize = useCallback((panelSize: PanelSize) => {
+    const isCollapsed = panelSize.asPercentage <= explanationCollapsedPercent + 0.5;
+    setIsExplanationCollapsed((current) => (current === isCollapsed ? current : isCollapsed));
+  }, [explanationCollapsedPercent]);
+  const collapseExplanationPanel = useCallback(() => {
+    explanationPanelRef.current?.collapse();
+    setIsExplanationCollapsed(true);
+  }, []);
   return (
     <ResizablePanelGroup
       className="presento-knowledge-resizable presento-knowledge-reader-resizable"
       orientation={isNarrowLayout ? "vertical" : "horizontal"}
     >
-      <ResizablePanel defaultSize={isNarrowLayout ? "24%" : "22%"} minSize={isNarrowLayout ? "18%" : "18%"}>
+      <ResizablePanel
+        className="presento-knowledge-file-library-resizable-panel"
+        defaultSize={isNarrowLayout ? "24%" : "220px"}
+        maxSize={isNarrowLayout ? "32%" : "260px"}
+        minSize="64px"
+      >
         <KnowledgeFileLibraryPanel
           activeNodeId={activeNodeId}
           fileGroups={fileGroups}
-          onBack={onBack}
           onFileSelect={onFileSelect}
-          readerNode={readerNode}
         />
       </ResizablePanel>
       <ResizableHandle className="presento-knowledge-resize-handle" withHandle />
-      <ResizablePanel defaultSize={isNarrowLayout ? "40%" : "44%"} minSize={isNarrowLayout ? "28%" : "30%"}>
-        <FilePreviewPanel node={readerNode} preview={preview} />
+      <ResizablePanel defaultSize={isNarrowLayout ? "40%" : "52%"} minSize={isNarrowLayout ? "28%" : "30%"}>
+        <FilePreviewPanel preview={preview} />
       </ResizablePanel>
       <ResizableHandle className="presento-knowledge-resize-handle" withHandle />
-      <ResizablePanel defaultSize={isNarrowLayout ? "36%" : "34%"} minSize={isNarrowLayout ? "28%" : "28%"}>
-        <ExplanationPanel
-          chatInput={chatInput}
-          explanation={explanation}
-          isLoading={isLoadingExplanation}
-          isSending={isSending}
-          mode={mode}
-          node={readerNode}
-          onInputChange={onInputChange}
-          onModeChange={onModeChange}
-          onSubmit={onSubmit}
-        />
+      <ResizablePanel
+        collapsedSize={`${explanationCollapsedPercent}%`}
+        collapsible
+        defaultSize={isNarrowLayout ? "36%" : "34%"}
+        minSize={isNarrowLayout ? "28%" : "22%"}
+        onResize={handleExplanationResize}
+        panelRef={explanationPanelRef}
+      >
+        <div className="presento-knowledge-explain-panel-shell">
+          <AnimatePresence initial={false} mode="wait">
+            {isExplanationCollapsed ? (
+              null
+            ) : (
+              <motion.div className="presento-knowledge-explain-motion" key="explain-panel" {...explanationPanelMotion}>
+                <ExplanationPanel
+                  chatInput={chatInput}
+                  explanation={explanation}
+                  isLoading={isLoadingExplanation}
+                  isSending={isSending}
+                  mode={mode}
+                  node={readerNode}
+                  onCollapse={collapseExplanationPanel}
+                  onInputChange={onInputChange}
+                  onModeChange={onModeChange}
+                  onSubmit={onSubmit}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </ResizablePanel>
     </ResizablePanelGroup>
   );
@@ -610,41 +788,15 @@ function KnowledgeReaderPanels({
 function KnowledgeFileLibraryPanel({
   activeNodeId,
   fileGroups,
-  onBack,
   onFileSelect,
-  readerNode,
 }: {
   activeNodeId: string;
   fileGroups: KnowledgeReaderFileGroup[];
-  onBack: () => void;
   onFileSelect: (nodeId: string) => void;
-  readerNode: KnowledgeMapNodeUi;
 }) {
   return (
     <section className="presento-knowledge-pane presento-knowledge-file-library-panel">
-      <header className="presento-knowledge-pane-header presento-knowledge-pane-header-compact">
-        <div>
-          <h2 className="flex items-center gap-2 text-base font-black">
-            <FolderIcon aria-hidden="true" />
-            已接入文件
-          </h2>
-          <p className="mt-2 font-semibold text-[var(--presento-muted)]">
-            像资料导入页一样浏览项目资料，当前文件会同步中间预览和右侧讲解。
-          </p>
-        </div>
-      </header>
       <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <Button className="w-full rounded-xl font-black" onClick={onBack} type="button" variant="outline">
-          <ArrowLeft aria-hidden="true" />
-          返回图谱
-        </Button>
-        <div className="presento-knowledge-file-current">
-          <FileText aria-hidden="true" />
-          <div>
-            <span>当前资料</span>
-            <strong>{readerNode.title}</strong>
-          </div>
-        </div>
         <ScrollArea className="presento-knowledge-file-library-scroll">
           <div className="presento-knowledge-file-library-tree">
             {fileGroups.map((group) => (
@@ -815,30 +967,80 @@ function NodeDetailContent({
   );
 }
 
-function FilePreviewPanel({ node, preview }: { node: KnowledgeMapNodeUi; preview: FilePreviewUi }) {
+function FilePreviewPanel({ preview }: { preview: FilePreviewUi }) {
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const pdfFallback = <PdfPreview preview={preview} />;
+  const codeFallback = <CodePreview preview={preview} />;
+  const tableFallback = <TablePreview preview={preview} />;
+  const docFallback = <DocPreview preview={preview} />;
+  const zoomLabel = `${Math.round(previewZoom * 100)}%`;
+  const changeZoom = useCallback((delta: number) => {
+    setPreviewZoom((current) => Math.min(1.8, Math.max(0.7, Number((current + delta).toFixed(2)))));
+  }, []);
+  const resetZoom = useCallback(() => setPreviewZoom(1), []);
+  const shouldFillPreview = preview.viewer === "code" || preview.viewer === "sql" || preview.viewer === "table";
+  const previewZoomStyle = {
+    "--presento-preview-inverse-zoom": Number((1 / previewZoom).toFixed(4)),
+    "--presento-preview-zoom": previewZoom,
+  } as CSSProperties;
+
   return (
     <section className="presento-knowledge-pane presento-knowledge-preview-panel">
-      <header className="presento-knowledge-pane-header">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-black">{node.title}</h2>
-            <p className="mt-2 font-semibold text-[var(--presento-muted)]">
-              {node.fileKind?.toUpperCase()} · 解析状态已就绪
-            </p>
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="presento-knowledge-preview-scroll">
+          <div
+            className={cn(
+              "presento-knowledge-preview-zoom-stage",
+              shouldFillPreview && "presento-knowledge-preview-zoom-stage-fill",
+            )}
+            style={previewZoomStyle}
+          >
+            <div
+              className={cn(
+                "presento-knowledge-preview-zoom-content",
+                shouldFillPreview && "presento-knowledge-preview-zoom-content-fill",
+              )}
+            >
+              {preview.viewer === "pdf" ? <PdfFileViewer fallback={pdfFallback} preview={preview} /> : null}
+              {preview.viewer === "docx" ? <DocumentFileViewer preview={preview} /> : null}
+              {preview.viewer === "code" || preview.viewer === "sql" ? <CodeFileViewer fallback={codeFallback} preview={preview} /> : null}
+              {preview.viewer === "table" ? <TableFileViewer fallback={tableFallback} preview={preview} /> : null}
+              {preview.viewer === "details" || preview.viewer === "presentation" ? docFallback : null}
+            </div>
           </div>
-          <NodeKindIcon node={node} />
         </div>
-      </header>
-      <div className="min-h-0 flex-1">
-        <ScrollArea className="h-full pr-3">
-          {preview.viewer === "pdf" ? <PdfPreview preview={preview} /> : null}
-          {preview.viewer === "docx" ? <DocPreview preview={preview} /> : null}
-          {preview.viewer === "code" || preview.viewer === "sql" ? <CodePreview preview={preview} /> : null}
-          {preview.viewer === "table" ? <TablePreview preview={preview} /> : null}
-          {preview.viewer === "details" || preview.viewer === "presentation" ? <DocPreview preview={preview} /> : null}
-        </ScrollArea>
+      </div>
+      <div className="presento-knowledge-preview-zoom-actions" aria-label={`预览缩放 ${zoomLabel}`}>
+        <Button aria-label="缩小预览" onClick={() => changeZoom(-0.1)} size="icon-xs" type="button" variant="ghost">
+          <ZoomOut data-icon="inline-start" aria-hidden="true" />
+        </Button>
+        <Button aria-label="重置预览缩放" onClick={resetZoom} size="icon-xs" type="button" variant="ghost">
+          <span aria-hidden="true">1</span>
+        </Button>
+        <Button aria-label="放大预览" onClick={() => changeZoom(0.1)} size="icon-xs" type="button" variant="ghost">
+          <ZoomIn data-icon="inline-start" aria-hidden="true" />
+        </Button>
       </div>
     </section>
+  );
+}
+
+function PreviewSkeleton({ variant = "document" }: { variant?: "code" | "document" | "pdf" | "table" }) {
+  const rows = variant === "table" ? 8 : variant === "code" ? 12 : variant === "pdf" ? 6 : 5;
+
+  return (
+    <div className={cn("presento-preview-skeleton", `presento-preview-skeleton-${variant}`)}>
+      <Skeleton className="presento-preview-skeleton-title" />
+      <div className="presento-preview-skeleton-body">
+        {Array.from({ length: rows }, (_, index) => (
+          <Skeleton
+            className="presento-preview-skeleton-line"
+            key={index}
+            style={{ width: `${index % 3 === 0 ? 72 : index % 3 === 1 ? 92 : 82}%` }}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -849,6 +1051,7 @@ function ExplanationPanel({
   isSending,
   mode,
   node,
+  onCollapse,
   onInputChange,
   onModeChange,
   onSubmit,
@@ -859,6 +1062,7 @@ function ExplanationPanel({
   isSending: boolean;
   mode: NotebookExplanationMode;
   node: KnowledgeMapNodeUi;
+  onCollapse: () => void;
   onInputChange: (value: string) => void;
   onModeChange: (mode: NotebookExplanationMode) => void;
   onSubmit: (message: PromptInputMessage) => void | Promise<void>;
@@ -880,6 +1084,14 @@ function ExplanationPanel({
           <Badge variant={explanation?.source === "api" ? "default" : "secondary"}>
             {explanation?.source === "api" ? "API" : "Mock"}
           </Badge>
+          <button
+            aria-label="收起 AI 资料讲解"
+            className="presento-knowledge-explain-collapse"
+            onClick={onCollapse}
+            type="button"
+          >
+            <ChevronRight aria-hidden="true" />
+          </button>
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -958,11 +1170,6 @@ function PdfPreview({ preview }: { preview: FilePreviewUi }) {
 function DocPreview({ preview }: { preview: FilePreviewUi }) {
   return (
     <div className="presento-knowledge-doc">
-      <div className="flex flex-wrap gap-2">
-        {preview.outline.map((item) => (
-          <Badge key={item} variant="secondary">{item}</Badge>
-        ))}
-      </div>
       <p>{preview.text || "当前资料暂无正文预览，AI 会基于已解析片段进行讲解。"}</p>
     </div>
   );
