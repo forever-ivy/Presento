@@ -52,6 +52,7 @@ export function ingestLocalFile({
   const chunks = createIngestKnowledgeChunks({
     projectId,
     artifact,
+    source,
     parsed,
     content,
     createdAt,
@@ -233,12 +234,14 @@ function createStarterKnowledgeEdges({
 function createIngestKnowledgeChunks({
   projectId,
   artifact,
+  source,
   parsed,
   content,
   createdAt,
 }: {
   projectId: string;
   artifact: ReturnType<typeof createProcessingArtifact>;
+  source: ProjectSourceRecord;
   parsed?: ParsedFileResult;
   content: string;
   createdAt: string;
@@ -249,7 +252,14 @@ function createIngestKnowledgeChunks({
       artifact,
       content,
       createdAt,
-    });
+    }).map((chunk) => ({
+      ...chunk,
+      metadata: {
+        ...chunk.metadata,
+        sourceId: source.id,
+        chunkKind: inferChunkKind(artifact.kind, chunk.metadata),
+      },
+    }));
   }
 
   return parsed.chunks
@@ -265,6 +275,8 @@ function createIngestKnowledgeChunks({
         fileName: artifact.fileName,
         kind: artifact.kind,
         artifactTitle: artifact.title,
+        sourceId: source.id,
+        chunkKind: inferChunkKind(artifact.kind, chunk.metadata),
         lineStart: readNumberMetadata(chunk.metadata, "lineStart") ?? index + 1,
         lineEnd: readNumberMetadata(chunk.metadata, "lineEnd") ?? index + 1,
         ...(artifact.sourcePath ? { sourcePath: artifact.sourcePath } : {}),
@@ -277,6 +289,21 @@ function createIngestKnowledgeChunks({
 function readNumberMetadata(metadata: Record<string, unknown> | undefined, key: string) {
   const value = metadata?.[key];
   return typeof value === "number" ? value : undefined;
+}
+
+function inferChunkKind(
+  fileKind: DefenseFileRecord["kind"],
+  metadata: Record<string, unknown> | undefined,
+) {
+  if (typeof metadata?.codePath === "string" && metadata.codePath.trim()) return "code";
+  if (typeof metadata?.sheet === "string" && metadata.sheet.trim()) return "table";
+  if (typeof metadata?.cellRange === "string" && metadata.cellRange.trim()) return "table";
+  if (typeof metadata?.slide === "number") return "slide";
+  if (typeof metadata?.page === "number") return fileKind === "presentation" ? "slide" : "document";
+  if (fileKind === "code") return "code";
+  if (fileKind === "dataset" || fileKind === "database") return "table";
+  if (fileKind === "presentation") return "slide";
+  return "document";
 }
 
 function sourceCategoryTitle(kind: string) {

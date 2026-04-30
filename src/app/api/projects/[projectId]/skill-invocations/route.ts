@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { createSkillInvocationRepository } from "@db/repositories/skill-invocations";
+import { apiError, apiOk } from "../../../_utils";
 
 export const runtime = "nodejs";
 
@@ -13,17 +13,12 @@ export async function GET(
     const limit = Number(searchParams.get("limit") ?? "20");
 
     if (!projectId) {
-      return NextResponse.json({ error: "Missing project id." }, { status: 400 });
+      return apiError(400, "missing_project_id", "Missing project id.");
     }
 
     const invocations = await createSkillInvocationRepository().list(projectId, limit);
-    return NextResponse.json({ invocations });
+    return apiOk({ invocations });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Skill invocation query failed.",
-      },
-      { status: 500 },
-    );
+    return apiError(500, "skill_invocation_query_failed", error instanceof Error ? error.message : "Skill invocation query failed.");
   }
 }

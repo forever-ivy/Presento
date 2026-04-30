@@ -1,6 +1,11 @@
+import { createUIMessageStreamResponse } from "ai";
 import { createFileExplanationRepository } from "@db/repositories/file-explanations";
 import { createKnowledgeMapRepository } from "@db/repositories/knowledge-map";
-import { createNotebookRagClient, type ExplainFileResponse } from "@ingest/notebook-rag-client";
+import {
+  createNotebookRagClient,
+  type ExplainFileResponse,
+  type ExplainFileStreamEvent,
+} from "@ingest/notebook-rag-client";
 import type {
   FileExplanationSessionRecord,
   FileExplanationTurnRecord,
@@ -8,11 +13,15 @@ import type {
   NotebookExplanationMode,
 } from "@shared/domain";
 import type { KnowledgeChunkRecord } from "./knowledge-chunks";
-import { readProjectKnowledgeChunks } from "./knowledge-db";
+import {
+  readFileKnowledgeChunks,
+  retrieveRelevantFileKnowledgeChunks,
+} from "./knowledge-db";
+import { createFileExplanationUIMessageStream } from "./file-explanation-stream";
 
 export async function getFileNodePreview(projectId: string, nodeId: string) {
   const node = await readExplainableFileNode(projectId, nodeId);
-  const chunks = await readFileChunks(projectId, String(node.metadata.fileId));
+  const chunks = await readOrderedFileChunks(projectId, String(node.metadata.fileId), 8);
   return {
     node,
     viewer: node.metadata.viewer,
@@ -28,6 +37,7 @@ export async function getFileNodePreview(projectId: string, nodeId: string) {
       text: chunks.slice(0, 3).map((chunk) => chunk.content).join("\n\n"),
       outline: chunks.slice(0, 5).map((chunk) => firstLine(chunk.content)),
     },
+    citations: chunks.slice(0, 5).map((chunk) => citationFromChunk(chunk)),
     chunks: chunks.slice(0, 8),
   };
 }
@@ -43,7 +53,12 @@ export async function createFileExplanationSession({
 }) {
   const node = await readExplainableFileNode(projectId, nodeId);
   const fileId = String(node.metadata.fileId);
-  const chunks = await readFileChunks(projectId, fileId);
+  const chunks = await readExplanationCandidateChunks({
+    projectId,
+    fileId,
+    fileName: node.title,
+    mode,
+  });
   const now = new Date().toISOString();
   const explanation = await explainWithSidecarOrFallback({
     node,
@@ -57,16 +72,11 @@ export async function createFileExplanationSession({
     fileId,
     sourceId: typeof node.sourceId === "string" ? node.sourceId : undefined,
     mode,
-    status: "ready",
+    status: deriveSessionStatus(explanation),
     summary: explanation.summary,
     outline: explanation.outline,
     citations: explanation.citations,
-    metadata: {
-      followUps: explanation.followUps ?? [],
-      quiz: explanation.quiz ?? [],
-      weaknessCandidates: explanation.weaknessCandidates ?? [],
-      ...(explanation.metadata ?? {}),
-    },
+    metadata: buildSessionMetadata(explanation, chunks.length),
     createdAt: now,
     updatedAt: now,
   };
@@ -77,7 +87,12 @@ export async function createFileExplanationSession({
     role: "assistant",
     content: explanation.answer ?? explanation.summary,
     citations: explanation.citations,
-    metadata: { mode, initial: true },
+    metadata: buildTurnMetadata({
+      mode,
+      explanation,
+      retrievalFallbackCount: chunks.length,
+      initial: true,
+    }),
     createdAt: now,
   };
 
@@ -100,7 +115,13 @@ export async function addFileExplanationTurn({
   const session = await repository.readSession(projectId, sessionId);
   if (!session) return null;
 
-  const chunks = await readFileChunks(projectId, session.fileId);
+  const chunks = await readExplanationCandidateChunks({
+    projectId,
+    fileId: session.fileId,
+    fileName: readFileNameFromSession(session),
+    mode: session.mode,
+    question,
+  });
   const now = new Date().toISOString();
   const userTurn: FileExplanationTurnRecord = {
     id: `file-turn-${crypto.randomUUID()}`,
@@ -114,10 +135,14 @@ export async function addFileExplanationTurn({
   };
   const answer = await chatWithSidecarOrFallback({
     fileId: session.fileId,
-    fileName: session.summary || session.fileId,
+    fileName: readFileNameFromSession(session),
     mode: session.mode,
     chunks,
     question,
+    conversationContext: session.turns.map((turn) => ({
+      role: turn.role,
+      content: turn.content,
+    })),
   });
   const assistantTurn: FileExplanationTurnRecord = {
     id: `file-turn-${crypto.randomUUID()}`,
@@ -126,16 +151,221 @@ export async function addFileExplanationTurn({
     role: "assistant",
     content: answer.answer ?? answer.summary,
     citations: answer.citations,
-    metadata: {
-      followUps: answer.followUps ?? [],
-      weaknessCandidates: answer.weaknessCandidates ?? [],
-    },
+    metadata: buildTurnMetadata({
+      mode: session.mode,
+      explanation: answer,
+      retrievalFallbackCount: chunks.length,
+    }),
     createdAt: new Date().toISOString(),
   };
 
   await repository.addTurn(userTurn);
   await repository.addTurn(assistantTurn);
+  await repository.createSession({
+    ...session,
+    status: deriveSessionStatus(answer),
+    summary: answer.summary,
+    outline: answer.outline,
+    citations: answer.citations,
+    metadata: {
+      ...session.metadata,
+      ...buildSessionMetadata(answer, chunks.length),
+    },
+    updatedAt: assistantTurn.createdAt,
+  });
   return repository.readSession(projectId, sessionId);
+}
+
+export async function createFileExplanationSessionStream({
+  projectId,
+  nodeId,
+  mode,
+}: {
+  projectId: string;
+  nodeId: string;
+  mode: NotebookExplanationMode;
+}) {
+  const repository = createFileExplanationRepository();
+  const node = await readExplainableFileNode(projectId, nodeId);
+  const fileId = String(node.metadata.fileId);
+  const chunks = await readExplanationCandidateChunks({
+    projectId,
+    fileId,
+    fileName: node.title,
+    mode,
+  });
+  const now = new Date().toISOString();
+  const session: FileExplanationSessionRecord = {
+    id: `file-session-${crypto.randomUUID()}`,
+    projectId,
+    nodeId,
+    fileId,
+    sourceId: typeof node.sourceId === "string" ? node.sourceId : undefined,
+    mode,
+    status: "streaming",
+    summary: "",
+    outline: [],
+    citations: [],
+    metadata: {
+      followUps: [],
+      quiz: [],
+      weaknessCandidates: [],
+      grounded: false,
+      insufficientEvidence: false,
+      retrievalCount: chunks.length,
+      fallbackUsed: false,
+      engine: "stream-pending",
+    },
+    createdAt: now,
+    updatedAt: now,
+  };
+  await repository.createSession(session);
+
+  const turnId = `file-turn-${crypto.randomUUID()}`;
+  const stream = createFileExplanationUIMessageStream({
+    sessionId: session.id,
+    turnId,
+    mode,
+    events: captureStreamFailures(
+      await explainWithSidecarStreamOrFallback({
+        fileId,
+        fileName: node.title,
+        mode,
+        chunks,
+      }),
+      async (error) => {
+        await repository.createSession(markSessionFailed(session, error));
+      },
+    ),
+    onComplete: async (result) => {
+      const createdAt = new Date().toISOString();
+      await repository.createSession({
+        ...session,
+        status: deriveSessionStatus(result),
+        summary: result.summary,
+        outline: result.outline,
+        citations: result.citations,
+        metadata: buildSessionMetadata(result, chunks.length),
+        updatedAt: createdAt,
+      });
+      await repository.addTurn({
+        id: turnId,
+        sessionId: session.id,
+        projectId,
+        role: "assistant",
+        content: result.answer ?? result.summary,
+        citations: result.citations,
+        metadata: buildTurnMetadata({
+          mode,
+          explanation: result,
+          retrievalFallbackCount: chunks.length,
+          initial: true,
+        }),
+        createdAt,
+      });
+    },
+  });
+
+  return createUIMessageStreamResponse({
+    status: 201,
+    stream,
+  });
+}
+
+export async function addFileExplanationTurnStream({
+  projectId,
+  sessionId,
+  question,
+}: {
+  projectId: string;
+  sessionId: string;
+  question: string;
+}) {
+  const repository = createFileExplanationRepository();
+  const session = await repository.readSession(projectId, sessionId);
+  if (!session) return null;
+
+  const now = new Date().toISOString();
+  const userTurn: FileExplanationTurnRecord = {
+    id: `file-turn-${crypto.randomUUID()}`,
+    sessionId,
+    projectId,
+    role: "user",
+    content: question,
+    citations: [],
+    metadata: {},
+    createdAt: now,
+  };
+  await repository.addTurn(userTurn);
+  await repository.createSession({
+    ...session,
+    status: "streaming",
+    updatedAt: now,
+  });
+
+  const chunks = await readExplanationCandidateChunks({
+    projectId,
+    fileId: session.fileId,
+    fileName: readFileNameFromSession(session),
+    mode: session.mode,
+    question,
+  });
+  const turnId = `file-turn-${crypto.randomUUID()}`;
+  const stream = createFileExplanationUIMessageStream({
+    sessionId,
+    turnId,
+    mode: session.mode,
+    events: captureStreamFailures(
+      await chatWithSidecarStreamOrFallback({
+        fileId: session.fileId,
+        fileName: readFileNameFromSession(session),
+        mode: session.mode,
+        chunks,
+        question,
+        conversationContext: session.turns.map((turn) => ({
+          role: turn.role,
+          content: turn.content,
+        })),
+      }),
+      async (error) => {
+        await repository.createSession(markSessionFailed(session, error));
+      },
+    ),
+    onComplete: async (result) => {
+      const createdAt = new Date().toISOString();
+      await repository.addTurn({
+        id: turnId,
+        sessionId,
+        projectId,
+        role: "assistant",
+        content: result.answer ?? result.summary,
+        citations: result.citations,
+        metadata: buildTurnMetadata({
+          mode: session.mode,
+          explanation: result,
+          retrievalFallbackCount: chunks.length,
+        }),
+        createdAt,
+      });
+      await repository.createSession({
+        ...session,
+        status: deriveSessionStatus(result),
+        summary: result.summary,
+        outline: result.outline,
+        citations: result.citations,
+        metadata: {
+          ...session.metadata,
+          ...buildSessionMetadata(result, chunks.length),
+        },
+        updatedAt: createdAt,
+      });
+    },
+  });
+
+  return createUIMessageStreamResponse({
+    status: 201,
+    stream,
+  });
 }
 
 async function readExplainableFileNode(projectId: string, nodeId: string) {
@@ -149,9 +379,51 @@ async function readExplainableFileNode(projectId: string, nodeId: string) {
   return node;
 }
 
-async function readFileChunks(projectId: string, fileId: string) {
-  const chunks = await readProjectKnowledgeChunks(projectId);
-  return chunks.filter((chunk) => chunk.fileId === fileId);
+async function readOrderedFileChunks(projectId: string, fileId: string, limit = 24) {
+  return readFileKnowledgeChunks({
+    projectId,
+    fileId,
+    limit,
+  });
+}
+
+async function readExplanationCandidateChunks({
+  projectId,
+  fileId,
+  fileName,
+  mode,
+  question,
+}: {
+  projectId: string;
+  fileId: string;
+  fileName: string;
+  mode: NotebookExplanationMode;
+  question?: string;
+}) {
+  const candidateLimit = candidateLimitForMode(mode);
+  if (question?.trim()) {
+    const retrieved = await retrieveRelevantFileKnowledgeChunks({
+      projectId,
+      fileId,
+      query: question,
+      limit: candidateLimit,
+    });
+    if (retrieved.length > 0) return retrieved;
+  }
+
+  const fallbackChunks = await readOrderedFileChunks(projectId, fileId, candidateLimit);
+  if (fallbackChunks.length > 0) return fallbackChunks;
+
+  if (!question?.trim()) {
+    return retrieveRelevantFileKnowledgeChunks({
+      projectId,
+      fileId,
+      query: fileName,
+      limit: candidateLimit,
+    });
+  }
+
+  return [];
 }
 
 async function explainWithSidecarOrFallback({
@@ -169,6 +441,8 @@ async function explainWithSidecarOrFallback({
       fileId: String(node.metadata.fileId),
       fileName: node.title,
       mode,
+      retrievalMode: mode,
+      topK: topKForMode(mode),
       chunks: chunks.map((chunk) => ({
         content: chunk.content,
         metadata: chunk.metadata,
@@ -179,18 +453,53 @@ async function explainWithSidecarOrFallback({
   return fallbackExplain(node.title, chunks, mode);
 }
 
+async function explainWithSidecarStreamOrFallback({
+  fileId,
+  fileName,
+  mode,
+  chunks,
+}: {
+  fileId: string;
+  fileName: string;
+  mode: NotebookExplanationMode;
+  chunks: KnowledgeChunkRecord[];
+}) {
+  const client = createNotebookRagClient();
+  if (client) {
+    try {
+      return await client.explainFileStream({
+        fileId,
+        fileName,
+        mode,
+        retrievalMode: mode,
+        topK: topKForMode(mode),
+        chunks: chunks.map((chunk) => ({
+          content: chunk.content,
+          metadata: chunk.metadata,
+        })),
+      });
+    } catch {
+      // Fall back to local deterministic streaming below.
+    }
+  }
+
+  return streamFallbackExplanation(fileName, chunks, mode);
+}
+
 async function chatWithSidecarOrFallback({
   fileId,
   fileName,
   mode,
   chunks,
   question,
+  conversationContext,
 }: {
   fileId: string;
   fileName: string;
   mode: NotebookExplanationMode;
   chunks: KnowledgeChunkRecord[];
   question: string;
+  conversationContext: Array<{ role: "user" | "assistant"; content: string }>;
 }): Promise<ExplainFileResponse> {
   const client = createNotebookRagClient();
   if (client) {
@@ -198,6 +507,9 @@ async function chatWithSidecarOrFallback({
       fileId,
       fileName,
       mode,
+      retrievalMode: mode,
+      topK: topKForMode(mode),
+      conversationContext,
       chunks: chunks.map((chunk) => ({
         content: chunk.content,
         metadata: chunk.metadata,
@@ -207,6 +519,45 @@ async function chatWithSidecarOrFallback({
   }
 
   return fallbackChat(fileName, chunks, question);
+}
+
+async function chatWithSidecarStreamOrFallback({
+  fileId,
+  fileName,
+  mode,
+  chunks,
+  question,
+  conversationContext,
+}: {
+  fileId: string;
+  fileName: string;
+  mode: NotebookExplanationMode;
+  chunks: KnowledgeChunkRecord[];
+  question: string;
+  conversationContext: Array<{ role: "user" | "assistant"; content: string }>;
+}) {
+  const client = createNotebookRagClient();
+  if (client) {
+    try {
+      return await client.chatFileStream({
+        fileId,
+        fileName,
+        mode,
+        retrievalMode: mode,
+        topK: topKForMode(mode),
+        conversationContext,
+        chunks: chunks.map((chunk) => ({
+          content: chunk.content,
+          metadata: chunk.metadata,
+        })),
+        question,
+      });
+    } catch {
+      // Fall back to local deterministic streaming below.
+    }
+  }
+
+  return streamFallbackChat(fileName, chunks, question);
 }
 
 function fallbackExplain(
@@ -220,6 +571,13 @@ function fallbackExplain(
       outline: [],
       answer: "依据不足：当前文件还没有可检索的解析片段，请先确认文件解析任务已完成。",
       citations: [],
+      grounded: false,
+      insufficientEvidence: true,
+      metadata: {
+        engine: "deterministic-fallback",
+        retrievalCount: 0,
+        fallbackUsed: true,
+      },
     };
   }
 
@@ -246,9 +604,16 @@ function fallbackExplain(
     outline,
     answer,
     citations,
+    grounded: true,
+    insufficientEvidence: false,
     followUps: ["这个文件最容易被老师追问哪里？", "我如何用 30 秒讲清楚它？"],
     quiz: mode === "mastery" ? ["这份资料的核心证据是什么？", "你的个人贡献如何落到资料中？"] : [],
     weaknessCandidates: ["文件证据讲不清", "职责边界表达不稳"],
+    metadata: {
+      engine: "deterministic-fallback",
+      retrievalCount: topChunks.length,
+      fallbackUsed: true,
+    },
   };
 }
 
@@ -267,6 +632,13 @@ function fallbackChat(
       outline: [],
       answer: "依据不足：当前文件没有可引用片段，我不能编造答案。",
       citations: [],
+      grounded: false,
+      insufficientEvidence: true,
+      metadata: {
+        engine: "deterministic-fallback",
+        retrievalCount: 0,
+        fallbackUsed: true,
+      },
     };
   }
 
@@ -275,8 +647,69 @@ function fallbackChat(
     outline: evidence.map((chunk) => firstLine(chunk.content)),
     answer: `基于当前文件片段，可以这样答：${evidence.map((chunk) => firstLine(chunk.content)).join("；")}。`,
     citations: evidence.map((chunk) => citationFromChunk(chunk)),
+    grounded: true,
+    insufficientEvidence: false,
     followUps: ["需要我把这个回答压缩成 30 秒版本吗？"],
+    metadata: {
+      engine: "deterministic-fallback",
+      retrievalCount: evidence.length,
+      fallbackUsed: true,
+    },
   };
+}
+
+async function* streamFallbackExplanation(
+  fileName: string,
+  chunks: KnowledgeChunkRecord[],
+  mode: NotebookExplanationMode,
+) {
+  const result = fallbackExplain(fileName, chunks, mode);
+  yield {
+    type: "retrieval",
+    retrievalCount: readRetrievalCount(result.metadata, chunks.length),
+    retrievalMode: mode,
+  } satisfies ExplainFileStreamEvent;
+  yield {
+    type: "fallback",
+    engine: typeof result.metadata?.engine === "string" ? result.metadata.engine : "deterministic-fallback",
+    reason: "local_fallback",
+  } satisfies ExplainFileStreamEvent;
+  yield* emitTextDeltas(result.answer ?? result.summary);
+  yield {
+    type: "citations",
+    citations: result.citations,
+  } satisfies ExplainFileStreamEvent;
+  yield {
+    type: "completed",
+    response: result,
+  } satisfies ExplainFileStreamEvent;
+}
+
+async function* streamFallbackChat(
+  fileName: string,
+  chunks: KnowledgeChunkRecord[],
+  question: string,
+) {
+  const result = fallbackChat(fileName, chunks, question);
+  yield {
+    type: "retrieval",
+    retrievalCount: readRetrievalCount(result.metadata, chunks.length),
+    retrievalMode: "auto",
+  } satisfies ExplainFileStreamEvent;
+  yield {
+    type: "fallback",
+    engine: typeof result.metadata?.engine === "string" ? result.metadata.engine : "deterministic-fallback",
+    reason: "local_fallback",
+  } satisfies ExplainFileStreamEvent;
+  yield* emitTextDeltas(result.answer ?? result.summary);
+  yield {
+    type: "citations",
+    citations: result.citations,
+  } satisfies ExplainFileStreamEvent;
+  yield {
+    type: "completed",
+    response: result,
+  } satisfies ExplainFileStreamEvent;
 }
 
 function firstLine(content: string) {
@@ -295,4 +728,117 @@ function citationFromChunk(chunk: KnowledgeChunkRecord) {
     lineEnd: typeof chunk.metadata.lineEnd === "number" ? chunk.metadata.lineEnd : undefined,
     text: firstLine(chunk.content),
   };
+}
+
+function readRetrievalCount(metadata: Record<string, unknown> | undefined, fallback: number) {
+  const value = metadata?.retrievalCount;
+  return typeof value === "number" ? value : fallback;
+}
+
+function readFallbackUsed(metadata: Record<string, unknown> | undefined) {
+  return metadata?.fallbackUsed === true
+    || (typeof metadata?.engine === "string" && metadata.engine.includes("fallback"));
+}
+
+function topKForMode(mode: NotebookExplanationMode) {
+  return mode === "quick" ? 4 : 8;
+}
+
+function candidateLimitForMode(mode: NotebookExplanationMode) {
+  return mode === "quick" ? 12 : 20;
+}
+
+function buildSessionMetadata(explanation: ExplainFileResponse, retrievalFallbackCount: number) {
+  return {
+    followUps: explanation.followUps ?? [],
+    quiz: explanation.quiz ?? [],
+    weaknessCandidates: explanation.weaknessCandidates ?? [],
+    engine: explanation.metadata?.engine ?? "deterministic-fallback",
+    grounded: explanation.grounded,
+    insufficientEvidence: explanation.insufficientEvidence,
+    fallbackUsed: readFallbackUsed(explanation.metadata),
+    retrievalCount: readRetrievalCount(explanation.metadata, retrievalFallbackCount),
+    ...(explanation.metadata ?? {}),
+  };
+}
+
+function buildTurnMetadata({
+  mode,
+  explanation,
+  retrievalFallbackCount,
+  initial = false,
+}: {
+  mode: NotebookExplanationMode;
+  explanation: ExplainFileResponse;
+  retrievalFallbackCount: number;
+  initial?: boolean;
+}) {
+  return {
+    mode,
+    ...(initial ? { initial: true } : {}),
+    grounded: explanation.grounded,
+    insufficientEvidence: explanation.insufficientEvidence,
+    retrievalCount: readRetrievalCount(explanation.metadata, retrievalFallbackCount),
+    engine: explanation.metadata?.engine ?? "deterministic-fallback",
+    fallbackUsed: readFallbackUsed(explanation.metadata),
+    followUps: explanation.followUps ?? [],
+    weaknessCandidates: explanation.weaknessCandidates ?? [],
+  };
+}
+
+function deriveSessionStatus(explanation: ExplainFileResponse): FileExplanationSessionRecord["status"] {
+  return readFallbackUsed(explanation.metadata) ? "fallback" : "completed";
+}
+
+function readFileNameFromSession(
+  session: Pick<FileExplanationSessionRecord, "fileId" | "metadata"> & { turns?: Array<Pick<FileExplanationTurnRecord, "citations">> },
+) {
+  const metadataFileName = session.metadata.fileName;
+  if (typeof metadataFileName === "string" && metadataFileName.trim()) {
+    return metadataFileName;
+  }
+  const citationFileName = session.turns?.flatMap((turn) => turn.citations)
+    .find((citation) => typeof citation.fileName === "string" && citation.fileName.trim())?.fileName;
+  return citationFileName ?? session.fileId;
+}
+
+function markSessionFailed(session: FileExplanationSessionRecord, error: unknown): FileExplanationSessionRecord {
+  return {
+    ...session,
+    status: "failed",
+    metadata: {
+      ...session.metadata,
+      error: error instanceof Error ? error.message : String(error),
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function* captureStreamFailures(
+  events: AsyncIterable<ExplainFileStreamEvent>,
+  onFailure: (error: unknown) => Promise<void>,
+) {
+  try {
+    for await (const event of events) {
+      if (event.type === "error") {
+        const error = new Error(event.error);
+        await onFailure(error);
+        throw error;
+      }
+      yield event;
+    }
+  } catch (error) {
+    await onFailure(error);
+    throw error;
+  }
+}
+
+async function* emitTextDeltas(text: string) {
+  for (let index = 0; index < text.length; index += 48) {
+    const delta = text.slice(index, index + 48);
+    yield {
+      type: "delta",
+      delta,
+    } satisfies ExplainFileStreamEvent;
+  }
 }

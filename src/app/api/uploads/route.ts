@@ -3,6 +3,8 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { createFileRepository } from "@db/repositories/files";
 import { buildPersistedFileBatch } from "../projects/helpers";
+import { assertSupportedUploadFiles } from "@/lib/project-workspace";
+import { readObjectStorageConfig, uploadObjectToStorage } from "@/lib/object-storage";
 import {
   buildStoredFileRecord,
   uploadDateFolder,
@@ -25,14 +27,32 @@ export async function POST(request: Request) {
     );
   }
 
+  try {
+    assertSupportedUploadFiles(files.map((file) => ({
+      name: file.name,
+      size: file.size,
+      type: file.type,
+    })));
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unsupported upload." },
+      { status: 400 },
+    );
+  }
+
   const uploadedAt = new Date().toISOString();
   const dateFolder = uploadDateFolder(uploadedAt);
+  const objectStorageConfig = readObjectStorageConfig();
   const uploadDirectory = path.join(process.cwd(), ".data", "uploads", dateFolder);
-  await mkdir(uploadDirectory, { recursive: true });
+
+  if (!objectStorageConfig) {
+    await mkdir(uploadDirectory, { recursive: true });
+  }
 
   const uploadedFiles = await Promise.all(
     files.map(async (file) => {
       const nonce = crypto.randomUUID().slice(0, 8);
+      const bytes = Buffer.from(await file.arrayBuffer());
       const record = buildStoredFileRecord(
         {
           name: file.name,
@@ -42,11 +62,21 @@ export async function POST(request: Request) {
         {
           nonce,
           uploadedAt,
+          storageMode: objectStorageConfig ? "object" : "local",
+          bucket: objectStorageConfig?.bucket,
         },
       );
 
-      const bytes = Buffer.from(await file.arrayBuffer());
-      await writeFile(path.join(uploadDirectory, record.storedName), bytes);
+      if (record.storageKey) {
+        await uploadObjectToStorage({
+          key: record.storageKey,
+          body: bytes,
+          contentType: file.type,
+          config: objectStorageConfig,
+        });
+      } else {
+        await writeFile(path.join(uploadDirectory, record.storedName), bytes);
+      }
 
       return record;
     }),

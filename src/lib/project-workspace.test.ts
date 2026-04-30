@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  assertSupportedUploadFiles,
   createProjectWorkspace,
   classifyDefenseFile,
   completeProcessingTask,
@@ -15,6 +16,14 @@ test("classifies common course defense files by extension and name", () => {
   assert.equal(classifyDefenseFile("backend.zip"), "code");
   assert.equal(classifyDefenseFile("orders.sql"), "database");
   assert.equal(classifyDefenseFile("订单数据.xlsx"), "dataset");
+});
+
+test("rejects uploaded code archives and directs users to GitHub repositories", () => {
+  assert.throws(
+    () => assertSupportedUploadFiles([{ name: "backend.zip", size: 2048 }]),
+    /GitHub.*公开仓库/u,
+  );
+  assert.doesNotThrow(() => assertSupportedUploadFiles([{ name: "答辩 PPT.pdf", size: 1024 }]));
 });
 
 test("creates a workspace with uploaded file records and readiness summary", () => {
@@ -72,6 +81,27 @@ test("creates processing tasks for uploaded files that need parsing", () => {
   assert.equal(workspace.processingTasks[0].kind, "presentation");
   assert.equal(workspace.processingTasks[0].status, "pending");
   assert.equal(workspace.processingTasks[0].engine, "PDF.js + 逐页讲稿 Skill");
+});
+
+test("creates processing tasks for object storage files addressed by storageKey", () => {
+  const workspace = createProjectWorkspace({
+    name: "智能点餐系统课程答辩",
+    category: "软件 / AI / 数据类",
+    ownerScope: "我负责：后端订单接口",
+    teammateScope: "队友负责：前端页面 / 数据库",
+    files: [
+      {
+        name: "backend.zip",
+        size: 2048,
+        type: "application/zip",
+        storageKey: "2026-04-25/backend.zip" as never,
+      } as never,
+    ],
+  });
+
+  assert.equal(workspace.processingTasks.length, 1);
+  assert.equal(workspace.processingTasks[0].fileName, "backend.zip");
+  assert.equal(workspace.processingTasks[0].kind, "code");
 });
 
 test("moves processing tasks through start, complete, and failed states", () => {

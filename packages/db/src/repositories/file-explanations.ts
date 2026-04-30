@@ -23,10 +23,22 @@ export function createFileExplanationRepository(runSql: PsqlRunner = runDockerCo
     },
 
     async addTurn(turn: FileExplanationTurnRecord) {
-      await helpers.run(writeTurnSql(turn));
+      await helpers.run([
+        "BEGIN;",
+        writeTurnSql(turn),
+        touchSessionSql(turn.sessionId, turn.createdAt),
+        "COMMIT;",
+      ].join("\n"));
       return turn;
     },
   };
+}
+
+function touchSessionSql(sessionId: string, updatedAt: string) {
+  return `
+UPDATE "FileExplanationSession"
+SET "updatedAt" = ${sqlTimestamp(updatedAt)}
+WHERE "id" = ${sqlText(sessionId)};`;
 }
 
 function writeSessionSql(session: FileExplanationSessionRecord) {

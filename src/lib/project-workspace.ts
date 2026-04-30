@@ -22,6 +22,7 @@ export type DefenseFileInput = {
   type?: string;
   storedName?: string;
   storagePath?: string;
+  storageKey?: string;
   uploadedAt?: string;
   uploadStatus?: "stored";
 };
@@ -80,6 +81,14 @@ export type DefenseWorkspaceInput = {
   files?: DefenseFileInput[];
 };
 
+export function assertSupportedUploadFiles(files: DefenseFileInput[]) {
+  for (const file of files) {
+    if (isUnsupportedCodeArchive(file.name)) {
+      throw new Error("代码 ZIP 上传已停用，请改为接入 GitHub 公开仓库。");
+    }
+  }
+}
+
 export type WorkspaceSummary = {
   fileCount: number;
   pendingTaskCount: number;
@@ -124,6 +133,11 @@ export function classifyDefenseFile(fileName: string): DefenseFileKind {
   if (normalized.includes("数据") || normalized.includes("dataset")) return "dataset";
 
   return extensionKindMap[extension] ?? "other";
+}
+
+export function isUnsupportedCodeArchive(fileName: string) {
+  const normalized = fileName.trim().toLowerCase();
+  return normalized.endsWith(".zip") && classifyDefenseFile(fileName) === "code";
 }
 
 export function createProjectWorkspace(input: DefenseWorkspaceInput): DefenseWorkspace {
@@ -278,7 +292,7 @@ export function createFileRecord(file: DefenseFileInput, addedAt: string): Defen
     ...file,
     id: `file-${stableId(file.name, `${file.size}-${addedAt}`)}`,
     kind,
-    status: statusForKind(kind, Boolean(file.storagePath)),
+    status: statusForKind(kind, Boolean(file.storagePath || file.storageKey)),
     source: sourceForKind(kind),
     addedAt,
   };
@@ -288,7 +302,7 @@ export function createProcessingTasks(files: DefenseFileRecord[], createdAt: str
   return files
     .filter((file) => isProcessableFile(file))
     .map((file) => ({
-      id: `task-${stableId(file.id, file.storagePath ?? file.name)}`,
+      id: `task-${stableId(file.id, file.storageKey ?? file.storagePath ?? file.name)}`,
       fileId: file.id,
       fileName: file.name,
       kind: file.kind,
@@ -301,7 +315,7 @@ export function createProcessingTasks(files: DefenseFileRecord[], createdAt: str
 }
 
 function isProcessableFile(file: DefenseFileRecord) {
-  if (!file.storagePath) return false;
+  if (!file.storagePath && !file.storageKey) return false;
   return !["asset", "other"].includes(file.kind);
 }
 

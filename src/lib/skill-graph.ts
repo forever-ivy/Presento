@@ -59,6 +59,12 @@ export async function runDefenseChatGraph({
   teacherRole,
   userAnswer,
   chunks,
+  currentSlideId,
+  currentKnowledgeNodeId,
+  memberScope,
+  previousTurns = [],
+  sessionState,
+  retrievedSources = [],
   generatedAt = new Date().toISOString(),
 }: {
   provider: LlmProvider | null;
@@ -68,6 +74,12 @@ export async function runDefenseChatGraph({
   teacherRole: DefenseTeacherRole;
   userAnswer: string;
   chunks: KnowledgeChunkRecord[];
+  currentSlideId?: string | null;
+  currentKnowledgeNodeId?: string | null;
+  memberScope?: string;
+  previousTurns?: Array<{ aiMessage: string; userAnswer: string; score?: number | null }>;
+  sessionState?: Record<string, unknown>;
+  retrievedSources?: Array<Record<string, unknown>>;
   generatedAt?: string;
 }) {
   return runStructuredSkillGraph<DefenseCoachTurn>({
@@ -79,8 +91,14 @@ export async function runDefenseChatGraph({
     userPrompt: [
       `项目名称：${projectName}`,
       `当前页：第 ${slideIndex} 页「${slideTitle}」`,
+      `当前页 ID：${currentSlideId ?? "未提供"}`,
+      `当前知识节点：${currentKnowledgeNodeId ?? "未提供"}`,
       `老师角色：${teacherRole}`,
+      `我的负责范围：${memberScope || "未提供"}`,
       `学生回答：${userAnswer || "尚未回答"}`,
+      `最近训练状态：${JSON.stringify(sessionState ?? {}, null, 2)}`,
+      `最近已检索来源：${JSON.stringify(retrievedSources, null, 2)}`,
+      `最近历史轮次：${JSON.stringify(previousTurns.slice(-3), null, 2)}`,
       "请输出 role、message、feedback、followUps、citations。",
       "feedback 必须包含 score、strengths、risks、improvedAnswer。",
       "资料片段：",
@@ -97,11 +115,13 @@ export async function runDefenseReviewGraph({
   provider,
   projectName,
   turns,
+  sessionState,
   generatedAt = new Date().toISOString(),
 }: {
   provider: LlmProvider | null;
   projectName: string;
   turns: DefensePracticeTurn[];
+  sessionState?: Record<string, unknown>;
   generatedAt?: string;
 }) {
   return runStructuredSkillGraph<DefenseReview>({
@@ -112,7 +132,8 @@ export async function runDefenseReviewGraph({
       "你是课程项目答辩复盘教练。根据训练记录提炼薄弱点和下一步行动，输出中文 JSON。",
     userPrompt: [
       `项目名称：${projectName}`,
-      "请输出 projectName、totalTurns、averageScore、scoreLabel、summary、strengths、weaknesses、nextActions、citations。",
+      "请输出 projectName、totalTurns、averageScore、scoreLabel、clarityScore、evidenceScore、pressureScore、summary、strengths、weaknesses、betterAnswers、nextActions、recommendedSkills、citations。",
+      `训练状态：${JSON.stringify(sessionState ?? {}, null, 2)}`,
       "训练记录：",
       JSON.stringify(turns, null, 2),
     ].join("\n"),

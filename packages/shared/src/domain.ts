@@ -2,6 +2,7 @@ export type JobRunStatus = "queued" | "running" | "succeeded" | "failed" | "retr
 
 export type JobRunKind =
   | "file_ingest"
+  | "repository_ingest"
   | "knowledge_map"
   | "project_brief"
   | "training_review"
@@ -14,19 +15,108 @@ export type TrainingVoiceState =
   | "thinking"
   | "speaking";
 
+export type RealtimeSessionStatus =
+  | "created"
+  | "connecting"
+  | "active"
+  | "draining"
+  | "ended"
+  | "failed";
+
+export type TrainingTurnMode = "realtime";
+
 export type SkillStatus = "success" | "fallback" | "failed";
+
+export type SkillResolvedBy = "explicit" | "router" | "system";
+
+export type SkillFeedbackStatus = "none" | "received" | "synced";
+
+export type SkillToolName =
+  | "retrieveProjectContext"
+  | "retrieveSlideContext"
+  | "retrieveKnowledgeNodeContext"
+  | "retrieveFileContext"
+  | "retrieveCodeContext"
+  | "retrieveRiskQuestions"
+  | "writeArtifact"
+  | "writeReview"
+  | "createWeakness"
+  | "createDeepDive"
+  | "writeContentExport";
+
+export type BuiltInSkillId =
+  | "project_brief"
+  | "slide_script"
+  | "risk_questions"
+  | "current_slide_followup"
+  | "code_explainer"
+  | "data_survey_explainer"
+  | "weakness_deep_dive"
+  | "fallback_answer"
+  | "review_report"
+  | "content_repurpose"
+  | "teacher_style_followup"
+  | "rubric_scoring"
+  | "member_scope_defense"
+  | "evidence_gap_check"
+  | "file_outline_explainer"
+  | "architecture_explainer"
+  | "dataset_explainer"
+  | "code_walkthrough";
+
+export type BuiltInSkillPackId =
+  | "core-training"
+  | "deep-dive"
+  | "defense-advanced"
+  | "file-explainers";
+
+export type SkillTraceTag =
+  | "brief"
+  | "defense"
+  | "review"
+  | "deep_dive"
+  | "content_export"
+  | "file_explanation"
+  | "code_explanation"
+  | "dataset_explanation";
+
+export type SkillToolCallRecord = {
+  tool: SkillToolName;
+  status: "success" | "failed";
+  durationMs: number;
+  summary?: unknown;
+  error?: string;
+};
+
+export type SkillRetrievalSummary = {
+  mode?: "hybrid" | "lexical" | "vector" | "fallback";
+  scope?: string;
+  query?: string;
+  chunkCount: number;
+  fileId?: string;
+  nodeId?: string;
+  sourceIds?: string[];
+};
 
 export type SkillInvocationRecord = {
   id: string;
   projectId: string;
   skillName: string;
+  skillVersion: string;
   trigger: string;
+  resolvedBy: SkillResolvedBy;
   status: SkillStatus;
   input: unknown;
   output: unknown;
   error?: string;
   traceId?: string;
+  langfuseTraceId?: string;
+  langfuseObservationId?: string;
   usedFallback: boolean;
+  retrievalSummary?: SkillRetrievalSummary | null;
+  toolCalls: SkillToolCallRecord[];
+  outputSummary?: unknown;
+  feedbackStatus: SkillFeedbackStatus;
   startedAt: string;
   completedAt: string;
   durationMs: number;
@@ -44,27 +134,30 @@ export type ProjectType =
   | "general";
 
 export type SkillTrigger = {
-  mode: "workspace" | "defense" | "deep_dive" | "review" | "export";
-  event:
-    | "page_load"
-    | "user_finished_slide"
-    | "request_followup"
-    | "review_generate"
-    | "content_export";
+  mode:
+    | "workspace"
+    | "defense"
+    | "deep_dive"
+    | "review"
+    | "export"
+    | "file_explanation"
+    | "knowledge_node";
+  event: string;
 };
 
 export type SkillOutputDescriptor = {
-  type:
-    | "project_brief"
-    | "slide_script"
-    | "risk_questions"
-    | "teacher_followup"
-    | "deep_dive"
-    | "review_report"
-    | "content_export";
+  type: string;
 };
 
 export type NotebookExplanationMode = "quick" | "mastery";
+
+export type FileExplanationSessionStatus =
+  | "ready"
+  | "streaming"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "fallback";
 
 export type NotebookCitation = {
   fileName?: string;
@@ -93,6 +186,7 @@ export type ParsedFileResult = {
     fileKind?: string;
     metadata?: Record<string, unknown>;
   };
+  metadata?: Record<string, unknown>;
   chunks: ParsedFileChunk[];
   preview: {
     text?: string;
@@ -130,7 +224,7 @@ export type FileExplanationSessionRecord = {
   fileId: string;
   sourceId?: string;
   mode: NotebookExplanationMode;
-  status: "ready" | "failed";
+  status: FileExplanationSessionStatus;
   summary: string;
   outline: string[];
   citations: NotebookCitation[];
@@ -155,19 +249,65 @@ export type FileExplanationSessionWithTurns = FileExplanationSessionRecord & {
 };
 
 export type BuiltInSkillDefinition = {
-  id:
-    | "project_brief"
-    | "slide_script"
-    | "risk_questions"
-    | "current_slide_followup"
-    | "weakness_deep_dive"
-    | "review_report"
-    | "content_repurpose";
+  id: BuiltInSkillId;
+  version: string;
   name: string;
   description: string;
   trigger: SkillTrigger;
   output: SkillOutputDescriptor;
   projectTypes: ProjectType[];
+  allowedTools: SkillToolName[];
+  packIds: BuiltInSkillPackId[];
+  fallbackPolicy: "required" | "optional" | "none";
+  traceTags: SkillTraceTag[];
+  inputSchemaName: string;
+  outputSchemaName: string;
+};
+
+export type SkillPackDefinition = {
+  id: BuiltInSkillPackId;
+  name: string;
+  description: string;
+  scope: "system";
+  skills: BuiltInSkillId[];
+  defaultEnabled: boolean;
+  recommendedFor: Array<"defense" | "review" | "deep_dive" | "file_explanation" | "workspace">;
+};
+
+export type ProjectSkillPackRecord = {
+  id: string;
+  projectId: string;
+  packId: BuiltInSkillPackId;
+  enabled: boolean;
+  source: "default" | "explicit" | "recommended";
+  reason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SkillRecommendationRecord = {
+  id: string;
+  projectId: string;
+  requestedSkillId?: BuiltInSkillId | null;
+  resolvedSkillId?: BuiltInSkillId | null;
+  mode: SkillTrigger["mode"];
+  event: string;
+  reason: string;
+  context: Record<string, unknown>;
+  accepted?: boolean | null;
+  createdAt: string;
+};
+
+export type SkillResolutionResult = {
+  resolvedBy: SkillResolvedBy;
+  selectedSkillId: BuiltInSkillId;
+  reason: string;
+  recommendations: Array<{
+    skillId: BuiltInSkillId;
+    reason: string;
+    packId?: BuiltInSkillPackId;
+    priority: number;
+  }>;
 };
 
 export type SpeechSynthesisInput = {
@@ -203,6 +343,39 @@ export type JobRunRecord = {
   updatedAt: string;
   startedAt?: string;
   completedAt?: string;
+};
+
+export type RealtimeSessionRecord = {
+  id: string;
+  projectId: string;
+  trainingSessionId: string;
+  provider: "glm-realtime-flash";
+  providerSessionId?: string | null;
+  status: RealtimeSessionStatus;
+  currentSlideId?: string | null;
+  currentKnowledgeNodeId?: string | null;
+  teacherRole: string;
+  difficulty: string;
+  contextSnapshot: Record<string, unknown>;
+  clientTokenHash: string;
+  tokenExpiresAt: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RealtimeEventRecord = {
+  id: string;
+  projectId: string;
+  trainingSessionId: string;
+  realtimeSessionId: string;
+  turnId?: string | null;
+  sequence: number;
+  source: "client" | "provider" | "system";
+  eventType: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
 };
 
 export type ProjectSourceRecord = {
@@ -269,6 +442,7 @@ export type ProjectWorkspaceDto = {
     source: string;
     storedName?: string | null;
     storagePath?: string | null;
+    storageKey?: string | null;
     uploadedAt?: string | null;
     uploadStatus?: string | null;
     addedAt: string;

@@ -4,7 +4,8 @@ import { processClaimedIngestJob } from "../../../packages/ingest/src/process-jo
 import { runWorkerLoop } from "../../shared/src/worker-loop.ts";
 
 export function canHandleCodeJob(job: JobRunRecord) {
-  return job.kind === "file_ingest" && String(job.payload?.kind ?? "").includes("code");
+  return job.kind === "repository_ingest"
+    || (job.kind === "file_ingest" && String(job.payload?.kind ?? "").includes("code"));
 }
 
 export async function runCodeWorkerJob(job: JobRunRecord, runner: (job: JobRunRecord) => Promise<unknown>) {
@@ -18,7 +19,7 @@ export async function runCodeWorkerJob(job: JobRunRecord, runner: (job: JobRunRe
 
 export async function claimNextCodeJob(runSql?: JobRunSqlRunner) {
   return createJobRunRepository(runSql).claimNext({
-    kinds: ["file_ingest"],
+    kinds: ["file_ingest", "repository_ingest"],
     fileKinds: ["code"],
   });
 }

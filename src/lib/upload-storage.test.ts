@@ -33,3 +33,24 @@ test("builds stable local upload metadata without exposing absolute paths", () =
   assert.equal(record.uploadStatus, "stored");
   assert.equal(uploadDateFolder(uploadedAt), "2026-04-25");
 });
+
+test("builds object storage metadata when object storage is enabled", () => {
+  const uploadedAt = "2026-04-25T05:00:00.000Z";
+  const record = buildStoredFileRecord(
+    {
+      name: "答辩 PPT final.pdf",
+      size: 1024,
+      type: "application/pdf",
+    },
+    {
+      nonce: "abc123",
+      uploadedAt,
+      storageMode: "object",
+      bucket: "defense-assets",
+    } as never,
+  );
+
+  const objectRecord = record as unknown as Record<string, unknown>;
+  assert.equal(objectRecord.storageKey, "2026-04-25/abc123-答辩-PPT-final.pdf");
+  assert.equal(record.storagePath, "s3://defense-assets/2026-04-25/abc123-答辩-PPT-final.pdf");
+});

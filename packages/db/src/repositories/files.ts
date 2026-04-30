@@ -82,12 +82,12 @@ SELECT COALESCE((
 ), 'null'::json)::text;`;
 }
 
-function insertFilesSql(files: PersistedFileRecord[]) {
+export function insertFilesSql(files: PersistedFileRecord[]) {
   if (files.length === 0) return "";
   return `
 INSERT INTO "FileAsset" (
   "id", "projectId", "name", "size", "mimeType", "kind", "status", "source",
-  "storedName", "storagePath", "uploadedAt", "uploadStatus", "addedAt"
+  "storedName", "storagePath", "storageKey", "uploadedAt", "uploadStatus", "addedAt"
 ) VALUES
 ${files
   .map(
@@ -102,6 +102,7 @@ ${files
   ${sqlText(file.source)},
   ${sqlText(file.storedName)},
   ${sqlText(file.storagePath)},
+  ${sqlText(file.storageKey ?? null)},
   ${sqlTimestamp(file.uploadedAt ?? null)},
   ${sqlText(file.uploadStatus)},
   ${sqlTimestamp(file.addedAt)}
@@ -117,11 +118,12 @@ ON CONFLICT ("id") DO UPDATE SET
   "source" = EXCLUDED."source",
   "storedName" = EXCLUDED."storedName",
   "storagePath" = EXCLUDED."storagePath",
+  "storageKey" = EXCLUDED."storageKey",
   "uploadedAt" = EXCLUDED."uploadedAt",
   "uploadStatus" = EXCLUDED."uploadStatus";`;
 }
 
-function insertProcessingTasksSql(tasks: PersistedTaskRecord[]) {
+export function insertProcessingTasksSql(tasks: PersistedTaskRecord[]) {
   if (tasks.length === 0) return "";
   return `
 INSERT INTO "ProcessingTask" (
@@ -157,7 +159,7 @@ ON CONFLICT ("id") DO UPDATE SET
   "artifactId" = EXCLUDED."artifactId";`;
 }
 
-function insertJobRunsSql(jobRuns: JobRunRecord[]) {
+export function insertJobRunsSql(jobRuns: JobRunRecord[]) {
   if (jobRuns.length === 0) return "";
   return `
 INSERT INTO "JobRun" (

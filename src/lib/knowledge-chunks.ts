@@ -26,6 +26,18 @@ export type KnowledgeChunkRecord = {
   content: string;
   source: string;
   metadata: KnowledgeChunkMetadata;
+  retrieval?: {
+    embeddingV2: number[];
+    sourceId?: string;
+    chunkKind?: string;
+    page?: number;
+    slide?: number;
+    sheet?: string;
+    codePath?: string;
+    lineStart?: number;
+    lineEnd?: number;
+    retrievalText?: string;
+  };
   createdAt: string;
 };
 

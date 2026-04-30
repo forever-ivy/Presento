@@ -6,6 +6,7 @@ export type StoredFileInput = Required<Pick<DefenseFileInput, "name" | "size">> 
 export type StoredFileRecord = DefenseFileInput & {
   storedName: string;
   storagePath: string;
+  storageKey?: string;
   uploadedAt: string;
   uploadStatus: "stored";
 };
@@ -31,10 +32,15 @@ export function buildStoredFileRecord(
   options: {
     nonce: string;
     uploadedAt: string;
+    storageMode?: "local" | "object";
+    bucket?: string;
   },
 ): StoredFileRecord {
   const storedName = `${options.nonce}-${sanitizeFileName(file.name)}`;
-  const storagePath = `.data/uploads/${uploadDateFolder(options.uploadedAt)}/${storedName}`;
+  const storageKey = `${uploadDateFolder(options.uploadedAt)}/${storedName}`;
+  const storagePath = options.storageMode === "object"
+    ? buildObjectStoragePath(options.bucket, storageKey)
+    : `.data/uploads/${storageKey}`;
 
   return {
     name: file.name,
@@ -42,7 +48,15 @@ export function buildStoredFileRecord(
     type: file.type,
     storedName,
     storagePath,
+    ...(options.storageMode === "object" ? { storageKey } : {}),
     uploadedAt: options.uploadedAt,
     uploadStatus: "stored",
   };
+}
+
+function buildObjectStoragePath(bucket: string | undefined, storageKey: string) {
+  if (!bucket) {
+    throw new Error("Object storage bucket is required when building object storage metadata.");
+  }
+  return `s3://${bucket}/${storageKey}`;
 }

@@ -1,4 +1,4 @@
-import { createTrainingSessionRepository } from "@db/repositories/training-sessions";
+import { readTrainingSessionAggregate } from "@/lib/realtime-training";
 import { apiError, apiOk, notFound } from "../../../../_utils";
 
 export const runtime = "nodejs";
@@ -9,8 +9,8 @@ export async function GET(
 ) {
   try {
     const { projectId, sessionId } = await params;
-    const result = await createTrainingSessionRepository().readSession(sessionId);
-    if (!result.session || result.session.projectId !== projectId) return notFound("Training session");
+    const result = await readTrainingSessionAggregate(projectId, sessionId);
+    if (!result) return notFound("Training session");
     return apiOk(result);
   } catch (error) {
     return apiError(500, "training_session_read_failed", error instanceof Error ? error.message : "Failed to read training session.");

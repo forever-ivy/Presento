@@ -1410,14 +1410,6 @@ function FilesRoom() {
         </label>
       </RoomCard>
 
-      <RoomCard icon={<FileText aria-hidden="true" />} title="文件列表" description="流程图只展示状态，这里才展开具体文件。">
-        <div className="flex flex-col gap-2">
-          {files.map((file) => (
-            <StatusRow badge={file.status} icon={<FileText aria-hidden="true" />} key={`${file.name}-${file.status}`} label={file.name} meta={file.source} />
-          ))}
-        </div>
-      </RoomCard>
-
       <RoomCard className="lg:col-span-2" icon={<Bot aria-hidden="true" />} title="解析队列" description="读取、切片、索引、抽取节点、生成风险。">
         <div className="grid gap-3 lg:grid-cols-3">
           {tasks.map((task) => (

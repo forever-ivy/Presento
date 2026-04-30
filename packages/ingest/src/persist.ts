@@ -100,7 +100,9 @@ function replaceKnowledgeChunksSql(chunks: KnowledgeChunkRecord[], artifactId: s
   return `
 ${deleteSql}
 INSERT INTO "KnowledgeChunk" (
-  "id", "projectId", "artifactId", "fileId", "content", "source", "metadata", "embedding", "createdAt"
+  "id", "projectId", "artifactId", "fileId", "content", "source", "metadata",
+  "embedding", "embeddingV2", "retrievalText", "fts", "sourceId", "chunkKind",
+  "page", "slide", "sheet", "codePath", "lineStart", "lineEnd", "createdAt"
 ) VALUES
 ${chunks
   .map(
@@ -113,10 +115,60 @@ ${chunks
   ${sqlText(chunk.source)},
   ${sqlJson(chunk.metadata)},
   ${sqlText(formatEmbeddingForPgvector(createTextEmbedding(chunk.content)))}::vector,
+  ${sqlVectorV2(chunk)}::vector,
+  ${sqlText(retrievalTextForChunk(chunk))},
+  to_tsvector('simple', ${sqlText(retrievalTextForChunk(chunk))}),
+  ${sqlText(chunk.retrieval?.sourceId ?? readStringMetadata(chunk.metadata, "sourceId"))},
+  ${sqlText(chunk.retrieval?.chunkKind ?? inferChunkKind(chunk))},
+  ${sqlNullableNumber(chunk.retrieval?.page ?? readNumberMetadata(chunk.metadata, "page"))},
+  ${sqlNullableNumber(chunk.retrieval?.slide ?? readNumberMetadata(chunk.metadata, "slide"))},
+  ${sqlText(chunk.retrieval?.sheet ?? readStringMetadata(chunk.metadata, "sheet"))},
+  ${sqlText(chunk.retrieval?.codePath ?? readStringMetadata(chunk.metadata, "codePath"))},
+  ${sqlNullableNumber(chunk.retrieval?.lineStart ?? readNumberMetadata(chunk.metadata, "lineStart"))},
+  ${sqlNullableNumber(chunk.retrieval?.lineEnd ?? readNumberMetadata(chunk.metadata, "lineEnd"))},
   ${sqlTimestamp(chunk.createdAt)}
 )`,
   )
   .join(",\n")};`;
+}
+
+function sqlVectorV2(chunk: KnowledgeChunkRecord) {
+  const vector = chunk.retrieval?.embeddingV2;
+  if (!vector?.length) return "NULL";
+  return `${sqlText(formatEmbeddingForPgvector(vector))}`;
+}
+
+function retrievalTextForChunk(chunk: KnowledgeChunkRecord) {
+  return chunk.retrieval?.retrievalText
+    ?? [
+      readStringMetadata(chunk.metadata, "fileName"),
+      readStringMetadata(chunk.metadata, "artifactTitle"),
+      readStringMetadata(chunk.metadata, "codePath"),
+      chunk.source,
+      chunk.content,
+    ].filter(Boolean).join("\n");
+}
+
+function inferChunkKind(chunk: KnowledgeChunkRecord) {
+  if (readStringMetadata(chunk.metadata, "codePath")) return "code";
+  if (readStringMetadata(chunk.metadata, "sheet") || readStringMetadata(chunk.metadata, "cellRange")) return "table";
+  if (readNumberMetadata(chunk.metadata, "slide") !== undefined) return "slide";
+  return readStringMetadata(chunk.metadata, "kind") ?? "document";
+}
+
+function readStringMetadata(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function readNumberMetadata(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+  return typeof value === "number" ? value : undefined;
+}
+
+function sqlNullableNumber(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return "NULL";
+  return sqlNumber(value);
 }
 
 function upsertKnowledgeNodesSql(nodes: KnowledgeNodeRecord[]) {

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { createKnowledgeMapRepository } from "@db/repositories/knowledge-map";
+import { createNotebookRagClient } from "@ingest/notebook-rag-client";
 import {
   readProjectKnowledgeChunks,
   retrieveRelevantKnowledgeChunks,
@@ -15,6 +17,9 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const query = searchParams.get("q") ?? "";
     const limit = Number(searchParams.get("limit") ?? "6");
+    const fileId = searchParams.get("fileId") ?? undefined;
+    const nodeId = searchParams.get("nodeId") ?? undefined;
+    const slideId = searchParams.get("slideId") ?? undefined;
 
     if (!projectId) {
       return NextResponse.json({ error: "Missing project id." }, { status: 400 });
@@ -23,10 +28,35 @@ export async function GET(
       return NextResponse.json({ error: "Missing query." }, { status: 400 });
     }
 
+    const resolvedNode = nodeId
+      ? await createKnowledgeMapRepository().readNode(projectId, nodeId)
+      : null;
+    const resolvedFileId = fileId
+      ?? (typeof resolvedNode?.metadata?.fileId === "string" ? resolvedNode.metadata.fileId : undefined);
+    const resolvedSourceId = typeof resolvedNode?.metadata?.sourceId === "string"
+      ? resolvedNode.metadata.sourceId
+      : resolvedNode?.sourceId;
+
+    const client = createNotebookRagClient();
+    if (client) {
+      const result = await client.retrieveChunks({
+        projectId,
+        query,
+        limit,
+        fileId: resolvedFileId,
+        sourceId: resolvedSourceId ?? undefined,
+        slideId,
+      });
+      return NextResponse.json(result);
+    }
+
     const chunks = await retrieveRelevantKnowledgeChunks({
       projectId,
       query,
       limit,
+      fileId: resolvedFileId,
+      sourceId: resolvedSourceId ?? undefined,
+      slideId: slideId ?? undefined,
     });
     const fallbackChunks = chunks.length ? [] : await readProjectKnowledgeChunks(projectId);
 
