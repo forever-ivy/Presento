@@ -102,7 +102,7 @@ function insertFilesSql(files: DatabaseFileRow[]) {
   return `
 INSERT INTO "FileAsset" (
   "id", "projectId", "name", "size", "mimeType", "kind", "status", "source",
-  "storedName", "storagePath", "uploadedAt", "uploadStatus", "addedAt"
+  "storedName", "storagePath", "storageKey", "uploadedAt", "uploadStatus", "addedAt"
 ) VALUES
 ${files
   .map(
@@ -117,6 +117,7 @@ ${files
   ${sqlText(file.source)},
   ${sqlText(file.storedName)},
   ${sqlText(file.storagePath)},
+  ${sqlText(file.storageKey)},
   ${sqlTimestamp(file.uploadedAt)},
   ${sqlText(file.uploadStatus)},
   ${sqlTimestamp(file.addedAt)}

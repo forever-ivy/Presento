@@ -90,3 +90,141 @@ test("retrieves relevant project chunks with pgvector distance", async () => {
   assert.match(sql, /::vector/);
   assert.match(sql, /LIMIT 3/);
 });
+
+test("reads file knowledge chunks scoped by file id", async () => {
+  let sql = "";
+  const database = createKnowledgeDatabase(async (query) => {
+    sql = query;
+    return JSON.stringify(chunks);
+  });
+
+  const results = await database.readFileKnowledgeChunks({
+    projectId: "project-defense",
+    fileId: "file-readme",
+    limit: 5,
+  });
+
+  assert.deepEqual(results, chunks);
+  assert.match(sql, /WHERE "projectId" = 'project-defense'/);
+  assert.match(sql, /AND "fileId" = 'file-readme'/);
+  assert.match(sql, /LIMIT 5/);
+});
+
+test("retrieves relevant file chunks with pgvector distance and file scope", async () => {
+  let sql = "";
+  const database = createKnowledgeDatabase(async (query) => {
+    sql = query;
+    return JSON.stringify(chunks);
+  });
+
+  const results = await database.retrieveRelevantFileKnowledgeChunks({
+    projectId: "project-defense",
+    fileId: "file-readme",
+    query: "食堂排队优化怎么做",
+    limit: 4,
+  });
+
+  assert.deepEqual(results, chunks);
+  assert.match(sql, /WHERE "projectId" = 'project-defense'/);
+  assert.match(sql, /AND "fileId" = 'file-readme'/);
+  assert.match(sql, /ORDER BY "embedding" <=> '\[/);
+  assert.match(sql, /LIMIT 4/);
+});
+
+test("retrieves relevant project chunks through the notebook rag sidecar when configured", async () => {
+  const database = createKnowledgeDatabase(
+    async () => {
+      throw new Error("should not hit psql retrieval path");
+    },
+    {
+      retrieveChunks: async (payload: unknown) => {
+        const typedPayload = payload as { projectId: string; query: string; limit?: number };
+        assert.equal(typedPayload.projectId, "project-defense");
+        assert.equal(typedPayload.query, "排队问题");
+        assert.equal(typedPayload.limit, 5);
+        return {
+          chunks,
+          mode: "hybrid",
+          trace: {
+            vectorCandidateCount: 6,
+            lexicalCandidateCount: 4,
+            reranked: true,
+          },
+        };
+      },
+    } as never,
+  );
+
+  const results = await database.retrieveRelevantKnowledgeChunks({
+    projectId: "project-defense",
+    query: "排队问题",
+    limit: 5,
+  });
+
+  assert.deepEqual(results, chunks);
+});
+
+test("retrieves relevant file chunks through the notebook rag sidecar with file scope", async () => {
+  const database = createKnowledgeDatabase(
+    async () => {
+      throw new Error("should not hit psql retrieval path");
+    },
+    {
+      retrieveChunks: async (payload: unknown) => {
+        const typedPayload = payload as { fileId?: string };
+        assert.equal(typedPayload.fileId, "file-readme");
+        return {
+          chunks,
+          mode: "hybrid",
+          trace: {
+            filters: { fileId: "file-readme" },
+          },
+        };
+      },
+    } as never,
+  );
+
+  const results = await database.retrieveRelevantFileKnowledgeChunks({
+    projectId: "project-defense",
+    fileId: "file-readme",
+    query: "食堂排队优化怎么做",
+    limit: 4,
+  });
+
+  assert.deepEqual(results, chunks);
+});
+
+test("prepares retrieval chunks through the notebook rag sidecar and merges retrieval metadata", async () => {
+  const database = createKnowledgeDatabase(
+    async () => "",
+    {
+      prepareRetrievalChunks: async () => ({
+        chunks: [
+          {
+            id: "chunk-artifact-readme-1",
+            content: "项目背景：解决食堂高峰期排队问题。",
+            source: "README.md · document",
+            metadata: chunks[0]?.metadata ?? {},
+            retrieval: {
+              embeddingV2: [0.1, 0.2, 0.3],
+              sourceId: "source-file-1",
+              chunkKind: "document",
+              retrievalText: "README.md 项目背景：解决食堂高峰期排队问题。",
+              lineStart: 1,
+              lineEnd: 1,
+            },
+          },
+        ],
+      }),
+      retrieveChunks: async () => ({
+        chunks: [],
+        mode: "fallback",
+      }),
+    } as never,
+  );
+
+  const prepared = await database.prepareRetrievalChunks(chunks);
+
+  assert.deepEqual(prepared[0]?.retrieval?.embeddingV2, [0.1, 0.2, 0.3]);
+  assert.equal(prepared[0]?.retrieval?.sourceId, "source-file-1");
+});

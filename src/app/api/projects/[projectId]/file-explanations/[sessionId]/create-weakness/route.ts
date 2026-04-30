@@ -29,7 +29,15 @@ export async function POST(
       title: payload.title,
       reason: payload.reason ?? `来自文件讲解 ${session.summary} 的薄弱点候选。`,
       status: "open",
-      citations: payload.citations ?? session.citations,
+      citations: [
+        ...(payload.citations ?? session.citations),
+        {
+          source: "file_explanation_session",
+          sessionId,
+          fileId: session.fileId,
+          mode: session.mode,
+        },
+      ],
       createdAt: new Date().toISOString(),
     };
 

@@ -25,11 +25,22 @@ export type SlideRecord = {
   createdAt: string;
 };
 
+type PresentationSection = {
+  page?: number;
+  title: string;
+  body: string;
+  lineStart: number;
+  lineEnd: number;
+  imagePath?: string;
+  thumbnailPath?: string;
+};
+
 export function buildPresentationSlideRecords({
   projectId,
   file,
   source,
   content,
+  parsedSlides = [],
   createdAt,
   synthetic = false,
 }: {
@@ -37,6 +48,13 @@ export function buildPresentationSlideRecords({
   file: DefenseFileRecord;
   source: ProjectSourceRecord;
   content: string;
+  parsedSlides?: Array<{
+    page: number;
+    title: string;
+    text?: string;
+    notes?: string;
+    metadata?: Record<string, unknown>;
+  }>;
   createdAt: string;
   synthetic?: boolean;
 }) {
@@ -47,7 +65,8 @@ export function buildPresentationSlideRecords({
     };
   }
 
-  const sections = segmentSlides(content);
+  const parserSlides = parsedSlides.filter((slide) => slide && slide.page > 0);
+  const sections = parserSlides.length > 0 ? mapParsedSlides(parserSlides) : segmentSlides(content);
   const deckId = `deck-${file.id}`;
   const slideDeck: SlideDeckRecord = {
     id: deckId,
@@ -68,9 +87,11 @@ export function buildPresentationSlideRecords({
     deckId,
     projectId,
     fileId: file.id,
-    page: index + 1,
+    page: section.page ?? index + 1,
     title: section.title,
     extractedText: section.body,
+    imagePath: section.imagePath,
+    thumbnailPath: section.thumbnailPath,
     metadata: {
       lineStart: section.lineStart,
       lineEnd: section.lineEnd,
@@ -87,7 +108,7 @@ export function buildPresentationSlideRecords({
   };
 }
 
-function segmentSlides(content: string) {
+function segmentSlides(content: string): PresentationSection[] {
   const lines = content
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -97,12 +118,7 @@ function segmentSlides(content: string) {
     return fallbackSections();
   }
 
-  const sections: Array<{
-    title: string;
-    body: string;
-    lineStart: number;
-    lineEnd: number;
-  }> = [];
+  const sections: PresentationSection[] = [];
   let currentTitle = "项目概览";
   let currentLines: string[] = [];
   let lineStart = 1;
@@ -155,13 +171,8 @@ function cleanHeading(line: string) {
     .trim();
 }
 
-function chunkSections(lines: string[]) {
-  const sections: Array<{
-    title: string;
-    body: string;
-    lineStart: number;
-    lineEnd: number;
-  }> = [];
+function chunkSections(lines: string[]): PresentationSection[] {
+  const sections: PresentationSection[] = [];
 
   for (let index = 0; index < lines.length; index += 4) {
     const chunk = lines.slice(index, index + 4);
@@ -176,7 +187,24 @@ function chunkSections(lines: string[]) {
   return sections.slice(0, 8);
 }
 
-function fallbackSections() {
+function mapParsedSlides(parsedSlides: Array<{
+  page: number;
+  title: string;
+  text?: string;
+  metadata?: Record<string, unknown>;
+}>): PresentationSection[] {
+  return parsedSlides.map((slide) => ({
+    page: slide.page,
+    title: slide.title || `Slide ${slide.page}`,
+    body: slide.text || slide.title || `Slide ${slide.page}`,
+    lineStart: slide.page,
+    lineEnd: slide.page,
+    imagePath: typeof slide.metadata?.imagePath === "string" ? slide.metadata.imagePath : undefined,
+    thumbnailPath: typeof slide.metadata?.thumbnailPath === "string" ? slide.metadata.thumbnailPath : undefined,
+  }));
+}
+
+function fallbackSections(): PresentationSection[] {
   return [
     {
       title: "项目概览",

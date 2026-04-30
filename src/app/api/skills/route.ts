@@ -1,8 +1,8 @@
-import { listBuiltInSkills } from "@ai/skills/registry";
+import { listBuiltInSkillCatalog } from "@/lib/skills-runtime";
 import { apiOk } from "../_utils";
 
 export const runtime = "nodejs";
 
 export async function GET() {
-  return apiOk({ skills: listBuiltInSkills() });
+  return apiOk({ skills: listBuiltInSkillCatalog() });
 }

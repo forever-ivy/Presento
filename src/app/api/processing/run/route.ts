@@ -12,7 +12,7 @@ export async function POST(request: Request) {
       task?: DefenseProcessingTask;
     };
 
-    if (!payload.projectId || !payload.file?.storagePath || !payload.task) {
+    if (!payload.projectId || (!payload.file?.storagePath && !payload.file?.storageKey) || !payload.task) {
       return NextResponse.json(
         { error: "Missing project, file, or processing task." },
         { status: 400 },

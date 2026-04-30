@@ -18,3 +18,17 @@ test("code worker only handles code ingest jobs", async () => {
   const handled = await runCodeWorkerJob(job, async () => ({ ok: true }));
   assert.equal(handled.skipped, false);
 });
+
+test("code worker handles repository ingest jobs for GitHub code sources", async () => {
+  const job = {
+    id: "job-repo",
+    projectId: "project-1",
+    kind: "repository_ingest" as const,
+    status: "queued" as const,
+    payload: { repositoryUrl: "https://github.com/openai/codex" },
+    createdAt: "2026-04-27T00:00:00.000Z",
+    updatedAt: "2026-04-27T00:00:00.000Z",
+  };
+
+  assert.equal(canHandleCodeJob(job), true);
+});

@@ -36,6 +36,9 @@ export async function POST(
     if (error instanceof z.ZodError) {
       return apiError(400, "invalid_files_payload", "Invalid files payload.", error.flatten());
     }
+    if (error instanceof Error && error.message.includes("GitHub 公开仓库")) {
+      return apiError(400, "unsupported_code_upload", error.message);
+    }
     return apiError(500, "files_create_failed", error instanceof Error ? error.message : "Failed to attach files.");
   }
 }

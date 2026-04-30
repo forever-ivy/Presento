@@ -11,6 +11,11 @@ export type TrainingSessionRecord = {
   currentKnowledgeNodeId?: string | null;
   status: string;
   voiceState: string;
+  hintCount: number;
+  followUpCount: number;
+  detectedWeaknesses: string[];
+  lastRetrievedSources: unknown;
+  shouldFinish: boolean;
   startedAt: string;
   finishedAt?: string | null;
   createdAt: string;
@@ -21,17 +26,29 @@ export type TrainingTurnRecord = {
   id: string;
   sessionId: string;
   projectId: string;
+  realtimeSessionId?: string | null;
+  turnIndex?: number | null;
   slideId?: string | null;
+  slideIndex?: number | null;
+  slideTitle?: string | null;
   knowledgeNodeId?: string | null;
   teacherRole: string;
   userAnswer: string;
   aiMessage: string;
+  inputTranscript?: string | null;
+  assistantTranscript?: string | null;
+  providerResponseId?: string | null;
+  providerTraceId?: string | null;
+  latencyMs?: number | null;
+  mode?: string | null;
   score?: number | null;
   strengths: unknown;
   risks: unknown;
   improvedAnswer?: string | null;
   followUps: unknown;
   citations: unknown;
+  retrievedSourceIds: unknown;
+  speech: unknown;
   createdAt: string;
 };
 
@@ -63,9 +80,19 @@ export function createTrainingSessionRepository(runSql: PsqlRunner = runDockerCo
         session: TrainingSessionRecord | null;
         turns: TrainingTurnRecord[];
         voiceCaptures: VoiceCaptureRecord[];
+        latestReview?: { id: string; sessionId: string } | null;
+        detectedWeaknesses: Array<{ id: string; title: string; status?: string | null }>;
+        deepDiveRefs: Array<{ id: string; weaknessId?: string | null; title: string }>;
       }>(
         readSessionSql(sessionId),
-        { session: null, turns: [], voiceCaptures: [] },
+        {
+          session: null,
+          turns: [],
+          voiceCaptures: [],
+          latestReview: null,
+          detectedWeaknesses: [],
+          deepDiveRefs: [],
+        },
       );
     },
 
@@ -89,6 +116,15 @@ SET
   "updatedAt" = ${sqlTimestamp(finishedAt)}
 WHERE "id" = ${sqlText(sessionId)};`);
     },
+
+    async updateSession(sessionId: string, patch: Partial<TrainingSessionRecord>) {
+      await helpers.run(updateSessionSql(sessionId, patch));
+      return this.readSession(sessionId);
+    },
+
+    async findLatestCompatibilitySession(projectId: string) {
+      return helpers.readJson<TrainingSessionRecord | null>(readLatestCompatibilitySessionSql(projectId), null);
+    },
   };
 }
 
@@ -96,7 +132,8 @@ function writeSessionSql(session: TrainingSessionRecord) {
   return `
 INSERT INTO "TrainingSession" (
   "id", "projectId", "title", "teacherRole", "difficulty", "currentSlideId",
-  "currentKnowledgeNodeId", "status", "voiceState", "startedAt", "finishedAt",
+  "currentKnowledgeNodeId", "status", "voiceState", "hintCount", "followUpCount",
+  "detectedWeaknesses", "lastRetrievedSources", "shouldFinish", "startedAt", "finishedAt",
   "createdAt", "updatedAt"
 ) VALUES (
   ${sqlText(session.id)},
@@ -108,6 +145,11 @@ INSERT INTO "TrainingSession" (
   ${sqlText(session.currentKnowledgeNodeId)},
   ${sqlText(session.status)},
   ${sqlText(session.voiceState)},
+  ${sqlNumber(session.hintCount)},
+  ${sqlNumber(session.followUpCount)},
+  ${sqlJson(session.detectedWeaknesses)},
+  ${sqlJson(session.lastRetrievedSources)},
+  ${session.shouldFinish ? "true" : "false"},
   ${sqlTimestamp(session.startedAt)},
   ${sqlTimestamp(session.finishedAt)},
   ${sqlTimestamp(session.createdAt)},
@@ -121,6 +163,11 @@ ON CONFLICT ("id") DO UPDATE SET
   "currentKnowledgeNodeId" = EXCLUDED."currentKnowledgeNodeId",
   "status" = EXCLUDED."status",
   "voiceState" = EXCLUDED."voiceState",
+  "hintCount" = EXCLUDED."hintCount",
+  "followUpCount" = EXCLUDED."followUpCount",
+  "detectedWeaknesses" = EXCLUDED."detectedWeaknesses",
+  "lastRetrievedSources" = EXCLUDED."lastRetrievedSources",
+  "shouldFinish" = EXCLUDED."shouldFinish",
   "startedAt" = EXCLUDED."startedAt",
   "finishedAt" = EXCLUDED."finishedAt",
   "updatedAt" = EXCLUDED."updatedAt";`;
@@ -129,36 +176,63 @@ ON CONFLICT ("id") DO UPDATE SET
 function writeTurnSql(turn: TrainingTurnRecord) {
   return `
 INSERT INTO "TrainingTurn" (
-  "id", "sessionId", "projectId", "slideId", "knowledgeNodeId", "teacherRole",
-  "userAnswer", "aiMessage", "score", "strengths", "risks", "improvedAnswer",
-  "followUps", "citations", "createdAt"
+  "id", "sessionId", "projectId", "realtimeSessionId", "turnIndex", "slideId", "slideIndex", "slideTitle",
+  "knowledgeNodeId", "teacherRole", "userAnswer", "aiMessage", "inputTranscript", "assistantTranscript",
+  "providerResponseId", "providerTraceId", "latencyMs", "mode", "score", "strengths", "risks",
+  "improvedAnswer", "followUps", "citations", "retrievedSourceIds", "speech", "createdAt"
 ) VALUES (
   ${sqlText(turn.id)},
   ${sqlText(turn.sessionId)},
   ${sqlText(turn.projectId)},
+  ${sqlText(turn.realtimeSessionId)},
+  ${turn.turnIndex === null || turn.turnIndex === undefined ? "NULL" : sqlNumber(turn.turnIndex)},
   ${sqlText(turn.slideId)},
+  ${turn.slideIndex === null || turn.slideIndex === undefined ? "NULL" : sqlNumber(turn.slideIndex)},
+  ${sqlText(turn.slideTitle)},
   ${sqlText(turn.knowledgeNodeId)},
   ${sqlText(turn.teacherRole)},
   ${sqlText(turn.userAnswer)},
   ${sqlText(turn.aiMessage)},
+  ${sqlText(turn.inputTranscript)},
+  ${sqlText(turn.assistantTranscript)},
+  ${sqlText(turn.providerResponseId)},
+  ${sqlText(turn.providerTraceId)},
+  ${turn.latencyMs === null || turn.latencyMs === undefined ? "NULL" : sqlNumber(turn.latencyMs)},
+  ${sqlText(turn.mode ?? "realtime")},
   ${turn.score === null || turn.score === undefined ? "NULL" : sqlNumber(turn.score)},
   ${sqlJson(turn.strengths)},
   ${sqlJson(turn.risks)},
   ${sqlText(turn.improvedAnswer)},
   ${sqlJson(turn.followUps)},
   ${sqlJson(turn.citations)},
+  ${sqlJson(turn.retrievedSourceIds)},
+  ${sqlJson(turn.speech)},
   ${sqlTimestamp(turn.createdAt)}
 )
 ON CONFLICT ("id") DO UPDATE SET
+  "realtimeSessionId" = EXCLUDED."realtimeSessionId",
+  "turnIndex" = EXCLUDED."turnIndex",
+  "slideId" = EXCLUDED."slideId",
+  "slideIndex" = EXCLUDED."slideIndex",
+  "slideTitle" = EXCLUDED."slideTitle",
+  "knowledgeNodeId" = EXCLUDED."knowledgeNodeId",
   "teacherRole" = EXCLUDED."teacherRole",
   "userAnswer" = EXCLUDED."userAnswer",
   "aiMessage" = EXCLUDED."aiMessage",
+  "inputTranscript" = EXCLUDED."inputTranscript",
+  "assistantTranscript" = EXCLUDED."assistantTranscript",
+  "providerResponseId" = EXCLUDED."providerResponseId",
+  "providerTraceId" = EXCLUDED."providerTraceId",
+  "latencyMs" = EXCLUDED."latencyMs",
+  "mode" = EXCLUDED."mode",
   "score" = EXCLUDED."score",
   "strengths" = EXCLUDED."strengths",
   "risks" = EXCLUDED."risks",
   "improvedAnswer" = EXCLUDED."improvedAnswer",
   "followUps" = EXCLUDED."followUps",
-  "citations" = EXCLUDED."citations";`;
+  "citations" = EXCLUDED."citations",
+  "retrievedSourceIds" = EXCLUDED."retrievedSourceIds",
+  "speech" = EXCLUDED."speech";`;
 }
 
 function writeVoiceCaptureSql(capture: VoiceCaptureRecord) {
@@ -209,6 +283,75 @@ SELECT json_build_object(
     SELECT json_agg(row_to_json(capture_rows) ORDER BY capture_rows."createdAt")
     FROM "VoiceCapture" capture_rows
     WHERE capture_rows."sessionId" = ${sqlText(sessionId)}
+  ), '[]'::json),
+  'latestReview', (
+    SELECT json_build_object(
+      'id', review_rows."id",
+      'sessionId', review_rows."sessionId"
+    )
+    FROM "ReviewReport" review_rows
+    WHERE review_rows."sessionId" = ${sqlText(sessionId)}
+    ORDER BY review_rows."createdAt" DESC
+    LIMIT 1
+  ),
+  'detectedWeaknesses', COALESCE((
+    SELECT json_agg(
+      json_build_object(
+        'id', weakness_rows."id",
+        'title', weakness_rows."title",
+        'status', weakness_rows."status"
+      )
+      ORDER BY weakness_rows."createdAt" DESC
+    )
+    FROM "Weakness" weakness_rows
+    WHERE weakness_rows."sessionId" = ${sqlText(sessionId)}
+  ), '[]'::json),
+  'deepDiveRefs', COALESCE((
+    SELECT json_agg(
+      json_build_object(
+        'id', deep_dive_rows."id",
+        'weaknessId', deep_dive_rows."weaknessId",
+        'title', deep_dive_rows."title"
+      )
+      ORDER BY deep_dive_rows."createdAt" DESC
+    )
+    FROM "DeepDive" deep_dive_rows
+    LEFT JOIN "Weakness" weakness_rows ON weakness_rows."id" = deep_dive_rows."weaknessId"
+    WHERE weakness_rows."sessionId" = ${sqlText(sessionId)}
   ), '[]'::json)
 )::text;`;
+}
+
+function updateSessionSql(sessionId: string, patch: Partial<TrainingSessionRecord>) {
+  const sets = [
+    patch.currentSlideId !== undefined ? `"currentSlideId" = ${sqlText(patch.currentSlideId ?? null)}` : null,
+    patch.currentKnowledgeNodeId !== undefined ? `"currentKnowledgeNodeId" = ${sqlText(patch.currentKnowledgeNodeId ?? null)}` : null,
+    patch.status !== undefined ? `"status" = ${sqlText(patch.status)}` : null,
+    patch.voiceState !== undefined ? `"voiceState" = ${sqlText(patch.voiceState)}` : null,
+    patch.hintCount !== undefined ? `"hintCount" = ${sqlNumber(patch.hintCount)}` : null,
+    patch.followUpCount !== undefined ? `"followUpCount" = ${sqlNumber(patch.followUpCount)}` : null,
+    patch.detectedWeaknesses !== undefined ? `"detectedWeaknesses" = ${sqlJson(patch.detectedWeaknesses)}` : null,
+    patch.lastRetrievedSources !== undefined ? `"lastRetrievedSources" = ${sqlJson(patch.lastRetrievedSources)}` : null,
+    patch.shouldFinish !== undefined ? `"shouldFinish" = ${patch.shouldFinish ? "true" : "false"}` : null,
+    patch.finishedAt !== undefined ? `"finishedAt" = ${sqlTimestamp(patch.finishedAt ?? null)}` : null,
+    `"updatedAt" = now()`,
+  ].filter(Boolean);
+
+  return `
+UPDATE "TrainingSession"
+SET ${sets.join(",\n    ")}
+WHERE "id" = ${sqlText(sessionId)};`;
+}
+
+function readLatestCompatibilitySessionSql(projectId: string) {
+  return `
+SELECT COALESCE((
+  SELECT row_to_json(session_rows)
+  FROM "TrainingSession" session_rows
+  WHERE session_rows."projectId" = ${sqlText(projectId)}
+    AND session_rows."status" = 'active'
+    AND session_rows."difficulty" = 'compat'
+  ORDER BY session_rows."updatedAt" DESC
+  LIMIT 1
+), 'null'::json)::text;`;
 }

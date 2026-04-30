@@ -38,6 +38,9 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError) {
       return apiError(400, "invalid_project_payload", "Invalid project payload.", error.flatten());
     }
+    if (error instanceof Error && error.message.includes("GitHub 公开仓库")) {
+      return apiError(400, "unsupported_code_upload", error.message);
+    }
 
     return apiError(500, "project_create_failed", error instanceof Error ? error.message : "Failed to create project.");
   }

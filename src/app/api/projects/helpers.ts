@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { JobRunRecord } from "@shared/domain";
 import type { PersistedFileRecord, PersistedTaskRecord } from "@db/repositories/files";
 import {
+  assertSupportedUploadFiles,
   createFileRecord,
   createProcessingTasks,
   stableId,
@@ -22,6 +23,7 @@ export const uploadedFileSchema = z.object({
   type: z.string().optional(),
   storedName: z.string().optional(),
   storagePath: z.string().optional(),
+  storageKey: z.string().optional(),
   uploadedAt: z.string().optional(),
   uploadStatus: z.literal("stored").optional(),
 });
@@ -40,6 +42,7 @@ export function createProjectRecord(input: z.infer<typeof projectPayloadSchema>)
 }
 
 export function buildPersistedFileBatch(projectId: string, uploadedFiles: DefenseFileInput[]) {
+  assertSupportedUploadFiles(uploadedFiles);
   const addedAt = new Date().toISOString();
   const fileRecords = uploadedFiles.map((file) => createFileRecord(file, addedAt));
   const taskRecords = createProcessingTasks(fileRecords, addedAt);
@@ -83,6 +86,7 @@ export function asDefenseFileRecord(file: PersistedFileRecord): DefenseFileRecor
     type: file.mimeType ?? undefined,
     storedName: file.storedName ?? undefined,
     storagePath: file.storagePath ?? undefined,
+    storageKey: file.storageKey ?? undefined,
     uploadedAt: file.uploadedAt ?? undefined,
     uploadStatus: file.uploadStatus === "stored" ? "stored" : undefined,
     kind: file.kind as DefenseFileRecord["kind"],

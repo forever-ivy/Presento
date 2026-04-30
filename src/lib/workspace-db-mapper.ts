@@ -23,6 +23,7 @@ export type DatabaseFileRow = {
   source: string;
   storedName: string | null;
   storagePath: string | null;
+  storageKey: string | null;
   uploadedAt: string | null;
   uploadStatus: "stored" | null;
   addedAt: string;
@@ -82,6 +83,7 @@ export function workspaceToDatabaseRows(workspace: DefenseWorkspace): DatabaseWo
       source: file.source,
       storedName: file.storedName ?? null,
       storagePath: file.storagePath ?? null,
+      storageKey: file.storageKey ?? null,
       uploadedAt: file.uploadedAt ?? null,
       uploadStatus: file.uploadStatus ?? null,
       addedAt: file.addedAt,
@@ -142,6 +144,7 @@ function fileFromDatabaseRow(row: DatabaseFileRow): DefenseFileRecord {
     type: nullableToUndefined(row.mimeType),
     storedName: nullableToUndefined(row.storedName),
     storagePath: nullableToUndefined(row.storagePath),
+    storageKey: nullableToUndefined(row.storageKey),
     uploadedAt: nullableToUndefinedDate(row.uploadedAt),
     uploadStatus: nullableToUndefined(row.uploadStatus),
     kind: row.kind,

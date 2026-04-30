@@ -1,19 +1,6 @@
-export type SkillStatus = "success" | "fallback" | "failed";
+import type { SkillInvocationRecord, SkillStatus } from "@shared/domain";
 
-export type SkillInvocationRecord = {
-  id: string;
-  projectId: string;
-  skillName: string;
-  trigger: string;
-  status: SkillStatus;
-  input: unknown;
-  output: unknown;
-  error?: string;
-  usedFallback: boolean;
-  startedAt: string;
-  completedAt: string;
-  durationMs: number;
-};
+export type { SkillInvocationRecord, SkillStatus } from "@shared/domain";
 
 export async function runSkill<TOutput>({
   projectId,
@@ -91,17 +78,38 @@ function createInvocation({
   startedAt,
   completedAt,
   usedFallback,
-}: Omit<SkillInvocationRecord, "durationMs">) {
+}: {
+  id: string;
+  projectId: string;
+  skillName: string;
+  trigger: string;
+  status: SkillStatus;
+  input: unknown;
+  output: unknown;
+  error?: string;
+  startedAt: string;
+  completedAt: string;
+  usedFallback: boolean;
+}) {
   return {
     id,
     projectId,
     skillName,
+    skillVersion: "legacy",
     trigger,
+    resolvedBy: "system",
     status,
     input,
     output,
     error,
+    traceId: undefined,
+    langfuseTraceId: undefined,
+    langfuseObservationId: undefined,
     usedFallback,
+    retrievalSummary: null,
+    toolCalls: [],
+    outputSummary: undefined,
+    feedbackStatus: "none",
     startedAt,
     completedAt,
     durationMs: Math.max(0, Date.parse(completedAt) - Date.parse(startedAt)),

@@ -16,6 +16,7 @@ model Project {
   updatedAt        DateTime             @updatedAt
   members          ProjectMember[]
   files            FileAsset[]
+  codeRepositorySources CodeRepositorySource[]
   processingTasks  ProcessingTask[]
   artifacts        Artifact[]
   sources          ProjectSource[]
@@ -28,6 +29,8 @@ model Project {
   practiceTurns    DefensePracticeTurn[]
   trainingSessions TrainingSession[]
   trainingTurns    TrainingTurn[]
+  realtimeSessions RealtimeSession[]
+  realtimeEvents   RealtimeEvent[]
   voiceCaptures    VoiceCapture[]
   weaknesses       Weakness[]
   deepDives        DeepDive[]
@@ -38,7 +41,9 @@ model Project {
   skillFeedbacks   SkillFeedback[]
   agentSkills      AgentSkill[]
   skillPacks       SkillPack[]
+  projectSkillPacks ProjectSkillPack[]
   skillInvocations SkillInvocation[]
+  skillRecommendationLogs SkillRecommendationLog[]
   fileExplanationSessions FileExplanationSession[]
   fileExplanationTurns    FileExplanationTurn[]
 }
@@ -57,33 +62,45 @@ model ProjectMember {
 }
 
 model SkillInvocation {
-  id           String   @id
-  projectId    String
-  skillName    String
-  trigger      String
-  status       String
-  input        Json
-  output       Json
-  error        String?
-  traceId      String?
-  usedFallback Boolean
-  startedAt    DateTime
-  completedAt  DateTime
-  durationMs   Int
-  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id                    String          @id
+  projectId             String
+  skillName             String
+  skillVersion          String
+  trigger               String
+  resolvedBy            String
+  status                String
+  input                 Json
+  output                Json
+  error                 String?
+  traceId               String?
+  langfuseTraceId       String?
+  langfuseObservationId String?
+  usedFallback          Boolean
+  retrievalSummary      Json?
+  toolCalls             Json
+  outputSummary         Json?
+  feedbackStatus        String          @default("none")
+  startedAt             DateTime
+  completedAt           DateTime
+  durationMs            Int
+  project               Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  feedbacks             SkillFeedback[]
 
   @@index([projectId, startedAt])
   @@index([skillName, status])
+  @@index([langfuseTraceId])
 }
 
 model SkillFeedback {
-  id           String   @id
+  id           String          @id
   projectId    String
   invocationId String
   rating       String
   comment      String?
   createdAt    DateTime
-  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  syncedAt     DateTime?
+  project      Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invocation   SkillInvocation @relation(fields: [invocationId], references: [id], onDelete: Cascade)
 
   @@index([projectId, createdAt])
   @@index([invocationId])
@@ -117,6 +134,37 @@ model SkillPack {
   @@index([projectId])
 }
 
+model ProjectSkillPack {
+  id        String   @id
+  projectId String
+  packId    String
+  enabled   Boolean
+  source    String
+  reason    String?
+  createdAt DateTime
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, packId])
+  @@index([projectId, enabled])
+}
+
+model SkillRecommendationLog {
+  id               String   @id
+  projectId        String
+  requestedSkillId String?
+  resolvedSkillId  String?
+  mode             String
+  event            String
+  reason           String
+  context          Json
+  accepted         Boolean?
+  createdAt        DateTime
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+}
+
 model DefensePracticeTurn {
   id             String   @id
   projectId      String
@@ -148,6 +196,7 @@ model FileAsset {
   source       String
   storedName   String?
   storagePath  String?
+  storageKey   String?
   uploadedAt   DateTime?
   uploadStatus String?
   addedAt      DateTime
@@ -158,9 +207,32 @@ model FileAsset {
   tasks        ProcessingTask[]
   artifacts    Artifact[]
   explanationSessions FileExplanationSession[]
+  codeRepositories CodeRepositorySource[]
 
   @@index([projectId])
   @@index([kind])
+}
+
+model CodeRepositorySource {
+  id              String   @id
+  projectId       String
+  fileId          String   @unique
+  provider        String
+  owner           String
+  repo            String
+  url             String
+  visibility      String
+  status          String
+  parser          String
+  defaultBranch   String?
+  latestCommitSha String?
+  metadata        Json
+  createdAt       DateTime
+  updatedAt       DateTime @updatedAt
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  file            FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
 }
 
 model ProjectSource {
@@ -316,12 +388,19 @@ model TrainingSession {
   currentKnowledgeNodeId String?
   status                 String
   voiceState             String
+  hintCount              Int      @default(0)
+  followUpCount          Int      @default(0)
+  detectedWeaknesses     Json
+  lastRetrievedSources   Json
+  shouldFinish           Boolean  @default(false)
   startedAt              DateTime
   finishedAt             DateTime?
   createdAt              DateTime
   updatedAt              DateTime @updatedAt
   project                Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   turns                  TrainingTurn[]
+  realtimeSessions       RealtimeSession[]
+  realtimeEvents         RealtimeEvent[]
   voiceCaptures          VoiceCapture[]
   weaknesses             Weakness[]
   reviews                ReviewReport[]
@@ -334,23 +413,89 @@ model TrainingTurn {
   id              String          @id
   sessionId       String
   projectId       String
+  realtimeSessionId String?
+  turnIndex       Int?
   slideId         String?
+  slideIndex      Int?
+  slideTitle      String?
   knowledgeNodeId String?
   teacherRole     String
   userAnswer      String
   aiMessage       String
+  inputTranscript String?
+  assistantTranscript String?
+  providerResponseId String?
+  providerTraceId String?
+  latencyMs       Int?
+  mode            String         @default("realtime")
   score           Int?
   strengths       Json
   risks           Json
   improvedAnswer  String?
   followUps       Json
   citations       Json
+  retrievedSourceIds Json
+  speech          Json
   createdAt       DateTime
   project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   session         TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  realtimeSession RealtimeSession? @relation(fields: [realtimeSessionId], references: [id], onDelete: SetNull)
+  realtimeEvents  RealtimeEvent[]
 
   @@index([projectId, createdAt])
   @@index([sessionId, createdAt])
+  @@index([realtimeSessionId, createdAt])
+}
+
+model RealtimeSession {
+  id                     String   @id
+  projectId              String
+  trainingSessionId      String
+  provider               String
+  providerSessionId      String?
+  status                 String
+  currentSlideId         String?
+  currentKnowledgeNodeId String?
+  teacherRole            String
+  difficulty             String
+  contextSnapshot        Json
+  clientTokenHash        String
+  tokenExpiresAt         DateTime
+  startedAt              DateTime?
+  endedAt                DateTime?
+  createdAt              DateTime
+  updatedAt              DateTime @updatedAt
+  project                Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  trainingSession        TrainingSession @relation(fields: [trainingSessionId], references: [id], onDelete: Cascade)
+  turns                  TrainingTurn[]
+  events                 RealtimeEvent[]
+
+  @@index([projectId, createdAt])
+  @@index([trainingSessionId, createdAt])
+  @@index([trainingSessionId, status])
+  @@index([clientTokenHash, tokenExpiresAt])
+}
+
+model RealtimeEvent {
+  id                String   @id
+  projectId         String
+  trainingSessionId String
+  realtimeSessionId String
+  turnId            String?
+  sequence          Int
+  source            String
+  eventType         String
+  payload           Json
+  createdAt         DateTime
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  trainingSession   TrainingSession @relation(fields: [trainingSessionId], references: [id], onDelete: Cascade)
+  realtimeSession   RealtimeSession @relation(fields: [realtimeSessionId], references: [id], onDelete: Cascade)
+  turn              TrainingTurn? @relation(fields: [turnId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt])
+  @@index([trainingSessionId, createdAt])
+  @@index([realtimeSessionId, sequence])
+  @@index([turnId])
 }
 
 model VoiceCapture {
@@ -411,9 +556,14 @@ model ReviewReport {
   summary      String
   averageScore Int
   scoreLabel   String
+  clarityScore Int
+  evidenceScore Int
+  pressureScore Int
   strengths    Json
   weaknesses   Json
+  betterAnswers Json
   nextActions  Json
+  recommendedSkills Json
   citations    Json
   createdAt    DateTime
   project      Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -470,20 +620,36 @@ model JobRun {
 }
 
 model KnowledgeChunk {
-  id         String                  @id
-  projectId  String
-  artifactId String?
-  fileId     String?
-  content    String
-  source     String
-  metadata   Json
-  embedding  Unsupported("vector(1536)")?
-  createdAt  DateTime                @default(now())
-  project    Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id            String                  @id
+  projectId     String
+  artifactId    String?
+  fileId        String?
+  sourceId      String?
+  chunkKind     String?
+  page          Int?
+  slide         Int?
+  sheet         String?
+  codePath      String?
+  lineStart     Int?
+  lineEnd       Int?
+  content       String
+  source        String
+  metadata      Json
+  retrievalText String?
+  fts           Unsupported("tsvector")?
+  embedding     Unsupported("vector(1536)")?
+  embeddingV2   Unsupported("vector(384)")?
+  createdAt     DateTime                @default(now())
+  project       Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([artifactId])
   @@index([fileId])
+  @@index([sourceId])
+  @@index([chunkKind])
+  @@index([slide])
+  @@index([page])
+  @@index([codePath])
 }
 
 model FileExplanationSession {

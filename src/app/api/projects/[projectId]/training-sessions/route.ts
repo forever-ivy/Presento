@@ -1,5 +1,8 @@
+import { createProjectRepository } from "@db/repositories/projects";
 import { createTrainingSessionRepository } from "@db/repositories/training-sessions";
 import { z } from "zod";
+import { createTrainingSessionRecord } from "@/lib/training-session";
+import { readTrainingSessionAggregate } from "@/lib/realtime-training";
 import { apiError, apiOk } from "../../../_utils";
 
 export const runtime = "nodejs";
@@ -19,25 +22,29 @@ export async function POST(
   try {
     const { projectId } = await params;
     const payload = createTrainingSessionSchema.parse(await request.json().catch(() => ({})));
-    const now = new Date().toISOString();
-    const session = {
-      id: `session-${crypto.randomUUID()}`,
+    const project = await createProjectRepository().read(projectId);
+    if (!project) {
+      return apiError(404, "project_not_found", "Project not found.");
+    }
+    const repository = createTrainingSessionRepository();
+    const session = createTrainingSessionRecord({
       projectId,
       title: payload.title,
       teacherRole: payload.teacherRole,
       difficulty: payload.difficulty,
-      currentSlideId: payload.currentSlideId ?? null,
-      currentKnowledgeNodeId: payload.currentKnowledgeNodeId ?? null,
-      status: "active",
-      voiceState: "idle",
-      startedAt: now,
-      finishedAt: null,
-      createdAt: now,
-      updatedAt: now,
-    };
+      currentSlideId: payload.currentSlideId,
+      currentKnowledgeNodeId: payload.currentKnowledgeNodeId,
+    });
 
-    await createTrainingSessionRepository().createSession(session);
-    return apiOk({ session }, { status: 201 });
+    await repository.createSession(session);
+    const aggregate = await readTrainingSessionAggregate(projectId, session.id);
+    return apiOk({
+      ...aggregate,
+      nextStep: {
+        provider: "glm-realtime-flash",
+        createRealtimeSessionPath: `/api/projects/${projectId}/training-sessions/${session.id}/realtime-sessions`,
+      },
+    }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return apiError(400, "invalid_training_session_payload", "Invalid training session payload.", error.flatten());

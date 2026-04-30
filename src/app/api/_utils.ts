@@ -20,3 +20,7 @@ export function apiOk<T>(payload: T, init?: ResponseInit) {
 export function notFound(resource = "Resource") {
   return apiError(404, "not_found", `${resource} not found.`);
 }
+
+export function gone(code: string, message: string, details?: unknown) {
+  return apiError(410, code, message, details);
+}

@@ -1,6 +1,10 @@
-import { createSkillInvocationRepository } from "@db/repositories/skill-invocations";
+import {
+  createSkillInvocationRepository,
+  type SkillFeedbackRecord,
+} from "@db/repositories/skill-invocations";
+import { createLangfuseSkillFeedbackScore } from "@ai/langfuse";
 import { z } from "zod";
-import { apiError, apiOk } from "../../../../../_utils";
+import { apiError, apiOk, notFound } from "../../../../../_utils";
 
 export const runtime = "nodejs";
 
@@ -15,16 +19,32 @@ export async function POST(
 ) {
   try {
     const { projectId, invocationId } = await params;
+    const repository = createSkillInvocationRepository();
+    const details = await repository.read(projectId, invocationId);
+    if (!details.invocation) return notFound("Skill invocation");
     const payload = feedbackSchema.parse(await request.json());
-    const feedback = {
+    const feedback: SkillFeedbackRecord = {
       id: `skill-feedback-${crypto.randomUUID()}`,
       projectId,
       invocationId,
       rating: payload.rating,
       comment: payload.comment ?? null,
       createdAt: new Date().toISOString(),
+      syncedAt: null,
     };
-    await createSkillInvocationRepository().writeFeedback(feedback);
+    await repository.writeFeedback(feedback);
+    const synced = await createLangfuseSkillFeedbackScore({
+      id: feedback.id,
+      traceId: details.invocation.langfuseTraceId ?? details.invocation.traceId,
+      observationId: details.invocation.langfuseObservationId,
+      sessionId: details.invocation.projectId,
+      rating: feedback.rating,
+      comment: feedback.comment,
+    });
+    if (synced) {
+      await repository.markFeedbackSynced(invocationId, new Date().toISOString());
+      feedback.syncedAt = new Date().toISOString();
+    }
     return apiOk({ feedback }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {

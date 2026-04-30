@@ -1,3 +1,4 @@
+import { hasBuiltInSkill } from "@ai/skills/registry";
 import { invokeBuiltInSkillWithInvocation } from "@ai/executor";
 import { createProjectRepository } from "@db/repositories/projects";
 import { createSkillInvocationRepository } from "@db/repositories/skill-invocations";
@@ -8,6 +9,7 @@ export const runtime = "nodejs";
 
 const invokeSkillSchema = z.object({
   trigger: z.string().min(1),
+  resolvedBy: z.enum(["explicit", "router", "system"]).default("explicit"),
   payload: z.record(z.string(), z.unknown()).default({}),
 });
 
@@ -17,6 +19,9 @@ export async function POST(
 ) {
   try {
     const { projectId, skillId } = await params;
+    if (!hasBuiltInSkill(skillId)) {
+      return notFound("Skill");
+    }
     const project = await createProjectRepository().read(projectId);
     if (!project) return notFound("Project");
 
@@ -24,8 +29,9 @@ export async function POST(
     const { output, invocation } = await invokeBuiltInSkillWithInvocation({
       projectId,
       projectName: project.name,
-      skillId: skillId as Parameters<typeof invokeBuiltInSkillWithInvocation>[0]["skillId"],
+      skillId,
       trigger: body.trigger,
+      resolvedBy: body.resolvedBy,
       payload: body.payload,
     });
     await createSkillInvocationRepository().write(invocation);
