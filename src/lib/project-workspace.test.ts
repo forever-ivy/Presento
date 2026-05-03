@@ -106,6 +106,29 @@ test("creates processing tasks for object storage files addressed by storageKey"
   assert.equal(workspace.processingTasks[0].kind, "code");
 });
 
+test("creates code parsing tasks for files imported from folders", () => {
+  const workspace = createProjectWorkspace({
+    name: "智能点餐系统课程答辩",
+    category: "软件 / AI / 数据类",
+    ownerScope: "我负责：后端订单接口",
+    teammateScope: "队友负责：前端页面 / 数据库",
+    files: [
+      {
+        name: "backend/src/routes/orders.ts",
+        size: 2048,
+        type: "text/typescript",
+        storagePath: ".data/uploads/2026-04-25/orders.ts",
+      },
+    ],
+  });
+
+  assert.equal(workspace.files[0].name, "backend/src/routes/orders.ts");
+  assert.equal(workspace.files[0].kind, "code");
+  assert.equal(workspace.processingTasks.length, 1);
+  assert.equal(workspace.processingTasks[0].fileName, "backend/src/routes/orders.ts");
+  assert.equal(workspace.processingTasks[0].kind, "code");
+});
+
 test("moves processing tasks through start, complete, and failed states", () => {
   const workspace = createProjectWorkspace({
     name: "智能点餐系统课程答辩",

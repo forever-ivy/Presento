@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   getUploadDisplayName,
   getUploadableFiles,
+  pickUploadDirectory,
   withUploadPath,
 } from "./upload-files.ts";
 
@@ -63,5 +64,76 @@ test("keeps explicit paths collected from dropped folders", () => {
 
   const uploadFile = withUploadPath(file, "backend/src/routes/orders.ts");
 
-  assert.equal(getUploadDisplayName(uploadFile), "backend/src/routes/orders.ts");
+assert.equal(getUploadDisplayName(uploadFile), "backend/src/routes/orders.ts");
+});
+
+test("uses folder input instead of browser directory permissions", async () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const file = new File(["export const ok = true;"], "orders.ts", {
+    type: "text/typescript",
+  }) as File & { webkitRelativePath: string };
+  Object.defineProperty(file, "webkitRelativePath", {
+    configurable: true,
+    value: "backend/src/routes/orders.ts",
+  });
+
+  let directoryPickerCalled = false;
+
+  const input = {
+    files: [file],
+    listeners: new Map<string, () => void>(),
+    multiple: false,
+    style: {} as CSSStyleDeclaration,
+    type: "",
+    addEventListener(event: string, listener: () => void) {
+      this.listeners.set(event, listener);
+    },
+    click() {
+      this.listeners.get("change")?.();
+    },
+    remove() {},
+    setAttribute() {},
+  };
+
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      showDirectoryPicker: async () => {
+        directoryPickerCalled = true;
+        return undefined;
+      },
+    },
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      body: {
+        append() {},
+      },
+      createElement(tagName: string) {
+        assert.equal(tagName, "input");
+        return input;
+      },
+    },
+  });
+
+  try {
+    const files = await pickUploadDirectory();
+
+    assert.equal(directoryPickerCalled, false);
+    assert.deepEqual(
+      files.map((pickedFile) => getUploadDisplayName(pickedFile)),
+      ["backend/src/routes/orders.ts"],
+    );
+  } finally {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: previousWindow,
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: previousDocument,
+    });
+  }
 });

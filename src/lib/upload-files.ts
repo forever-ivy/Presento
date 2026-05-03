@@ -30,24 +30,6 @@ type DataTransferItemWithEntry = {
   webkitGetAsEntry?: () => UploadFileSystemEntry | null;
 };
 
-type WindowWithDirectoryPicker = Window & {
-  showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandleLike>;
-};
-
-type FileSystemDirectoryHandleLike = {
-  kind: "directory";
-  name: string;
-  entries(): AsyncIterable<[string, FileSystemHandleLike]>;
-};
-
-type FileSystemFileHandleLike = {
-  kind: "file";
-  name: string;
-  getFile(): Promise<File>;
-};
-
-type FileSystemHandleLike = FileSystemDirectoryHandleLike | FileSystemFileHandleLike;
-
 export async function uploadDefenseFiles(files: File[], options?: { projectId?: string }): Promise<DefenseFileInput[]> {
   const uploadableFiles = getUploadableFiles(files);
   if (!uploadableFiles.length) return [];
@@ -91,18 +73,6 @@ export async function getUploadableFilesFromDataTransfer(dataTransfer: DataTrans
 }
 
 export async function pickUploadDirectory() {
-  const directoryPicker = (window as WindowWithDirectoryPicker).showDirectoryPicker;
-  if (directoryPicker) {
-    try {
-      const directoryHandle = await directoryPicker({ mode: "read" });
-      const files = await readDirectoryHandleFiles(directoryHandle, directoryHandle.name);
-      return getUploadableFiles(files);
-    } catch (error) {
-      if (isUserCancelledDirectoryPick(error)) return [];
-      throw error;
-    }
-  }
-
   return pickUploadDirectoryWithInput();
 }
 
@@ -146,34 +116,18 @@ async function pickUploadDirectoryWithInput() {
   input.setAttribute("webkitdirectory", "");
 
   return new Promise<BrowserUploadFile[]>((resolve) => {
-    input.addEventListener("change", () => {
-      resolve(getUploadableFiles(input.files ?? []));
+    const complete = (files: FileList | BrowserUploadFile[]) => {
+      resolve(getUploadableFiles(files));
       input.remove();
-    }, { once: true });
+    };
+
+    input.addEventListener("change", () => complete(input.files ?? []), { once: true });
+    input.addEventListener("cancel", () => complete([]), { once: true });
 
     input.style.display = "none";
     document.body.append(input);
     input.click();
   });
-}
-
-async function readDirectoryHandleFiles(
-  directoryHandle: FileSystemDirectoryHandleLike,
-  parentPath: string,
-): Promise<BrowserUploadFile[]> {
-  const files: BrowserUploadFile[] = [];
-
-  for await (const [name, handle] of directoryHandle.entries()) {
-    const relativePath = `${parentPath}/${name}`;
-    if (handle.kind === "file") {
-      files.push(withUploadPath(await handle.getFile(), relativePath));
-      continue;
-    }
-
-    files.push(...await readDirectoryHandleFiles(handle, relativePath));
-  }
-
-  return files;
 }
 
 async function readEntryFiles(entry: UploadFileSystemEntry, parentPath = ""): Promise<BrowserUploadFile[]> {
@@ -214,8 +168,4 @@ async function readDirectoryEntries(entry: UploadFileSystemDirectoryEntry) {
   }
 
   return entries;
-}
-
-function isUserCancelledDirectoryPick(error: unknown) {
-  return error instanceof DOMException && error.name === "AbortError";
 }

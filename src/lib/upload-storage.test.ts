@@ -41,11 +41,14 @@ test("normalizes folder upload paths while removing unsafe segments", () => {
     normalizeUploadPath("../backend\\src//routes/orders.ts", "orders.ts"),
     "backend/src/routes/orders.ts",
   );
+  assert.equal(normalizeUploadPath("", "orders.ts"), "orders.ts");
+  assert.equal(normalizeUploadPath("../.env", ".env"), ".env");
 });
 
 test("ignores dependency folders and local secrets from folder uploads", () => {
   assert.equal(isIgnoredUploadPath("backend/node_modules/zod/index.js"), true);
   assert.equal(isIgnoredUploadPath("backend/.env.local"), true);
+  assert.equal(isIgnoredUploadPath("frontend/.next/server/app.js"), true);
   assert.equal(isIgnoredUploadPath("backend/src/routes/orders.ts"), false);
 });
 
