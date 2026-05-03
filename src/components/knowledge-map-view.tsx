@@ -119,7 +119,6 @@ export function KnowledgeMapView() {
             className="presento-map-coach"
             eyebrow="AI 教练"
             title={`当前节点：${activeNode.title}`}
-            description={activeNode.description}
             actions={
               <>
                 <Link className="presento-button-primary" href="/projects/demo/defense">
@@ -138,11 +137,6 @@ export function KnowledgeMapView() {
             }
           >
             <div className="flex flex-col gap-5">
-              <div className="flex flex-wrap gap-2">
-                <Badge tone={activeNode.tone}>{activeNode.type}</Badge>
-                <Badge tone="orange">{activeNode.risk}</Badge>
-              </div>
-
               <div className="rounded-2xl border border-[var(--presento-border)] bg-[var(--presento-soft)] p-4">
                 <div className="mb-3 flex items-center gap-2 text-sm font-black">
                   <FileText aria-hidden="true" />

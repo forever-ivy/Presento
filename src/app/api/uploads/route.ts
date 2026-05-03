@@ -3,10 +3,15 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { createFileRepository } from "@db/repositories/files";
 import { buildPersistedFileBatch } from "../projects/helpers";
-import { assertSupportedUploadFiles } from "@/lib/project-workspace";
+import {
+  assertSupportedUploadFiles,
+  isUnsupportedCodeArchive,
+} from "@/lib/project-workspace";
 import { readObjectStorageConfig, uploadObjectToStorage } from "@/lib/object-storage";
 import {
   buildStoredFileRecord,
+  isIgnoredUploadPath,
+  normalizeUploadPath,
   uploadDateFolder,
 } from "@/lib/upload-storage";
 
@@ -19,17 +24,31 @@ export async function POST(request: Request) {
   const files = formData
     .getAll("files")
     .filter((value): value is File => value instanceof File && value.size > 0);
+  const relativePaths = formData.getAll("relativePaths");
+  const uploadItems = files
+    .map((file, index) => {
+      const relativePath = relativePaths[index];
+      return {
+        file,
+        displayName: normalizeUploadPath(
+          typeof relativePath === "string" ? relativePath : undefined,
+          file.name,
+        ),
+      };
+    })
+    .filter((item) => !isIgnoredUploadPath(item.displayName))
+    .filter((item) => !(item.displayName.includes("/") && isUnsupportedCodeArchive(item.displayName)));
 
-  if (!files.length) {
+  if (!uploadItems.length) {
     return NextResponse.json(
-      { error: "No files were uploaded." },
+      { error: "No supported files were uploaded." },
       { status: 400 },
     );
   }
 
   try {
-    assertSupportedUploadFiles(files.map((file) => ({
-      name: file.name,
+    assertSupportedUploadFiles(uploadItems.map(({ file, displayName }) => ({
+      name: displayName,
       size: file.size,
       type: file.type,
     })));
@@ -50,12 +69,12 @@ export async function POST(request: Request) {
   }
 
   const uploadedFiles = await Promise.all(
-    files.map(async (file) => {
+    uploadItems.map(async ({ file, displayName }) => {
       const nonce = crypto.randomUUID().slice(0, 8);
       const bytes = Buffer.from(await file.arrayBuffer());
       const record = buildStoredFileRecord(
         {
-          name: file.name,
+          name: displayName,
           size: file.size,
           type: file.type,
         },

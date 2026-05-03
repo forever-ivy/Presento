@@ -8,6 +8,7 @@ import {
   FileQuestion,
   FileText,
   FileUp,
+  FolderOpen,
   Map,
   MessageSquareText,
   Mic,
@@ -32,6 +33,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type DragEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -64,6 +66,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DotPattern } from "@/components/magicui/dot-pattern";
 import { SigmaKnowledgeGraph } from "@/components/sigma-knowledge-graph";
+import { UploadDirectoryDialog } from "@/components/upload-directory-dialog";
 import {
   ScrollVelocityContainer,
   ScrollVelocityRow,
@@ -108,7 +111,12 @@ import {
   demoSkillPacks,
   demoSlideScripts,
 } from "@/lib/demo-data";
-import { uploadDefenseFiles } from "@/lib/upload-files";
+import {
+  getUploadableFiles,
+  getUploadableFilesFromDataTransfer,
+  pickUploadDirectory,
+  uploadDefenseFiles,
+} from "@/lib/upload-files";
 import { useWorkspace } from "@/lib/use-workspace";
 
 gsap.registerPlugin(useGSAP);
@@ -1373,6 +1381,7 @@ function StepRoomContent({ stepId }: { stepId: FlowStepId }) {
 function FilesRoom() {
   const { workspace, summary, addFiles, runProcessing } = useWorkspace();
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
   const files = workspace?.files.length
     ? workspace.files.map((file) => ({
         name: file.name,
@@ -1382,16 +1391,52 @@ function FilesRoom() {
     : demoFiles;
   const tasks = workspace?.processingTasks.length ? workspace.processingTasks : demoProcessingTasks;
 
-  async function uploadMore(fileList: FileList | null) {
-    if (!fileList?.length) return;
+  async function uploadFileBatch(files: File[]) {
+    const nextFiles = getUploadableFiles(files);
+    if (!nextFiles.length) return;
     setIsUploading(true);
+    setUploadError("");
 
     try {
-      const uploadedFiles = await uploadDefenseFiles(Array.from(fileList));
+      const uploadedFiles = await uploadDefenseFiles(nextFiles);
       addFiles(uploadedFiles);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "文件夹导入失败，请换拖拽方式或检查文件内容。");
     } finally {
       setIsUploading(false);
     }
+  }
+
+  async function uploadMore(fileList: FileList | null) {
+    const nextFiles = fileList ? Array.from(fileList) : [];
+    if (!nextFiles.length) {
+      setUploadError("没有读取到文件夹内容。请尝试把文件夹直接拖到这个区域。");
+      return;
+    }
+    await uploadFileBatch(nextFiles);
+  }
+
+  async function uploadDirectory() {
+    try {
+      const files = await pickUploadDirectory();
+      if (!files.length) {
+        setUploadError("没有读取到文件夹内容。请确认文件夹内有可上传文件，或直接把文件夹拖到这个区域。");
+        return;
+      }
+      await uploadFileBatch(files);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "文件夹导入失败，请尝试拖拽文件夹。");
+    }
+  }
+
+  async function uploadDropped(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const files = await getUploadableFilesFromDataTransfer(event.dataTransfer);
+    if (!files.length) {
+      setUploadError("没有读取到可上传文件。已自动跳过依赖目录、构建产物和隐藏配置。");
+      return;
+    }
+    await uploadFileBatch(files);
   }
 
   return (
@@ -1402,12 +1447,30 @@ function FilesRoom() {
         title="知识源接入舱"
         description="把 PPT、报告、代码与数据接入 Presento，生成后续训练图谱。"
       >
-        <label className="presento-room-upload">
-          <FileUp aria-hidden="true" />
-          <span>{isUploading ? "正在上传..." : "继续上传资料"}</span>
-          <small>PDF/PPT、README、代码 zip、SQL、CSV/Excel</small>
-          <input className="sr-only" multiple onChange={(event) => uploadMore(event.target.files)} type="file" />
-        </label>
+        <div
+          className="grid gap-3 md:grid-cols-2"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={uploadDropped}
+        >
+          <label className="presento-room-upload">
+            <FileUp aria-hidden="true" />
+            <span>{isUploading ? "正在上传..." : "继续上传文件"}</span>
+            <small>PDF/PPT、README、SQL、CSV/Excel 等单个或多个文件</small>
+            <input className="sr-only" multiple onChange={(event) => uploadMore(event.target.files)} type="file" />
+          </label>
+          <UploadDirectoryDialog
+            isUploading={isUploading}
+            onSelectDirectory={uploadDirectory}
+            trigger={(
+              <button className="presento-room-upload disabled:cursor-not-allowed disabled:opacity-60" disabled={isUploading} type="button">
+                <FolderOpen aria-hidden="true" />
+                <span>{isUploading ? "正在上传..." : "继续上传文件夹"}</span>
+                <small>代码、文档或数据目录，会保留相对路径</small>
+              </button>
+            )}
+          />
+        </div>
+        {uploadError ? <p className="mt-3 text-sm font-bold text-[var(--presento-danger)]">{uploadError}</p> : null}
       </RoomCard>
 
       <RoomCard className="lg:col-span-2" icon={<Bot aria-hidden="true" />} title="解析队列" description="读取、切片、索引、抽取节点、生成风险。">
@@ -1486,14 +1549,7 @@ function KnowledgeRoom() {
           />
         </div>
         <div className="mt-3 rounded-2xl border border-slate-200 bg-white/85 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className={toneBadgeClass(activeNode.tone)}>{activeNode.type}</Badge>
-            <span className="text-sm font-black">{activeNode.title}</span>
-            <span className="text-xs font-bold text-[var(--presento-muted)]">{activeNode.risk}</span>
-          </div>
-          <p className="mt-2 text-sm font-semibold leading-6 text-[var(--presento-muted)]">
-            {activeNode.description}
-          </p>
+          <span className="text-sm font-black">{activeNode.title}</span>
         </div>
       </RoomCard>
 

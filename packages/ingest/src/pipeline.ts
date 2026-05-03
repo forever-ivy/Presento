@@ -101,7 +101,7 @@ function createStarterKnowledgeNodes({
     projectId,
     kind: "project",
     title: "项目中心",
-    summary: "当前项目的资料、模块、风险与训练入口。",
+    summary: "",
     tone: "blue",
     metadata: {},
     createdAt,
@@ -111,7 +111,7 @@ function createStarterKnowledgeNodes({
     projectId,
     kind: "source-category",
     title: sourceCategoryTitle(source.kind),
-    summary: `按 ${sourceCategoryTitle(source.kind)} 汇总的项目资料。`,
+    summary: "",
     tone: "green",
     metadata: {
       kind: source.kind,
@@ -162,9 +162,7 @@ function createStarterKnowledgeNodes({
     projectId,
     kind: "training",
     title: "文件讲解与追问",
-    summary: isFileExplainable(source.kind)
-      ? "进入 NotebookLM 式讲解，支持速通与精通模式。"
-      : "演示稿资料优先进入逐页讲稿与答辩训练。",
+    summary: "",
     tone: "purple",
     sourceId: source.id,
     metadata: {

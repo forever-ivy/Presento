@@ -475,7 +475,6 @@ function TopNavDetailContent({
               key={`${detailTransition.key}-from`}
               transition={titleTransition}
             >
-              <span>{detailTransition.from.contextLabel}</span>
               <strong>{detailTransition.from.title}</strong>
             </motion.div>
             <motion.div
@@ -489,13 +488,11 @@ function TopNavDetailContent({
               key={`${detailTransition.key}-to`}
               transition={titleTransition}
             >
-              <span>{detailTransition.to.contextLabel}</span>
               <strong>{detailTransition.to.title}</strong>
             </motion.div>
           </>
         ) : (
           <div className="presento-topbar-detail-copy presento-topbar-detail-copy-static">
-            <span>{detailState.contextLabel}</span>
             <strong>{detailState.title}</strong>
           </div>
         )}
@@ -935,9 +932,6 @@ function KnowledgeCardNode({ id, data }: NodeProps<Node<KnowledgeMapFlowNodeData
           <KnowledgeNodeIcon id={id} />
         </div>
         <span className="truncate text-sm font-black">{data.title}</span>
-        <span className="truncate text-[11px] font-bold text-[var(--presento-muted)]">
-          {data.type}
-        </span>
       </motion.div>
     </>
   );

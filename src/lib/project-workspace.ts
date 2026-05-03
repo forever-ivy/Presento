@@ -107,6 +107,43 @@ const extensionKindMap: Record<string, DefenseFileKind> = {
   pdf: "presentation",
   ppt: "presentation",
   pptx: "presentation",
+  c: "code",
+  cc: "code",
+  cpp: "code",
+  cs: "code",
+  cjs: "code",
+  css: "code",
+  cxx: "code",
+  dart: "code",
+  go: "code",
+  graphql: "code",
+  h: "code",
+  hpp: "code",
+  html: "code",
+  java: "code",
+  js: "code",
+  jsx: "code",
+  kt: "code",
+  kts: "code",
+  less: "code",
+  mjs: "code",
+  php: "code",
+  prisma: "code",
+  py: "code",
+  rb: "code",
+  rs: "code",
+  sass: "code",
+  scss: "code",
+  sh: "code",
+  svelte: "code",
+  swift: "code",
+  toml: "code",
+  ts: "code",
+  tsx: "code",
+  vue: "code",
+  xml: "code",
+  yaml: "code",
+  yml: "code",
   doc: "document",
   docx: "document",
   md: "document",
@@ -123,11 +160,18 @@ const extensionKindMap: Record<string, DefenseFileKind> = {
   webp: "asset",
 };
 
+const codeFileNameSet = new Set([
+  "dockerfile",
+  "makefile",
+]);
+
 export function classifyDefenseFile(fileName: string): DefenseFileKind {
   const normalized = fileName.trim().toLowerCase();
   const extension = normalized.split(".").pop() ?? "";
+  const baseName = normalized.split(/[\\/]/).pop() ?? normalized;
 
   if (normalized.includes("readme")) return "document";
+  if (codeFileNameSet.has(baseName)) return "code";
   if (normalized.includes("ppt") || normalized.includes("答辩")) return "presentation";
   if (normalized.includes("backend") || normalized.includes("frontend")) return "code";
   if (normalized.includes("数据") || normalized.includes("dataset")) return "dataset";
