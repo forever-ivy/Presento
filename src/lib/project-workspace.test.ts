@@ -14,6 +14,8 @@ test("classifies common course defense files by extension and name", () => {
   assert.equal(classifyDefenseFile("答辩 PPT.pdf"), "presentation");
   assert.equal(classifyDefenseFile("README.md"), "document");
   assert.equal(classifyDefenseFile("backend.zip"), "code");
+  assert.equal(classifyDefenseFile("src/routes/orders.ts"), "code");
+  assert.equal(classifyDefenseFile("frontend/public/Minisheet.png"), "asset");
   assert.equal(classifyDefenseFile("orders.sql"), "database");
   assert.equal(classifyDefenseFile("订单数据.xlsx"), "dataset");
 });

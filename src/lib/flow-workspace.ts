@@ -1,4 +1,9 @@
 import type { PresentoTone } from "@/components/presento-ui";
+import {
+  extractProjectStepFromPathname,
+  projectRoute,
+  type ProjectRouteStep,
+} from "./project-routes.ts";
 
 export type FlowStepId =
   | "files"
@@ -173,12 +178,12 @@ export const flowDockStepOrder: FlowStepId[] = [
 export const flowSteps: FlowStep[] = [
   {
     id: "files",
-    route: "/projects/demo/files",
+    route: "/projects/[projectId]/files",
     label: "资料导入",
     shortLabel: "上传",
     summary: "上传 PPT、报告、代码与数据",
-    stateLine: "5 份资料 · 3 已解析",
-    metrics: ["5 份资料", "3 已解析", "2 待处理"],
+    stateLine: "读取当前项目资料",
+    metrics: ["真实资料", "按项目隔离", "上传后入库"],
     status: "completed",
     roomKind: "standard",
     tone: "green",
@@ -186,12 +191,12 @@ export const flowSteps: FlowStep[] = [
   },
   {
     id: "knowledge",
-    route: "/projects/demo/knowledge-map",
+    route: "/projects/[projectId]/knowledge-map",
     label: "知识地图",
     shortLabel: "地图",
     summary: "把资料转成可训练的项目大脑",
-    stateLine: "18 节点 · 8 高危 · 3 薄弱",
-    metrics: ["18 知识节点", "8 高危追问", "3 薄弱点"],
+    stateLine: "从当前项目资料生成",
+    metrics: ["真实节点", "资料证据", "可追问"],
     status: "active",
     roomKind: "explore",
     tone: "blue",
@@ -199,12 +204,12 @@ export const flowSteps: FlowStep[] = [
   },
   {
     id: "scripts",
-    route: "/projects/demo/scripts",
+    route: "/projects/[projectId]/scripts",
     label: "逐页讲稿",
     shortLabel: "讲稿",
     summary: "为每一页 PPT 生成讲解路径",
-    stateLine: "12 / 18 页完成",
-    metrics: ["18 页 PPT", "12 已生成", "3 页高危"],
+    stateLine: "读取真实逐页结构",
+    metrics: ["真实 slides", "讲稿编辑", "版本切换"],
     status: "pending",
     roomKind: "standard",
     tone: "cyan",
@@ -212,12 +217,12 @@ export const flowSteps: FlowStep[] = [
   },
   {
     id: "defense",
-    route: "/projects/demo/defense",
+    route: "/projects/[projectId]/defense",
     label: "模拟讲练",
     shortLabel: "讲练",
     summary: "对着当前 PPT 页实时追问",
-    stateLine: "建议下一步 · 第 2 页",
-    metrics: ["当前第 2 页", "准备开始"],
+    stateLine: "创建真实训练会话",
+    metrics: ["训练会话", "实时上下文", "答后复盘"],
     status: "risk",
     roomKind: "immersive",
     tone: "orange",
@@ -225,12 +230,12 @@ export const flowSteps: FlowStep[] = [
   },
   {
     id: "review",
-    route: "/projects/demo/review",
+    route: "/projects/[projectId]/review",
     label: "复盘报告",
     shortLabel: "复盘",
     summary: "暴露问题，生成下一轮训练任务",
-    stateLine: "上次得分 76 · 2 个主要风险",
-    metrics: ["上次得分 76", "2 主要风险", "待生成新复盘"],
+    stateLine: "读取真实复盘报告",
+    metrics: ["训练结果", "评分维度", "下一轮任务"],
     status: "pending",
     roomKind: "standard",
     tone: "purple",
@@ -238,12 +243,12 @@ export const flowSteps: FlowStep[] = [
   },
   {
     id: "pcg",
-    route: "/projects/demo/pcg",
+    route: "/projects/[projectId]/pcg",
     label: "PCG 连接",
     shortLabel: "输出",
     summary: "面向 QQ 校园协作与成果传播",
-    stateLine: "QQ 小组 · 微视口播 · 腾讯视频",
-    metrics: ["小组协作", "训练摘要", "项目展示"],
+    stateLine: "读取真实内容输出",
+    metrics: ["QQ 摘要", "微视口播", "展示脚本"],
     status: "output",
     roomKind: "standard",
     tone: "cyan",
@@ -251,12 +256,12 @@ export const flowSteps: FlowStep[] = [
   },
   {
     id: "deepDive",
-    route: "/projects/demo/deep-dive",
+    route: "/projects/[projectId]/deep-dive",
     label: "薄弱点钻研",
     shortLabel: "钻研",
     summary: "把答不上来的问题补回来",
-    stateLine: "数据库设计 · 个人贡献 · 异常处理",
-    metrics: ["数据库设计", "个人贡献", "异常处理"],
+    stateLine: "从真实薄弱点进入补强",
+    metrics: ["薄弱点", "补强材料", "引用证据"],
     status: "weakness",
     roomKind: "explore",
     tone: "red",
@@ -264,24 +269,18 @@ export const flowSteps: FlowStep[] = [
   },
   {
     id: "skills",
-    route: "/projects/demo/skills",
+    route: "/projects/[projectId]/skills",
     label: "Agent Skills",
     shortLabel: "Skills",
     summary: "解析、追问、复盘的能力包",
-    stateLine: "5 个 Skill 启用 · fallback 可用",
-    metrics: ["5 Skill 启用", "模型 fallback", "调用可观察"],
+    stateLine: "读取项目 Skill 配置",
+    metrics: ["Skill Packs", "调用记录", "反馈闭环"],
     status: "capability",
     roomKind: "standard",
     tone: "purple",
     position: { x: -350, y: -300 },
   },
 ];
-
-const routeAliases = new Map<string, FlowStepId>([
-  ["/", "knowledge"],
-  ["/projects/demo/knowledge-map", "knowledge"],
-  ...flowSteps.map((step) => [step.route, step.id] as const),
-]);
 
 const flowLinks: Array<[FlowStepId, FlowStepId, PresentoTone, FlowEdgeKind]> = [
   ["files", "knowledge", "green", "main"],
@@ -297,7 +296,7 @@ const flowLinks: Array<[FlowStepId, FlowStepId, PresentoTone, FlowEdgeKind]> = [
 ];
 
 export function getFlowStepByRoute(pathname: string) {
-  const stepId = routeAliases.get(pathname) ?? "knowledge";
+  const stepId = extractProjectStepFromPathname(pathname) ?? "knowledge";
   return getFlowStepById(stepId);
 }
 
@@ -305,8 +304,8 @@ export function getFlowStepById(stepId: FlowStepId) {
   return flowSteps.find((step) => step.id === stepId) ?? flowSteps[1];
 }
 
-export function flowStepToRoute(stepId: FlowStepId) {
-  return getFlowStepById(stepId).route;
+export function flowStepToRoute(stepId: FlowStepId, projectId: string) {
+  return projectRoute(projectId, stepId as ProjectRouteStep);
 }
 
 export function flowRouteToMode(pathname: string): Exclude<FlowMode, "entering"> {

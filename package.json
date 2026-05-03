@@ -44,6 +44,7 @@
     "@xyflow/react": "^12.10.2",
     "ai": "^6.0.168",
     "class-variance-authority": "^0.7.1",
+    "docx-preview": "^0.3.7",
     "framer-motion": "^12.38.0",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",

@@ -144,6 +144,78 @@ test("projectKnowledgeMapScene hides third-layer nodes by default and expands mu
   assert.ok(expanded.nodes.some((node) => node.id === "file-python-hello"));
 });
 
+test("projectKnowledgeMapScene lays out dense expanded file branches as readable clusters", () => {
+  const createdAt = "2026-05-01T00:00:00.000Z";
+  const nodes: KnowledgeNodeRecord[] = [
+    {
+      id: "project",
+      projectId: "demo",
+      kind: "project",
+      title: "项目中心",
+      summary: "",
+      tone: "blue",
+      metadata: {},
+      createdAt,
+    },
+    {
+      id: "source-code",
+      projectId: "demo",
+      kind: "source-category",
+      title: "代码资料",
+      summary: "",
+      tone: "green",
+      metadata: {},
+      createdAt,
+    },
+    ...Array.from({ length: 14 }, (_, index) => ({
+      id: `file-${index}`,
+      projectId: "demo",
+      kind: "file" as const,
+      title: `frontend/src/module-${index}/very-long-file-name-${index}.ts`,
+      summary: "",
+      tone: "green" as const,
+      metadata: {
+        fileKind: "code",
+      },
+      createdAt,
+    })),
+  ];
+  const edges: KnowledgeEdgeRecord[] = [
+    {
+      id: "edge-project-code",
+      projectId: "demo",
+      fromNodeId: "project",
+      toNodeId: "source-code",
+      kind: "contains",
+      createdAt,
+    },
+    ...Array.from({ length: 14 }, (_, index) => ({
+      id: `edge-code-file-${index}`,
+      projectId: "demo",
+      fromNodeId: "source-code",
+      toNodeId: `file-${index}`,
+      kind: "contains" as const,
+      createdAt,
+    })),
+  ];
+  const scene = buildKnowledgeMapScene(normalizeKnowledgeMapPayload("demo", { edges, nodes }));
+  const projected = projectKnowledgeMapScene(scene, {
+    activeNodeId: "source-code",
+    expandedBranchIds: new Set(["source-code"]),
+    filter: "all",
+    query: "",
+  });
+  const filePositions = projected.nodes
+    .filter((node) => node.depth === 2)
+    .map((node) => node.position);
+  const roundedX = new Set(filePositions.map((position) => Math.round(position.x * 10) / 10));
+  const roundedY = new Set(filePositions.map((position) => Math.round(position.y * 10) / 10));
+
+  assert.equal(filePositions.length, 14);
+  assert.ok(roundedX.size >= 2);
+  assert.ok(roundedY.size >= 5);
+});
+
 test("projectKnowledgeMapScene shows training nodes only when the parent chain is expanded and focused", () => {
   const map = createKnowledgeMapFixture("demo");
   const scene = buildKnowledgeMapScene(map);

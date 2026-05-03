@@ -1,5 +1,5 @@
-import { FlowWorkspaceView } from "@/components/flow-workspace-view";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return <FlowWorkspaceView />;
+  redirect("/projects/new");
 }

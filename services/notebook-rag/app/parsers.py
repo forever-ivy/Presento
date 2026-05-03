@@ -5,8 +5,11 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
+from html import unescape
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 
 def extract_text(
@@ -40,15 +43,19 @@ def extract_document_with_docling(file_name: str, data: bytes) -> tuple[str, dic
             "sourceFormat": suffix.lstrip("."),
         }
 
-        if suffix in {".ppt", ".pptx"}:
-            source_path = convert_presentation_with_libreoffice(input_path, temp_path)
-            source_metadata.update({
-                "convertedFrom": suffix.lstrip("."),
-                "convertedTo": "pdf",
-                "conversionEngine": "libreoffice",
-            })
+        try:
+            if suffix in {".ppt", ".pptx"}:
+                source_path = convert_presentation_with_libreoffice(input_path, temp_path)
+                source_metadata.update({
+                    "convertedFrom": suffix.lstrip("."),
+                    "convertedTo": "pdf",
+                    "conversionEngine": "libreoffice",
+                })
 
-        conversion = run_docling_conversion(source_path)
+            conversion = run_docling_conversion(source_path)
+        except (FileNotFoundError, ValueError, subprocess.SubprocessError) as exc:
+            return extract_document_with_lightweight_parser(file_name, data, str(exc))
+
         document = read_docling_document(conversion)
         document_dict = export_docling_document_dict(document)
         page_mode = "slide" if suffix in {".ppt", ".pptx"} else "page"
@@ -74,6 +81,138 @@ def extract_document_with_docling(file_name: str, data: bytes) -> tuple[str, dic
             },
             "sourceMetadata": source_metadata,
         }
+
+
+def extract_document_with_lightweight_parser(
+    file_name: str,
+    data: bytes,
+    fallback_reason: str,
+) -> tuple[str, dict[str, Any]]:
+    suffix = Path(file_name).suffix.lower()
+    parser_name = "lightweight-zipxml"
+    source_metadata = {
+        "parser": parser_name,
+        "sourceFormat": suffix.lstrip("."),
+        "fallbackReason": fallback_reason,
+    }
+
+    if suffix == ".docx":
+        text = extract_docx_text(data)
+        if not text:
+            raise ValueError(f"Could not extract readable text from {file_name}.")
+        return text, {
+            "chunkMetadata": {
+                "parser": parser_name,
+            },
+            "sourceMetadata": source_metadata,
+        }
+
+    if suffix == ".pptx":
+        slides = extract_pptx_slides(data)
+        text = "\n\n".join(
+            f"[slide {slide['page']}]\n{slide['text']}"
+            for slide in slides
+            if slide.get("text")
+        ).strip()
+        if not text:
+            raise ValueError(f"Could not extract readable slide text from {file_name}.")
+        return text, {
+            "slides": slides,
+            "chunkMetadata": {
+                "parser": parser_name,
+            },
+            "sourceMetadata": source_metadata,
+        }
+
+    if suffix in {".md", ".txt", ".csv", ".sql"}:
+        text = decode_text_payload(data)
+        if not text:
+            raise ValueError(f"Could not decode readable text from {file_name}.")
+        return text, {
+            "chunkMetadata": {
+                "parser": parser_name,
+            },
+            "sourceMetadata": source_metadata,
+        }
+
+    raise ValueError(fallback_reason)
+
+
+def extract_docx_text(data: bytes) -> str:
+    with zipfile.ZipFile(io_bytes(data)) as archive:
+        xml = archive.read("word/document.xml").decode("utf-8", errors="ignore")
+
+    root = ElementTree.fromstring(xml)
+    paragraphs: list[str] = []
+    for paragraph in root.iter():
+        if local_name(paragraph.tag) != "p":
+            continue
+        texts = [
+            unescape(child.text or "")
+            for child in paragraph.iter()
+            if local_name(child.tag) == "t" and child.text
+        ]
+        line = "".join(texts).strip()
+        if line:
+            paragraphs.append(line)
+    return "\n".join(paragraphs)
+
+
+def extract_pptx_slides(data: bytes) -> list[dict[str, Any]]:
+    with zipfile.ZipFile(io_bytes(data)) as archive:
+        slide_names = sorted(
+            (
+                name
+                for name in archive.namelist()
+                if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)
+            ),
+            key=slide_sort_key,
+        )
+        slides = []
+        for index, slide_name in enumerate(slide_names, start=1):
+            xml = archive.read(slide_name).decode("utf-8", errors="ignore")
+            root = ElementTree.fromstring(xml)
+            lines = [
+                unescape(node.text or "").strip()
+                for node in root.iter()
+                if local_name(node.tag) == "t" and node.text and node.text.strip()
+            ]
+            text = "\n".join(lines)
+            if not text:
+                continue
+            slides.append({
+                "page": index,
+                "title": first_line(text) or f"Slide {index}",
+                "text": text,
+                "metadata": {
+                    "parser": "lightweight-zipxml",
+                },
+            })
+    return slides
+
+
+def decode_text_payload(data: bytes) -> str:
+    for encoding in ("utf-8", "utf-16", "gb18030", "latin-1"):
+        try:
+            return data.decode(encoding).strip()
+        except UnicodeDecodeError:
+            continue
+    return ""
+
+
+def io_bytes(data: bytes):
+    import io
+
+    return io.BytesIO(data)
+
+
+def local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def slide_sort_key(name: str) -> int:
+    match = re.search(r"slide(\d+)\.xml$", name)
+    return int(match.group(1)) if match else 0
 
 
 def extract_repository_with_repomix(repository_url: str) -> tuple[str, dict[str, Any]]:

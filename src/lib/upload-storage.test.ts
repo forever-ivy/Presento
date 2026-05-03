@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildStoredFileRecord,
+  isIgnoredUploadPath,
+  normalizeUploadPath,
   sanitizeFileName,
   uploadDateFolder,
 } from "./upload-storage.ts";
@@ -32,6 +34,19 @@ test("builds stable local upload metadata without exposing absolute paths", () =
   assert.equal(record.uploadedAt, uploadedAt);
   assert.equal(record.uploadStatus, "stored");
   assert.equal(uploadDateFolder(uploadedAt), "2026-04-25");
+});
+
+test("normalizes folder upload paths while removing unsafe segments", () => {
+  assert.equal(
+    normalizeUploadPath("../backend\\src//routes/orders.ts", "orders.ts"),
+    "backend/src/routes/orders.ts",
+  );
+});
+
+test("ignores dependency folders and local secrets from folder uploads", () => {
+  assert.equal(isIgnoredUploadPath("backend/node_modules/zod/index.js"), true);
+  assert.equal(isIgnoredUploadPath("backend/.env.local"), true);
+  assert.equal(isIgnoredUploadPath("backend/src/routes/orders.ts"), false);
 });
 
 test("builds object storage metadata when object storage is enabled", () => {

@@ -2,11 +2,9 @@
 
 import {
   Bot,
-  ChevronRight,
   CheckCircle2,
   Code,
   FileQuestion,
-  FileText,
   MessageSquareText,
   Mic,
   Play,
@@ -20,9 +18,8 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { AnimatePresence, motion, type MotionProps } from "framer-motion";
 import Image from "next/image";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
+import type { PanelSize } from "react-resizable-panels";
 import {
   startTransition,
   forwardRef,
@@ -63,20 +60,18 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { AnimatedBeam } from "@/components/ui/animated-beam";
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
-import { Textarea } from "@/components/ui/textarea";
 import { DotPattern } from "@/components/magicui/dot-pattern";
 import {
   ScrollVelocityContainer,
@@ -86,7 +81,6 @@ import { KnowledgeMapRoom } from "@/components/knowledge-map/knowledge-map-room"
 import { ProjectUploadWorkspace } from "@/components/project-upload-workspace";
 import {
   RichScriptEditor,
-  type RichScriptEditorHandle,
 } from "@/components/rich-script-editor";
 import {
   FLOW_MAP_OVERVIEW_MAX_ZOOM,
@@ -116,16 +110,23 @@ import {
   type FlowStep,
   type FlowWorkspaceNodeData,
 } from "@/lib/flow-workspace";
-import {
-  demoDeepDives,
-  demoDefenseSlides,
-  demoProject,
-  demoReviewMetrics,
-  demoSkillInvocations,
-  demoSkillPacks,
-} from "@/lib/demo-data";
 import { presentoBrandLogo } from "@/lib/brand";
-import { useWorkspace } from "@/lib/use-workspace";
+import {
+  createProjectContentExports,
+  createProjectTrainingSession,
+  fetchProjectContentExports,
+  fetchProjectDeepDives,
+  fetchProjectSkillInvocations,
+  fetchProjectSkillPacks,
+  fetchProjectSlides,
+  type ContentExportItem,
+  type DeepDiveItem,
+  type ProjectSlide,
+  type SkillInvocationItem,
+  type SkillPackItem,
+  type WeaknessItem,
+} from "@/lib/project-data-api";
+import { useProjectWorkspace } from "@/lib/use-workspace";
 
 gsap.registerPlugin(useGSAP);
 
@@ -137,14 +138,26 @@ const ROOM_SWITCH_MS = 560;
 const FLOW_DEFAULT_VIEWPORT = { x: 500, y: 260, zoom: 0.62 };
 const EXIT_MS = 760;
 const MAP_RETURN_CAMERA_MS = 1240;
-const MINUTE_MS = 60_000;
-const DAY_MS = 24 * 60 * MINUTE_MS;
 const BACKGROUND_COPY_VISIBLE_MS = 10_000;
 const BACKGROUND_COPY_FADE_MS = 900;
 const BACKGROUND_COPY_PINNED_STORAGE_KEY = "presento.background-copy-pinned";
 const DEFENSE_GALLERY_EXPANDED_SIZE = "168px";
 const DEFENSE_GALLERY_COLLAPSED_SIZE = "20px";
 const DEFENSE_GALLERY_COLLAPSED_THRESHOLD = 30;
+const detailStateImages = {
+  empty: {
+    alt: "暂无资料",
+    height: 921,
+    src: "/states/detail-empty-transparent.png",
+    width: 918,
+  },
+  loading: {
+    alt: "正在加载",
+    height: 829,
+    src: "/states/detail-loading-transparent.png",
+    width: 716,
+  },
+} as const;
 const pcgNodeDetails = {
   weiyun: {
     title: "腾讯微云",
@@ -182,6 +195,7 @@ const pcgNodeDetails = {
     items: ["项目展示", "答辩高光", "成长复盘"],
   },
 } as const;
+const emptyProjectSlides: ProjectSlide[] = [];
 let pendingReturnStepId: FlowStepId | null = null;
 let pendingDockEntryStepId: FlowStepId | null = null;
 let pendingDockEntryToken = 0;
@@ -206,7 +220,7 @@ function easeInOutSine(t: number) {
   return -(Math.cos(Math.PI * t) - 1) / 2;
 }
 
-export function FlowWorkspaceView() {
+export function FlowWorkspaceView({ projectId }: { projectId: string }) {
   const pathname = usePathname();
   const targetMode = flowRouteToMode(pathname);
   const activeStep = getFlowStepByRoute(pathname);
@@ -498,7 +512,7 @@ export function FlowWorkspaceView() {
   function enterStep(stepId: FlowStepId) {
     pendingReturnStepId = null;
     setLastRoomStep(getFlowStepById(stepId));
-    navigateWithBackgroundExit(flowStepToRoute(stepId));
+    navigateWithBackgroundExit(flowStepToRoute(stepId, projectId));
   }
 
   function cancelDockEntry() {
@@ -619,6 +633,7 @@ export function FlowWorkspaceView() {
         detailTransition={topNavDetailTransition}
         dockFixedSize
         onNavigate={navigateWithBackgroundExit}
+        projectId={projectId}
         onToggleBackgroundHint={
           targetMode === "map" || returningToMap ? toggleBackgroundHint : undefined
         }
@@ -676,6 +691,7 @@ export function FlowWorkspaceView() {
                     knowledgeReaderBackHandlerRef.current = handler;
                   }}
                   onKnowledgeReaderModeChange={setKnowledgeReaderMode}
+                  projectId={projectId}
                 />
               ) : null}
               {roomSwitch ? (
@@ -684,6 +700,7 @@ export function FlowWorkspaceView() {
                     knowledgeReaderBackHandlerRef.current = handler;
                   }}
                   onKnowledgeReaderModeChange={setKnowledgeReaderMode}
+                  projectId={projectId}
                   transition={roomSwitch}
                 />
               ) : null}
@@ -1027,33 +1044,6 @@ function getReducedMotionServerSnapshot() {
   return false;
 }
 
-function getDemoDefenseDeadlineMs() {
-  if (demoProject.defenseAt) {
-    const parsed = Date.parse(demoProject.defenseAt);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-
-  return Date.now() + 2 * DAY_MS;
-}
-
-function formatCountdownLabel(totalMinutes: number) {
-  const minutes = Math.max(0, totalMinutes);
-  const fullDays = Math.floor(minutes / (24 * 60));
-  if (fullDays >= 1) return `${fullDays}天`;
-
-  const fullHours = Math.floor(minutes / 60);
-  if (fullHours >= 1) return `${fullHours}小时`;
-
-  return `${Math.max(1, minutes)}分钟`;
-}
-
-function splitCountdownLabel(label: string) {
-  const match = label.match(/^(\d+)(.*)$/);
-  if (!match) return { value: label, unit: "" };
-
-  return { value: match[1], unit: match[2] };
-}
-
 function MapBackgroundCopy({
   behavior,
   exiting,
@@ -1061,26 +1051,7 @@ function MapBackgroundCopy({
   behavior: FlowBackgroundCopyBehavior;
   exiting: boolean;
 }) {
-  const [now, setNow] = useState(() => Date.now());
-  const [deadlineMs] = useState(getDemoDefenseDeadlineMs);
   const animationMode = getFlowBackgroundCopyAnimationMode({ behavior, exiting });
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNow(Date.now());
-    }, MINUTE_MS);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  const countdownMinutes = Math.max(
-    0,
-    Math.ceil((deadlineMs - now) / MINUTE_MS),
-  );
-  const countdownLabel = formatCountdownLabel(countdownMinutes);
-  const { value: countdownValue, unit: countdownUnit } = splitCountdownLabel(countdownLabel);
   const fadeDurationSeconds = BACKGROUND_COPY_FADE_MS / 1000;
   const timedDurationSeconds = (BACKGROUND_COPY_VISIBLE_MS + BACKGROUND_COPY_FADE_MS) / 1000;
 
@@ -1117,17 +1088,17 @@ function MapBackgroundCopy({
           scrollReactivity={false}
         >
           <span className="presento-flow-background-copy-label">
-            <span className="presento-flow-background-copy-base">剩余</span>
+            <span className="presento-flow-background-copy-base">当前</span>
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-red presento-flow-background-copy-accent-primary">
-              <span>{countdownValue}</span>
-              <span className="presento-flow-background-copy-unit-success">{countdownUnit}</span>
+              <span>项目</span>
+              <span className="presento-flow-background-copy-unit-success">隔离</span>
             </span>
           </span>
           <span className="presento-flow-background-copy-label">
-            <span className="presento-flow-background-copy-base">剩余</span>
+            <span className="presento-flow-background-copy-base">当前</span>
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-red presento-flow-background-copy-accent-primary">
-              <span>{countdownValue}</span>
-              <span className="presento-flow-background-copy-unit-success">{countdownUnit}</span>
+              <span>项目</span>
+              <span className="presento-flow-background-copy-unit-success">隔离</span>
             </span>
           </span>
         </ScrollVelocityRow>
@@ -1139,18 +1110,18 @@ function MapBackgroundCopy({
         >
           <span className="presento-flow-background-copy-label">
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-lime presento-flow-background-copy-accent-secondary presento-flow-background-copy-accent-leading">
-              {demoProject.readiness}%
+              真实
             </span>
             <span className="presento-flow-background-copy-base presento-flow-background-copy-base-complete">
-              已经完成
+              数据驱动
             </span>
           </span>
           <span className="presento-flow-background-copy-label">
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-lime presento-flow-background-copy-accent-secondary presento-flow-background-copy-accent-leading">
-              {demoProject.readiness}%
+              真实
             </span>
             <span className="presento-flow-background-copy-base presento-flow-background-copy-base-complete">
-              已经完成
+              数据驱动
             </span>
           </span>
         </ScrollVelocityRow>
@@ -1427,10 +1398,12 @@ function getRoomSwitchMotionProps(
 function StepRoomIncomingSlide({
   onKnowledgeReaderBackHandlerChange,
   onKnowledgeReaderModeChange,
+  projectId,
   transition,
 }: {
   onKnowledgeReaderBackHandlerChange: (handler: (() => void) | null) => void;
   onKnowledgeReaderModeChange: (isReaderMode: boolean) => void;
+  projectId: string;
   transition: RoomSwitchState;
 }) {
   return (
@@ -1441,6 +1414,7 @@ function StepRoomIncomingSlide({
       motionProps={getRoomSwitchMotionProps(transition, "incoming")}
       onKnowledgeReaderBackHandlerChange={onKnowledgeReaderBackHandlerChange}
       onKnowledgeReaderModeChange={onKnowledgeReaderModeChange}
+      projectId={projectId}
     />
   );
 }
@@ -1452,6 +1426,7 @@ function StepRoom({
   motionProps,
   onKnowledgeReaderBackHandlerChange,
   onKnowledgeReaderModeChange,
+  projectId,
 }: {
   activeId: FlowStepId;
   className?: string;
@@ -1459,6 +1434,7 @@ function StepRoom({
   motionProps?: Pick<MotionProps, "animate" | "initial" | "transition">;
   onKnowledgeReaderBackHandlerChange: (handler: (() => void) | null) => void;
   onKnowledgeReaderModeChange: (isReaderMode: boolean) => void;
+  projectId: string;
 }) {
   const step = getFlowStepById(activeId);
   const roomBody = (
@@ -1475,6 +1451,7 @@ function StepRoom({
       <StepRoomContent
         onKnowledgeReaderBackHandlerChange={onKnowledgeReaderBackHandlerChange}
         onKnowledgeReaderModeChange={onKnowledgeReaderModeChange}
+        projectId={projectId}
         stepId={activeId}
       />
     </main>
@@ -1496,37 +1473,51 @@ function StepRoom({
 const StepRoomContent = memo(function StepRoomContent({
   onKnowledgeReaderBackHandlerChange,
   onKnowledgeReaderModeChange,
+  projectId,
   stepId,
 }: {
   onKnowledgeReaderBackHandlerChange: (handler: (() => void) | null) => void;
   onKnowledgeReaderModeChange: (isReaderMode: boolean) => void;
+  projectId: string;
   stepId: FlowStepId;
 }) {
-  if (stepId === "files") return <FilesRoom />;
+  if (stepId === "files") return <FilesRoom projectId={projectId} />;
   if (stepId === "knowledge") {
     return (
       <KnowledgeRoom
         onReaderBackHandlerChange={onKnowledgeReaderBackHandlerChange}
         onReaderModeChange={onKnowledgeReaderModeChange}
+        projectId={projectId}
       />
     );
   }
-  if (stepId === "scripts") return <ScriptsRoom />;
-  if (stepId === "defense") return <DefenseRoom />;
-  if (stepId === "review") return <ReviewRoom />;
-  if (stepId === "deepDive") return <DeepDiveRoom />;
-  if (stepId === "skills") return <SkillsRoom />;
-  return <PCGRoom />;
+  if (stepId === "scripts") return <ScriptsRoom projectId={projectId} />;
+  if (stepId === "defense") return <DefenseRoom projectId={projectId} />;
+  if (stepId === "review") return <ReviewRoom projectId={projectId} />;
+  if (stepId === "deepDive") return <DeepDiveRoom projectId={projectId} />;
+  if (stepId === "skills") return <SkillsRoom projectId={projectId} />;
+  return <PCGRoom projectId={projectId} />;
 });
 
-function FilesRoom() {
-  const { workspace, addFiles } = useWorkspace();
+function FilesRoom({ projectId }: { projectId: string }) {
+  const { workspace, error, isLoading, refresh } = useProjectWorkspace(projectId);
+
+  if (isLoading) {
+    return <RoomState icon={<UploadCloud aria-hidden="true" />} title="正在读取项目资料" />;
+  }
+
+  if (error) {
+    return <RoomState description={error} icon={<UploadCloud aria-hidden="true" />} title="项目资料读取失败" tone="error" />;
+  }
 
   return (
     <div className="flex flex-col gap-4">
       <ProjectUploadWorkspace
         initialFiles={workspace?.files ?? []}
-        onUploadComplete={addFiles}
+        onUploadComplete={() => {
+          void refresh();
+        }}
+        projectId={projectId}
         variant="workspace"
       />
     </div>
@@ -1536,21 +1527,22 @@ function FilesRoom() {
 function KnowledgeRoom({
   onReaderBackHandlerChange,
   onReaderModeChange,
+  projectId,
 }: {
   onReaderBackHandlerChange: (handler: (() => void) | null) => void;
   onReaderModeChange: (isReaderMode: boolean) => void;
+  projectId: string;
 }) {
   return (
     <KnowledgeMapRoom
       onReaderBackHandlerChange={onReaderBackHandlerChange}
       onReaderModeChange={onReaderModeChange}
-      projectId={demoProject.id}
+      projectId={projectId}
     />
   );
 }
 
 type ScriptVersion = "normal" | "short" | "keywords";
-type DemoScriptSlide = (typeof demoDefenseSlides)[number];
 
 const scriptVersions: { id: ScriptVersion; label: string }[] = [
   { id: "normal", label: "完整版" },
@@ -1571,150 +1563,28 @@ function listHtml(items: string[]) {
   return items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
 }
 
-function buildScriptEditorContent(slide: DemoScriptSlide, version: ScriptVersion) {
-  if (version === "keywords") {
-    return `
-      <h2>${escapeHtml(slide.title)}关键词提词</h2>
-      <p>这一页先用一句话讲清：${escapeHtml(slide.speakerNote)}</p>
-      <ul>${listHtml(slide.keywords)}</ul>
-      <p><mark data-presento-token="pause">停顿提示：讲完关键词后停顿 2 秒，切回 PPT 图示。</mark></p>
-      <h3>高危追问</h3>
-      <ul>${listHtml(slide.risks)}</ul>
-    `;
-  }
-
-  const body = version === "short" ? slide.speakerNote : slide.summary;
-  const transition =
-    version === "short"
-      ? "接下来我用一条订单流转把这页讲清楚。"
-      : "这页的核心不是堆技术名词，而是讲清楚数据从哪里来、经过哪里、最后支撑什么能力。";
-
-  return `
-    <p>${escapeHtml(body)}</p>
-    <p>${escapeHtml(transition)}</p>
-    <ul>${listHtml(slide.keywords.map((keyword) => `关键词：${keyword}`))}</ul>
-    <h3>证据来源</h3>
-    <p>${slide.evidence.map((item) => `<mark>${escapeHtml(item)}</mark>`).join(" ")}</p>
-    <h3>老师可能追问</h3>
-    <ul>${listHtml(slide.risks)}</ul>
-  `;
-}
-
-function buildDeepDiveAnswerContent() {
-  return `
-    <p>如果后厨已经接单，订单会从待处理进入制作中。这个状态下用户端不再直接取消，而是进入人工确认或异常处理流程，避免后厨已经备餐但前端仍撤单造成数据和履约不一致。</p>
-    <p><mark data-presento-token="card">答辩卡片：用“状态机 + 权限边界 + 异常处理”三句话回答。</mark></p>
-  `;
-}
-
-function buildReviewReportContent() {
-  return `
-    <h2>本轮薄弱点</h2>
-    <ul>
-      <li>系统架构页表达偏散，状态流转和接口权限需要更紧。</li>
-      <li>数据库金额快照的解释还不够具体，需要绑定 orders.sql。</li>
-      <li>个人负责范围要明确落到后端订单接口和订单状态变更。</li>
-    </ul>
-    <h2>建议背熟回答</h2>
-    <p>订单模块的核心是：前端只提交业务请求，后端校验权限和状态后写入订单，再由后厨看板读取待处理订单。这样可以避免前端篡改状态，也能保证订单数据一致。</p>
-    <h2>下一轮训练重点</h2>
-    <ol>
-      <li>专项练第 2 页系统架构，控制在 55 秒内。</li>
-      <li>准备 30 秒版数据库冗余字段解释。</li>
-      <li>把高质量回答加入逐页讲稿。</li>
-    </ol>
-  `;
-}
-
-function ScriptsRoom() {
-  const isNarrowLayout = useIsNarrowDefenseLayout();
-  const [activeSlideIndex, setActiveSlideIndex] = useState(1);
+function ScriptsRoom({ projectId }: { projectId: string }) {
+  const { data, error, isLoading } = useProjectSlides(projectId);
+  const slides = data?.slides ?? emptyProjectSlides;
+  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [scriptVersion, setScriptVersion] = useState<ScriptVersion>("normal");
-  const [aiSuggestion, setAiSuggestion] = useState("这段讲稿可以更口语化，并补充后厨接单、订单写入、看板读取三段链路，让表达更完整。");
-  const [rewriteRequest, setRewriteRequest] = useState("");
-  const [isScriptsAiCollapsed, setIsScriptsAiCollapsed] = useState(false);
   const [isScriptsGalleryCollapsed, setIsScriptsGalleryCollapsed] = useState(false);
-  const editorRef = useRef<RichScriptEditorHandle | null>(null);
   const filmstripRef = useRef<HTMLElement | null>(null);
-  const scriptsAiPanelRef = useRef<PanelImperativeHandle | null>(null);
-  const activeSlide = demoDefenseSlides[activeSlideIndex] ?? demoDefenseSlides[1] ?? demoDefenseSlides[0];
+  const activeSlide = slides.find((slide) => slide.id === selectedSlideId) ?? slides[0] ?? null;
   const editorContent = useMemo(
-    () => buildScriptEditorContent(activeSlide, scriptVersion),
+    () => (activeSlide ? buildProjectScriptEditorContent(activeSlide, scriptVersion) : ""),
     [activeSlide, scriptVersion],
   );
-  const scriptsAiCollapsedSize = "20px";
-  const scriptsAiCollapsedThreshold = 42;
-  const scriptsAiPanelMotion: Pick<MotionProps, "animate" | "exit" | "initial" | "transition"> = {
-    animate: { filter: "blur(0px)", opacity: 1, x: 0 },
-    exit: { filter: "blur(6px)", opacity: 0, x: 18 },
-    initial: { filter: "blur(6px)", opacity: 0, x: 18 },
-    transition: { duration: 0.26, ease: "easeOut" },
-  };
-  const quickActions = [
-    {
-      label: "口语化表达",
-      prompt: "已经把表达调成更像现场答辩的说法，保留证据链但减少书面语。",
-      snippet: `<p>口语化版本：这一页我主要想让老师看到，用户下单以后，订单不是直接显示在前端，而是先经过后端校验、写入数据库，再同步给后厨看板。</p>`,
-    },
-    {
-      label: "压缩到 30 秒",
-      prompt: "建议先讲数据流，再补一句为什么这样设计，控制在 30 秒左右。",
-      replace: true,
-      snippet: `<p>${escapeHtml(activeSlide.speakerNote)}</p><p>我会重点说明这一页和订单链路的关系，避免展开太多实现细节。</p>`,
-    },
-    {
-      label: "增强逻辑性",
-      prompt: "建议按“输入、处理、输出、价值”四段组织，老师更容易跟上。",
-      snippet: `<ol><li>输入：用户点餐并提交订单。</li><li>处理：后端校验权限、写入订单和明细。</li><li>输出：后厨看板读取待处理订单并更新状态。</li></ol>`,
-    },
-    {
-      label: "补充技术细节",
-      prompt: "可补充接口权限、状态枚举和数据库写入三个技术点，不要泛泛而谈。",
-      snippet: `<p><mark data-presento-token="question">老师可能追问：状态枚举有哪些？哪些接口允许用户端调用，哪些只能由后厨端调用？</mark></p>`,
-    },
-    {
-      label: "加入过渡句",
-      prompt: "过渡句已经补到当前讲稿后面，用来连接下一页。",
-      snippet: `<p>讲完整体架构以后，下一页我会具体说明数据库为什么这样拆表，以及订单金额为什么要保存快照。</p>`,
-    },
-    {
-      label: "生成老师追问",
-      prompt: "已根据当前页证据生成追问，可以加入答辩卡片继续练。",
-      snippet: `<ul>${listHtml(activeSlide.risks.map((risk) => `老师追问：${risk}`))}</ul>`,
-    },
-  ];
-  const applyQuickAction = useCallback((action: (typeof quickActions)[number]) => {
-    setAiSuggestion(action.prompt);
-    if (action.replace) {
-      editorRef.current?.replaceContent(action.snippet);
-      return;
-    }
-    editorRef.current?.appendContent(action.snippet);
-  }, []);
-  const handleOneClickRewrite = useCallback(() => {
-    const request = rewriteRequest.trim();
-    const requestCopy = request ? `按照“${request}”的要求，` : "";
-    setAiSuggestion(`${requestCopy}已生成一段更适合答辩现场的版本，并补上证据来源。`);
-    editorRef.current?.appendContent(`
-      <p>${requestCopy}我会把这一页讲成“问题、流程、证据、价值”四步：先说明它解决什么问题，再讲清订单如何流转，最后用 ${escapeHtml(activeSlide.evidence[0] ?? "PPT 证据")} 作为依据收住。</p>
-    `);
-  }, [activeSlide.evidence, rewriteRequest]);
-  const selectSlide = useCallback((index: number) => {
-    startTransition(() => setActiveSlideIndex(index));
+  const selectSlide = useCallback((slideId: string) => {
+    startTransition(() => setSelectedSlideId(slideId));
   }, []);
   const resetFilmstripScroll = useCallback(() => {
     const viewport = filmstripRef.current?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']");
-    if (viewport) {
-      viewport.scrollTo({ left: 0, behavior: "auto" });
-      viewport.scrollLeft = 0;
-    }
+    if (!viewport) return;
+
+    viewport.scrollTo({ left: 0, behavior: "auto" });
+    viewport.scrollLeft = 0;
   }, []);
-  const scheduleFilmstripReset = useCallback(() => {
-    resetFilmstripScroll();
-    requestAnimationFrame(resetFilmstripScroll);
-    window.setTimeout(resetFilmstripScroll, 120);
-    window.setTimeout(resetFilmstripScroll, 360);
-  }, [resetFilmstripScroll]);
   const handleFilmstripWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
     if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
 
@@ -1723,26 +1593,26 @@ function ScriptsRoom() {
 
     viewport.scrollLeft += event.deltaY;
   }, []);
-  const handleScriptsAiResize = useCallback((panelSize: PanelSize) => {
-    const shouldCollapse = Boolean(scriptsAiPanelRef.current?.isCollapsed()) || panelSize.inPixels <= scriptsAiCollapsedThreshold;
-    setIsScriptsAiCollapsed((current) => current === shouldCollapse ? current : shouldCollapse);
-  }, [scriptsAiCollapsedThreshold]);
-  const collapseScriptsAiPanel = useCallback(() => {
-    scriptsAiPanelRef.current?.collapse();
-    setIsScriptsAiCollapsed(true);
-  }, []);
   const handleScriptsGalleryResize = useCallback((panelSize: PanelSize) => {
     const shouldCollapse = panelSize.inPixels <= DEFENSE_GALLERY_COLLAPSED_THRESHOLD;
     setIsScriptsGalleryCollapsed((current) => current === shouldCollapse ? current : shouldCollapse);
   }, []);
 
   useLayoutEffect(() => {
-    scheduleFilmstripReset();
-  }, [activeSlideIndex, scheduleFilmstripReset]);
+    if (activeSlide && !isScriptsGalleryCollapsed) resetFilmstripScroll();
+  }, [activeSlide, isScriptsGalleryCollapsed, resetFilmstripScroll]);
 
-  useEffect(() => {
-    scheduleFilmstripReset();
-  }, [scheduleFilmstripReset]);
+  if (isLoading) return <RoomState icon={<FileQuestion aria-hidden="true" />} title="正在读取逐页讲稿" />;
+  if (error) return <RoomState description={error} icon={<FileQuestion aria-hidden="true" />} title="逐页讲稿读取失败" tone="error" />;
+  if (!activeSlide) {
+    return (
+      <RoomState
+        description="当前项目还没有真实 Slide 记录。上传并解析 PPT 后，这里会显示逐页讲稿。"
+        icon={<FileQuestion aria-hidden="true" />}
+        title="暂无逐页讲稿"
+      />
+    );
+  }
 
   return (
     <div className="presento-scripts-workbench">
@@ -1751,127 +1621,32 @@ function ScriptsRoom() {
         orientation="vertical"
       >
         <ResizablePanel defaultSize="78%" minSize="56%">
-          <ResizablePanelGroup
-            className="presento-scripts-upper-resizable"
-            orientation={isNarrowLayout ? "vertical" : "horizontal"}
-          >
-            <ResizablePanel defaultSize={isNarrowLayout ? "62%" : "72%"} minSize={isNarrowLayout ? "42%" : "52%"}>
-              <main className="presento-scripts-main">
-                <Tabs
-                  className="presento-scripts-version-tabs"
-                  onValueChange={(value) => setScriptVersion(value as ScriptVersion)}
-                  value={scriptVersion}
-                >
-                  <TabsList aria-label="讲稿版本" className="presento-scripts-version-tabs-list">
-                    {scriptVersions.map((version) => (
-                      <TabsTrigger
-                        className="presento-scripts-version-tab"
-                        key={version.id}
-                        onFocus={() => setScriptVersion(version.id)}
-                        onMouseDownCapture={() => setScriptVersion(version.id)}
-                        onPointerDownCapture={() => setScriptVersion(version.id)}
-                        onClick={() => setScriptVersion(version.id)}
-                        value={version.id}
-                      >
-                        <strong>{version.label}</strong>
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
-
-                <RichScriptEditor
-                  className="presento-scripts-editor"
-                  initialContent={editorContent}
-                  key={`${activeSlide.page}-${scriptVersion}`}
-                  minHeight={390}
-                  ref={editorRef}
-                  showFooterMeta={false}
-                  statusLabel={`${scriptVersions.find((version) => version.id === scriptVersion)?.label ?? "完整版"} · 本地草稿`}
-                  variant="script"
-                />
-              </main>
-            </ResizablePanel>
-            <ResizableHandle className="presento-defense-resize-handle presento-scripts-resize-handle" withHandle />
-            <ResizablePanel
-              collapsedSize={scriptsAiCollapsedSize}
-              collapsible
-              defaultSize={isNarrowLayout ? "38%" : "28%"}
-              minSize={isNarrowLayout ? "28%" : "22%"}
-              onResize={handleScriptsAiResize}
-              panelRef={scriptsAiPanelRef}
+          <main className="presento-scripts-main">
+            <Tabs
+              className="presento-scripts-version-tabs"
+              onValueChange={(value) => setScriptVersion(value as ScriptVersion)}
+              value={scriptVersion}
             >
-              <div className="presento-scripts-ai-shell">
-                <AnimatePresence initial={false} mode="wait">
-                  {isScriptsAiCollapsed ? null : (
-                    <motion.aside className="presento-defense-ai-pane presento-scripts-ai" key="scripts-ai-panel" {...scriptsAiPanelMotion}>
-                      <header className="presento-defense-ai-header presento-scripts-ai-header">
-                        <span className="presento-defense-ai-icon presento-scripts-ai-icon">
-                          <Sparkles aria-hidden="true" />
-                        </span>
-                        <div className="presento-scripts-ai-heading">
-                          <h2>AI 改稿助手</h2>
-                          <p>基于演讲场景优化你的讲稿表达</p>
-                        </div>
-                        <button
-                          aria-label="收起 AI 改稿助手"
-                          className="presento-scripts-ai-collapse"
-                          onClick={collapseScriptsAiPanel}
-                          type="button"
-                        >
-                          <ChevronRight aria-hidden="true" />
-                        </button>
-                      </header>
-
-                      <section className="presento-defense-ai-question presento-scripts-ai-suggestion">
-                        <span>当前建议</span>
-                        <p>{aiSuggestion}</p>
-                      </section>
-
-                      <label className="presento-defense-console presento-defense-console-ai presento-scripts-ai-request">
-                        <span>告诉 AI 你的改稿需求</span>
-                        <Textarea
-                          maxLength={200}
-                          onChange={(event) => setRewriteRequest(event.target.value)}
-                          placeholder="输入你的改稿需求，例如：更像答辩口语 / 压缩到 30 秒 / 更有逻辑性..."
-                          value={rewriteRequest}
-                        />
-                        <small>{rewriteRequest.length}/200</small>
-                      </label>
-
-                      <Button className="presento-defense-submit-button presento-scripts-ai-primary" onClick={handleOneClickRewrite} type="button">
-                        <Sparkles data-icon="inline-start" aria-hidden="true" />
-                        一键改稿
-                      </Button>
-
-                      <section className="presento-defense-ai-actions presento-scripts-ai-actions">
-                        <span>快速优化</span>
-                        <div>
-                          {quickActions.map((action) => (
-                            <Button key={action.label} onClick={() => applyQuickAction(action)} type="button" variant="outline">
-                              {action.label}
-                            </Button>
-                          ))}
-                        </div>
-                      </section>
-
-                      <section className="presento-defense-evidence presento-scripts-ai-evidence">
-                        <span>高危追问</span>
-                        <QuestionList items={activeSlide.risks} />
-                        <Button asChild className="rounded-xl bg-[var(--presento-navy)] font-black text-white">
-                          <Link href="/projects/demo/defense">
-                            <Mic data-icon="inline-start" aria-hidden="true" />
-                            用这一页开练
-                          </Link>
-                        </Button>
-                      </section>
-                    </motion.aside>
-                  )}
-                </AnimatePresence>
-              </div>
-            </ResizablePanel>
-          </ResizablePanelGroup>
+              <TabsList aria-label="讲稿版本" className="presento-scripts-version-tabs-list">
+                {scriptVersions.map((version) => (
+                  <TabsTrigger className="presento-scripts-version-tab" key={version.id} value={version.id}>
+                    <strong>{version.label}</strong>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+            <RichScriptEditor
+              className="presento-scripts-editor"
+              initialContent={editorContent}
+              key={`${activeSlide.id}-${scriptVersion}`}
+              minHeight={390}
+              showFooterMeta={false}
+              statusLabel={`${scriptVersions.find((version) => version.id === scriptVersion)?.label ?? "完整版"} · 当前项目`}
+              variant="script"
+            />
+          </main>
         </ResizablePanel>
-        <ResizableHandle className="presento-defense-resize-handle" withHandle />
+        <ResizableHandle className="presento-defense-resize-handle presento-scripts-resize-handle" withHandle />
         <ResizablePanel
           className="presento-defense-gallery-panel"
           collapsedSize={DEFENSE_GALLERY_COLLAPSED_SIZE}
@@ -1900,26 +1675,18 @@ function ScriptsRoom() {
                 >
                   <ScrollArea className="presento-defense-gallery-scroll" onWheel={handleFilmstripWheel}>
                     <div className="presento-defense-thumbnail-track">
-                      {demoDefenseSlides.map((slide, index) => (
+                      {slides.map((slide, index) => (
                         <Button
-                          aria-pressed={index === activeSlideIndex}
-                          className={cn("presento-defense-thumbnail", index === activeSlideIndex && "presento-defense-thumbnail-active")}
-                          key={`${slide.page}-${slide.title}`}
-                          onClick={() => selectSlide(index)}
+                          aria-pressed={slide.id === activeSlide.id}
+                          className={cn("presento-defense-thumbnail", slide.id === activeSlide.id && "presento-defense-thumbnail-active")}
+                          key={slide.id}
+                          onClick={() => selectSlide(slide.id)}
                           type="button"
                           variant="ghost"
                         >
-                          <Image
-                            alt=""
-                            aria-hidden="true"
-                            className="presento-defense-thumbnail-image"
-                            height={108}
-                            src={slide.image}
-                            unoptimized
-                            width={192}
-                          />
+                          <ProjectSlideThumbnailPreview index={index} projectId={projectId} slide={slide} />
                           <span className="presento-defense-thumbnail-label">
-                            {slide.page} · {slide.title}
+                            {formatSlidePage(slide)} · {slide.title}
                           </span>
                         </Button>
                       ))}
@@ -1936,29 +1703,56 @@ function ScriptsRoom() {
   );
 }
 
-function DefenseRoom() {
+function DefenseRoom({ projectId }: { projectId: string }) {
+  const { data, error, isLoading } = useProjectSlides(projectId);
+  const slides = data?.slides ?? emptyProjectSlides;
   const isNarrowLayout = useIsNarrowDefenseLayout();
-  const [activeSlideIndex, setActiveSlideIndex] = useState(1);
+  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [isGalleryCollapsed, setIsGalleryCollapsed] = useState(false);
+  const [sessionMessage, setSessionMessage] = useState("");
+  const [sessionError, setSessionError] = useState("");
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
   const galleryShellRef = useRef<HTMLElement | null>(null);
-  const activeSlide = demoDefenseSlides[activeSlideIndex] ?? demoDefenseSlides[1] ?? demoDefenseSlides[0];
-  const activeRisks = activeSlide.risks.slice(0, 3);
-  const coachTurns = [
-    {
-      speaker: "AI 老师",
-      content: `你正在讲第 ${activeSlide.page} 页「${activeSlide.title}」。${activeRisks[0] ?? "先讲清这一页和项目主线的关系。"}`,
-    },
-    {
-      speaker: "我",
-      content: activeSlide.speakerNote,
-    },
-    {
-      speaker: "AI 老师",
-      content: activeRisks[1] ?? "请补充这一页对应的资料证据和个人负责范围。",
-    },
-  ];
-  const selectSlide = useCallback((index: number) => {
-    startTransition(() => setActiveSlideIndex(index));
+  const activeSlide = slides.find((slide) => slide.id === selectedSlideId) ?? slides[0] ?? null;
+  const activeSlideIndex = activeSlide ? Math.max(0, slides.findIndex((slide) => slide.id === activeSlide.id)) : 0;
+  const activeRisks = activeSlide ? buildSlideRisks(activeSlide).slice(0, 3) : [];
+  const coachTurns = activeSlide
+    ? [
+        {
+          speaker: "AI 老师",
+          content: `你正在讲${formatSlidePage(activeSlide)}「${activeSlide.title}」。${activeRisks[0] ?? "先讲清这一页和项目主线的关系。"}`,
+        },
+        {
+          speaker: "我",
+          content: buildSlideSpeakerNote(activeSlide),
+        },
+        {
+          speaker: "AI 老师",
+          content: activeRisks[1] ?? "请补充这一页对应的资料证据和个人负责范围。",
+        },
+      ]
+    : [];
+
+  async function startTraining() {
+    setIsCreatingSession(true);
+    setSessionError("");
+    setSessionMessage("");
+    try {
+      const result = await createProjectTrainingSession(projectId, activeSlide?.id);
+      setSessionMessage(
+        result.nextStep?.createRealtimeSessionPath
+          ? `训练会话已创建：${result.session?.id ?? "已创建"}`
+          : "训练会话已创建",
+      );
+    } catch (nextError) {
+      setSessionError(nextError instanceof Error ? nextError.message : "训练会话创建失败");
+    } finally {
+      setIsCreatingSession(false);
+    }
+  }
+
+  const selectSlide = useCallback((slideId: string) => {
+    startTransition(() => setSelectedSlideId(slideId));
   }, []);
   const resetGalleryScroll = useCallback(() => {
     const viewport = galleryShellRef.current?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']");
@@ -1978,8 +1772,20 @@ function DefenseRoom() {
   }, []);
 
   useLayoutEffect(() => {
-    if (!isGalleryCollapsed) resetGalleryScroll();
-  }, [activeSlideIndex, isGalleryCollapsed, resetGalleryScroll]);
+    if (activeSlide && !isGalleryCollapsed) resetGalleryScroll();
+  }, [activeSlide, isGalleryCollapsed, resetGalleryScroll]);
+
+  if (isLoading) return <RoomState icon={<Mic aria-hidden="true" />} title="正在读取训练上下文" />;
+  if (error) return <RoomState description={error} icon={<Mic aria-hidden="true" />} title="训练上下文读取失败" tone="error" />;
+  if (!activeSlide) {
+    return (
+      <RoomState
+        description="当前项目还没有真实 Slide，上线训练前需要先上传并解析资料。"
+        icon={<Mic aria-hidden="true" />}
+        title="暂无可训练材料"
+      />
+    );
+  }
 
   return (
     <div className="presento-defense-room">
@@ -1996,40 +1802,45 @@ function DefenseRoom() {
               <section className="presento-defense-slide-pane">
                 <motion.div
                   animate={{ opacity: 1, y: 0 }}
-                  className="presento-defense-slide"
+                  className={cn("presento-defense-slide", activeSlide.imagePath && "presento-defense-slide-image-shell")}
                   initial={{ opacity: 0.86, y: 10 }}
-                  key={activeSlide.page}
-                  style={{ "--defense-slide-accent": activeSlide.accent } as CSSProperties}
+                  key={activeSlide.id}
+                  style={{ "--defense-slide-accent": getSlideAccent(activeSlideIndex) } as CSSProperties}
                   transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
                 >
-                  <div className="presento-defense-slide-kicker">
-                    <span>Slide {activeSlide.page}</span>
-                    <span>{activeSlide.status}</span>
-                  </div>
-                  <div className="presento-defense-slide-grid">
-                    <div className="presento-defense-slide-copy">
-                      <h2>{activeSlide.title}</h2>
-                      <p>{activeSlide.summary}</p>
-                      <div className="presento-defense-keywords">
-                        {activeSlide.keywords.map((keyword) => (
-                          <Badge className="presento-room-badge-green" key={keyword}>{keyword}</Badge>
-                        ))}
+                  {activeSlide.imagePath ? (
+                    <Image
+                      alt={`${formatSlidePage(activeSlide)} ${activeSlide.title}`}
+                      className="presento-defense-slide-image"
+                      height={900}
+                      src={slideAssetUrl(projectId, activeSlide, "image")}
+                      unoptimized
+                      width={1600}
+                    />
+                  ) : (
+                    <>
+                      <div className="presento-defense-slide-kicker">
+                        <span>{formatSlidePage(activeSlide)}</span>
+                        <span>真实资料</span>
                       </div>
-                    </div>
-                    <div className="presento-defense-slide-metric">
-                      <span>建议讲述</span>
-                      <strong>{activeSlide.stat}</strong>
-                      <small>{activeSlide.duration} · {activeSlide.status}</small>
-                    </div>
-                  </div>
-                  <div className="presento-defense-module-strip">
-                    {activeSlide.modules.map((module) => (
-                      <span className="presento-defense-module-item" key={module}>
-                        <Sparkles aria-hidden="true" />
-                        <span>{module}</span>
-                      </span>
-                    ))}
-                  </div>
+                      <div className="presento-defense-slide-grid">
+                        <div className="presento-defense-slide-copy">
+                          <h2>{activeSlide.title}</h2>
+                          <p>{trimText(activeSlide.extractedText ?? "", 320) || "该页暂未提取到文本。"}</p>
+                          <div className="presento-defense-keywords">
+                            {extractKeywords(activeSlide).slice(0, 5).map((keyword) => (
+                              <Badge className="presento-room-badge-green" key={keyword}>{keyword}</Badge>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="presento-defense-slide-metric">
+                          <span>建议讲述</span>
+                          <strong>{Math.max(30, Math.min(90, Math.round((activeSlide.extractedText?.length ?? 80) / 8)))}s</strong>
+                          <small>逐页讲练 · 真实解析</small>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </motion.div>
               </section>
             </ResizablePanel>
@@ -2041,7 +1852,7 @@ function DefenseRoom() {
                     <Bot aria-hidden="true" />
                   </div>
                   <div>
-                    <span>AI 老师</span>
+                    <span>训练会话</span>
                     <h2>围绕当前页连续追问</h2>
                   </div>
                 </header>
@@ -2049,13 +1860,13 @@ function DefenseRoom() {
                 <section className="presento-defense-ai-question">
                   <span>当前追问</span>
                   <strong>{activeRisks[0] ?? "先用 30 秒说清这一页。"}</strong>
-                  <p>回答时尽量绑定 PPT 页、代码路径、数据表和你的个人负责范围。</p>
+                  <p>回答时尽量绑定 PPT 页、项目目标、代码路径和你的个人负责范围。</p>
                 </section>
 
                 <ScrollArea className="presento-defense-ai-scroll">
                   <div className="presento-defense-message-list">
                     {coachTurns.map((turn) => (
-                      <div className={cn("presento-defense-message", turn.speaker === "我" && "presento-defense-message-user")} key={`${activeSlide.page}-${turn.speaker}-${turn.content}`}>
+                      <div className={cn("presento-defense-message", turn.speaker === "我" && "presento-defense-message-user")} key={`${activeSlide.id}-${turn.speaker}-${turn.content}`}>
                         <strong>{turn.speaker}</strong>
                         <span>{turn.content}</span>
                       </div>
@@ -2063,35 +1874,12 @@ function DefenseRoom() {
                   </div>
                 </ScrollArea>
 
-                <section className="presento-defense-console presento-defense-console-ai">
-                  <Button className="presento-defense-mic-button" size="icon">
-                    <Mic aria-label="开始录音" />
-                  </Button>
-                  <Textarea className="presento-defense-answer-input" placeholder="输入回答文本，或作为语音训练兜底..." />
-                  <Button className="presento-defense-submit-button">
-                    <Play data-icon="inline-start" aria-hidden="true" />
-                    我讲完了
-                  </Button>
-                </section>
-
-                <Separator className="bg-[var(--presento-border)]" />
-
-                <div className="presento-defense-ai-actions">
-                  <Button className="rounded-xl font-black" variant="outline">给我关键词</Button>
-                  <Button className="rounded-xl font-black" variant="outline">生成回答框架</Button>
-                  <Button asChild className="rounded-xl font-black" variant="outline">
-                    <Link href="/projects/demo/deep-dive">卡住了，进入钻研</Link>
-                  </Button>
-                </div>
-
-                <section className="presento-defense-evidence">
-                  <span>证据来源</span>
-                  <div>
-                    {activeSlide.evidence.map((item) => (
-                      <Badge className="presento-room-badge-muted" key={item}>{item}</Badge>
-                    ))}
-                  </div>
-                </section>
+                {sessionError ? <p className="text-sm font-bold text-[#c56a09]">{sessionError}</p> : null}
+                {sessionMessage ? <p className="text-sm font-bold text-[var(--presento-blue-active)]">{sessionMessage}</p> : null}
+                <Button className="presento-defense-submit-button" disabled={isCreatingSession} onClick={startTraining}>
+                  <Play data-icon="inline-start" aria-hidden="true" />
+                  {isCreatingSession ? "正在创建..." : "创建训练会话"}
+                </Button>
               </aside>
             </ResizablePanel>
           </ResizablePanelGroup>
@@ -2125,26 +1913,18 @@ function DefenseRoom() {
                 >
                   <ScrollArea className="presento-defense-gallery-scroll" onWheel={handleGalleryWheel}>
                     <div className="presento-defense-thumbnail-track">
-                      {demoDefenseSlides.map((slide, index) => (
+                      {slides.map((slide, index) => (
                         <Button
-                          aria-pressed={index === activeSlideIndex}
-                          className={cn("presento-defense-thumbnail", index === activeSlideIndex && "presento-defense-thumbnail-active")}
-                          key={`${slide.page}-${slide.title}`}
-                          onClick={() => selectSlide(index)}
+                          aria-pressed={slide.id === activeSlide.id}
+                          className={cn("presento-defense-thumbnail", slide.id === activeSlide.id && "presento-defense-thumbnail-active")}
+                          key={slide.id}
+                          onClick={() => selectSlide(slide.id)}
                           type="button"
                           variant="ghost"
                         >
-                          <Image
-                            alt=""
-                            aria-hidden="true"
-                            className="presento-defense-thumbnail-image"
-                            height={108}
-                            src={slide.image}
-                            unoptimized
-                            width={192}
-                          />
+                          <ProjectSlideThumbnailPreview index={index} projectId={projectId} slide={slide} />
                           <span className="presento-defense-thumbnail-label">
-                            {slide.page} · {slide.title}
+                            {formatSlidePage(slide)} · {slide.title}
                           </span>
                         </Button>
                       ))}
@@ -2175,140 +1955,422 @@ function useIsNarrowDefenseLayout() {
   return isNarrow;
 }
 
-function ReviewRoom() {
+function ProjectSlideThumbnailPreview({
+  index,
+  projectId,
+  slide,
+}: {
+  index: number;
+  projectId: string;
+  slide: ProjectSlide;
+}) {
+  if (slide.thumbnailPath || slide.imagePath) {
+    return (
+      <Image
+        alt=""
+        aria-hidden="true"
+        className="presento-defense-thumbnail-image"
+        height={108}
+        src={slideAssetUrl(projectId, slide, "thumbnail")}
+        unoptimized
+        width={192}
+      />
+    );
+  }
+
+  const accent = getSlideAccent(index);
+  const title = trimText(slide.title, 22);
+  const textLines = (slide.extractedText ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(1, 4);
+
+  return (
+    <span
+      aria-hidden="true"
+      className="presento-defense-thumbnail-image presento-defense-thumbnail-preview"
+      style={{ "--defense-slide-accent": accent } as CSSProperties}
+    >
+      <span className="presento-defense-thumbnail-kicker">{formatSlidePage(slide)}</span>
+      <strong>{title}</strong>
+      <span className="presento-defense-thumbnail-rule" />
+      <span className="presento-defense-thumbnail-lines">
+        {(textLines.length ? textLines : ["真实解析资料", "逐页模拟讲练"]).map((line) => (
+          <i key={line}>{trimText(line, 28)}</i>
+        ))}
+      </span>
+      <em>{String(slide.page).padStart(2, "0")}</em>
+    </span>
+  );
+}
+
+function slideAssetUrl(projectId: string, slide: ProjectSlide, variant: "image" | "thumbnail") {
+  const search = variant === "thumbnail" ? "?variant=thumbnail" : "";
+  return `/api/projects/${encodeURIComponent(projectId)}/slides/${encodeURIComponent(slide.id)}/image${search}`;
+}
+
+function ReviewRoom({ projectId }: { projectId: string }) {
+  const { workspace, error, isLoading } = useProjectWorkspace(projectId);
+  const { data: deepDiveData } = useProjectDeepDives(projectId);
+  const latestReview = workspace?.latestReview ?? null;
+  const weaknesses = deepDiveData?.weaknesses ?? [];
+
+  if (isLoading) return <RoomState icon={<MessageSquareText aria-hidden="true" />} title="正在读取复盘" />;
+  if (error) return <RoomState description={error} icon={<MessageSquareText aria-hidden="true" />} title="复盘读取失败" tone="error" />;
+  if (!latestReview) {
+    return (
+      <RoomState
+        description="完成一轮真实训练并生成复盘后，这里会展示评分、问题和下一轮任务。"
+        icon={<MessageSquareText aria-hidden="true" />}
+        title="暂无复盘报告"
+      />
+    );
+  }
+
   return (
     <RoomGrid>
-      <RoomCard action={<Badge className="presento-room-badge-green">82 / 100</Badge>} icon={<MessageSquareText aria-hidden="true" />} title="本轮一句话结论" description="表达主线清楚，但数据库设计和个人贡献仍有风险。">
-        <div className="grid gap-3 sm:grid-cols-2">
-          {demoReviewMetrics.map((metric) => (
-            <div className="rounded-2xl border border-[var(--presento-border)] bg-white/88 p-4" key={metric.label}>
-              <div className="text-xs font-black text-[var(--presento-muted)]">{metric.label}</div>
-              <div className="mt-2 text-3xl font-black text-[var(--presento-ink)]">{metric.value}</div>
-              <Progress className="mt-3 bg-[var(--presento-border)] [&>div]:bg-[var(--presento-blue)]" value={metric.value} />
-            </div>
-          ))}
-        </div>
+      <RoomCard action={<Badge className="presento-room-badge-green">{latestReview.averageScore} / 100</Badge>} icon={<MessageSquareText aria-hidden="true" />} title="最近复盘" description={latestReview.scoreLabel}>
+        <Progress className="mt-3 bg-[var(--presento-border)] [&>div]:bg-[var(--presento-blue)]" value={latestReview.averageScore} />
+        <p className="presento-muted mt-4 text-sm font-semibold">生成时间：{formatDateTime(latestReview.createdAt)}</p>
       </RoomCard>
-      <RoomCard className="lg:col-span-2" icon={<FileText aria-hidden="true" />} title="复盘报告编辑器" description="可继续编辑、收藏或导出为下一轮训练材料。">
-        <RichScriptEditor
-          initialContent={buildReviewReportContent()}
-          minHeight={300}
-          placeholder="整理这一轮模拟答辩后的薄弱点和下一步训练重点..."
-          showScriptTools={false}
-          statusLabel="复盘报告 · 本地草稿"
-          variant="review"
-        />
-      </RoomCard>
-      <RoomCard icon={<Target aria-hidden="true" />} title="下一轮训练任务" description="复盘结果会回流到薄弱点和知识地图。">
-        <QuestionList items={["补数据库金额快照解释", "专项练第 2 页系统架构", "明确个人负责订单接口范围", "把高质量回答转成 30 秒口播"]} />
-      </RoomCard>
-      <RoomCard className="lg:col-span-2" icon={<Radio aria-hidden="true" />} title="内容二次创作建议" description="把训练后的清晰表达转成 QQ / 微视 / 腾讯视频素材。">
-        <div className="grid gap-3 md:grid-cols-3">
-          {["30 秒项目介绍", "1 分钟项目展示脚本", "微视短视频分镜"].map((item) => (
-            <StatusRow badge="可生成" icon={<Sparkles aria-hidden="true" />} key={item} label={item} />
-          ))}
-        </div>
+      <RoomCard className="lg:col-span-2" icon={<Target aria-hidden="true" />} title="回流薄弱点" description="只展示真实训练产生的薄弱点。">
+        {weaknesses.length ? (
+          <QuestionList items={weaknesses.slice(0, 6).map((item) => `${item.title}：${item.reason}`)} />
+        ) : (
+          <p className="presento-muted text-sm font-semibold">当前复盘没有生成薄弱点记录。</p>
+        )}
       </RoomCard>
     </RoomGrid>
   );
 }
 
-function DeepDiveRoom() {
-  const first = demoDeepDives[0];
+function DeepDiveRoom({ projectId }: { projectId: string }) {
+  const { data, error, isLoading } = useProjectDeepDives(projectId);
+  const weaknesses = data?.weaknesses ?? [];
+  const deepDives = data?.deepDives ?? [];
+  const firstDeepDive = deepDives[0] ?? null;
+  const firstWeakness = weaknesses[0] ?? null;
+
+  if (isLoading) return <RoomState icon={<Target aria-hidden="true" />} title="正在读取薄弱点" />;
+  if (error) return <RoomState description={error} icon={<Target aria-hidden="true" />} title="薄弱点读取失败" tone="error" />;
+  if (!weaknesses.length && !deepDives.length) {
+    return (
+      <RoomState
+        description="完成真实训练或手动创建薄弱点后，这里会显示补强材料。"
+        icon={<Target aria-hidden="true" />}
+        title="暂无薄弱点"
+      />
+    );
+  }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[320px_1fr_360px]">
-      <RoomCard icon={<Target aria-hidden="true" />} title="薄弱点队列" description="从讲练、知识地图和复盘自动回流。">
+    <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
+      <RoomCard icon={<Target aria-hidden="true" />} title="薄弱点队列" description="从训练复盘和手动创建记录读取。">
         <div className="flex flex-col gap-2">
-          {demoDeepDives.map((item, index) => (
-            <button className={cn("presento-weakness-item", index === 0 && "presento-weakness-item-active")} key={item.title} type="button">
+          {weaknesses.map((item, index) => (
+            <button className={cn("presento-weakness-item", index === 0 && "presento-weakness-item-active")} key={item.id} type="button">
               <strong>{item.title}</strong>
-              <span>{item.evidence}</span>
+              <span>{item.reason}</span>
             </button>
           ))}
         </div>
       </RoomCard>
-
-      <RoomCard icon={<Search aria-hidden="true" />} title={first.title} description="把答不上来的问题拆成依据、解释和可复述回答。">
-        <div className="rounded-2xl border border-[var(--presento-border)] bg-white/88 p-5">
-          <div className="text-xs font-black text-[var(--presento-blue-active)]">问题拆解</div>
-          <p className="mt-3 text-sm font-semibold leading-7 text-[var(--presento-muted)]">
-            需要说清订单状态枚举、取消权限边界，以及后厨接单后的异常处理。回答时不要只说“系统会处理”，要把状态机和证据链连起来。
-          </p>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {first.checklist.map((item) => (
+      <RoomCard icon={<Search aria-hidden="true" />} title={firstDeepDive?.title ?? firstWeakness?.title ?? "补强材料"} description="中央区域展示后端生成的 deep-dive 内容。">
+        <p className="text-base font-semibold leading-8 text-[var(--presento-muted)]">
+          {firstDeepDive?.summary ?? firstWeakness?.reason}
+        </p>
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {stringArrayFromUnknown(firstDeepDive?.checklist).map((item) => (
             <StatusRow icon={<CheckCircle2 aria-hidden="true" />} key={item} label={item} />
           ))}
         </div>
       </RoomCard>
-
-      <RoomCard icon={<FileText aria-hidden="true" />} title="改答版本" description={first.evidence}>
-        <RichScriptEditor
-          initialContent={buildDeepDiveAnswerContent()}
-          minHeight={230}
-          placeholder="把 AI 推荐回答改成你自己的答辩表达..."
-          statusLabel="推荐回答 · 本地草稿"
-          variant="answer"
-        />
-        <div className="mt-4 grid gap-2">
-          <Button asChild className="rounded-xl bg-[var(--presento-navy)] font-black text-white">
-            <Link href="/projects/demo/defense">围绕此问题再练一次</Link>
-          </Button>
-          <Button className="rounded-xl font-black" variant="outline">加入逐页讲稿</Button>
-        </div>
-      </RoomCard>
     </div>
   );
 }
 
-function SkillsRoom() {
-  const builtInSkills = ["项目速记", "项目知识地图", "逐页讲稿", "高危追问", "当前页追问", "代码 / 数据解释", "薄弱点钻研", "兜底回答", "复盘报告", "内容二次创作"];
+function SkillsRoom({ projectId }: { projectId: string }) {
+  const { data, error, isLoading } = useProjectSkills(projectId);
+  const packs = data?.packs ?? [];
+  const invocations = data?.invocations ?? [];
+
+  if (isLoading) return <RoomState icon={<Bot aria-hidden="true" />} title="正在读取 Skills" />;
+  if (error) return <RoomState description={error} icon={<Bot aria-hidden="true" />} title="Skills 读取失败" tone="error" />;
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[280px_1fr_360px]">
-      <RoomCard icon={<Bot aria-hidden="true" />} title="Skill Packs" description="能力包支撑解析、追问和复盘。">
-        <div className="flex flex-col gap-2">
-          {demoSkillPacks.map((pack) => (
-            <StatusRow badge={pack.enabled ? "启用" : "停用"} icon={<Sparkles aria-hidden="true" />} key={pack.name} label={pack.name} meta={pack.desc} />
-          ))}
-        </div>
+    <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
+      <RoomCard icon={<Bot aria-hidden="true" />} title="Skill Packs" description="项目级启用状态来自真实接口。">
+        {packs.length ? (
+          <div className="flex flex-col gap-2">
+            {packs.map((pack) => (
+              <StatusRow badge={pack.enabled ? "启用" : "停用"} icon={<Sparkles aria-hidden="true" />} key={pack.packId ?? pack.id ?? pack.name} label={pack.name} meta={pack.description ?? pack.reason ?? undefined} />
+            ))}
+          </div>
+        ) : (
+          <p className="presento-muted text-sm font-semibold">当前项目没有 Skill Pack 配置。</p>
+        )}
       </RoomCard>
-
-      <RoomCard icon={<Code aria-hidden="true" />} title="内置 Skills" description="MVP 展示系统能力和可观察输入输出，不做公开市场。">
-        <div className="grid gap-3 md:grid-cols-2">
-          {builtInSkills.map((skill) => (
-            <Card className="gap-3 rounded-2xl border-[var(--presento-border)] bg-white/88 py-4 shadow-none" key={skill}>
-              <CardHeader className="px-4">
-                <CardTitle className="text-sm font-black">{skill}</CardTitle>
-                <CardDescription>系统内置 · 训练闭环</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-2 px-4">
-                <Badge className="presento-room-badge-purple">可调用</Badge>
-                <Badge className="presento-room-badge-muted">fallback 可用</Badge>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </RoomCard>
-
-      <RoomCard icon={<MessageSquareText aria-hidden="true" />} title="最近调用" description="真实调用后可替换为 SkillInvocation 记录。">
-        <div className="flex flex-col gap-2">
-          {demoSkillInvocations.map((item) => (
-            <StatusRow badge={item.status} icon={<Bot aria-hidden="true" />} key={`${item.skill}-${item.trigger}`} label={item.skill} meta={item.trigger} />
-          ))}
-        </div>
-        <Separator className="my-5 bg-[var(--presento-border)]" />
-        <div className="grid gap-2">
-          <Button className="rounded-xl font-black" variant="outline">新建自定义 Skill</Button>
-          <Button className="rounded-xl font-black" variant="outline">导入 JSON / YAML Skill</Button>
-        </div>
+      <RoomCard icon={<Code aria-hidden="true" />} title="最近调用" description="只展示当前项目的 SkillInvocation。">
+        {invocations.length ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            {invocations.map((item) => (
+              <StatusRow badge={item.status} icon={<Bot aria-hidden="true" />} key={item.id} label={item.skillName} meta={item.trigger} />
+            ))}
+          </div>
+        ) : (
+          <p className="presento-muted text-sm font-semibold">还没有真实调用记录。</p>
+        )}
       </RoomCard>
     </div>
   );
 }
 
-function PCGRoom() {
+function useProjectSlides(projectId: string) {
+  const [data, setData] = useState<{
+    slideDecks?: unknown[];
+    slides?: ProjectSlide[];
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchProjectSlides(projectId)
+      .then((nextData) => {
+        if (!cancelled) setData(nextData);
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setData(null);
+          setError(nextError instanceof Error ? nextError.message : "Slide 读取失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  return { data, error, isLoading };
+}
+
+function useProjectDeepDives(projectId: string) {
+  const [data, setData] = useState<{
+    deepDives?: DeepDiveItem[];
+    weaknesses?: WeaknessItem[];
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchProjectDeepDives(projectId)
+      .then((nextData) => {
+        if (!cancelled) setData(nextData);
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setData(null);
+          setError(nextError instanceof Error ? nextError.message : "薄弱点读取失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  return { data, error, isLoading };
+}
+
+function useProjectSkills(projectId: string) {
+  const [data, setData] = useState<{
+    packs: SkillPackItem[];
+    invocations: SkillInvocationItem[];
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    Promise.all([
+      fetchProjectSkillPacks(projectId),
+      fetchProjectSkillInvocations(projectId),
+    ])
+      .then(([packsPayload, invocationPayload]) => {
+        if (!cancelled) {
+          setData({
+            packs: packsPayload.skillPacks ?? [],
+            invocations: invocationPayload.invocations ?? [],
+          });
+        }
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setData(null);
+          setError(nextError instanceof Error ? nextError.message : "Skills 读取失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  return { data, error, isLoading };
+}
+
+function useProjectContentExports(projectId: string) {
+  const [exports, setExports] = useState<ContentExportItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const payload = await fetchProjectContentExports(projectId);
+      setExports(payload.exports ?? []);
+    } catch (nextError) {
+      setExports([]);
+      setError(nextError instanceof Error ? nextError.message : "内容输出读取失败");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void Promise.resolve().then(refresh);
+  }, [refresh]);
+
+  return { error, exports, isLoading, refresh };
+}
+
+function buildProjectScriptEditorContent(slide: ProjectSlide, version: ScriptVersion) {
+  const body = slide.extractedText?.trim() || slide.title;
+  const keywords = extractKeywords(slide);
+  const firstParagraph = trimText(body, version === "short" ? 180 : 700);
+
+  if (version === "keywords") {
+    return `
+      <h2>${escapeHtml(slide.title)}</h2>
+      ${keywords.length ? `<ul>${listHtml(keywords)}</ul>` : "<p>暂无关键词。</p>"}
+    `;
+  }
+
+  return `
+    <h2>${escapeHtml(formatSlidePage(slide))} ${escapeHtml(slide.title)}</h2>
+    <p>${escapeHtml(firstParagraph)}</p>
+    ${keywords.length ? `<h3>关键词</h3><ul>${listHtml(keywords)}</ul>` : ""}
+  `;
+}
+
+function extractKeywords(slide: ProjectSlide) {
+  const metadataKeywords = stringArrayFromUnknown(slide.metadata?.keywords);
+  if (metadataKeywords.length) return metadataKeywords.slice(0, 8);
+
+  const words = (slide.extractedText ?? slide.title)
+    .split(/[，。；、\s,.;:()（）]+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 2);
+
+  return Array.from(new Set(words)).slice(0, 8);
+}
+
+function stringArrayFromUnknown(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function trimText(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength).trim()}...`;
+}
+
+function formatSlidePage(slide: ProjectSlide) {
+  return `Slide ${String(slide.page).padStart(2, "0")}`;
+}
+
+function getSlideAccent(index: number) {
+  const accents = ["#10b981", "#3d74a4", "#b9832d", "#64748b", "#0f9f7a", "#5b6f86"];
+  return accents[index % accents.length] ?? "#10b981";
+}
+
+function buildSlideSpeakerNote(slide: ProjectSlide) {
+  const body = slide.extractedText?.trim();
+  if (!body) return `${formatSlidePage(slide)} 主要讲「${slide.title}」，需要先说明它和项目主线的关系。`;
+  return trimText(body.replace(slide.title, "").trim() || body, 150);
+}
+
+function buildSlideRisks(slide: ProjectSlide) {
+  const keywords = extractKeywords(slide).slice(0, 3);
+  const title = slide.title || formatSlidePage(slide);
+  return [
+    `请用 30 秒讲清「${title}」和项目目标的关系。`,
+    keywords[0] ? `这里提到的「${keywords[0]}」具体对应哪一段实现或资料证据？` : `这一页最关键的证据来源是什么？`,
+    keywords[1] ? `如果老师追问「${keywords[1]}」，你准备怎么展开？` : `这一页和你的个人负责范围有什么关系？`,
+  ];
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未知时间";
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function RoomState({
+  title,
+  tone = "muted",
+}: {
+  description?: string | null;
+  icon?: ReactNode;
+  title: string;
+  tone?: "muted" | "error";
+}) {
+  const isLoadingState = title.startsWith("正在");
+  const stateImage = detailStateImages[isLoadingState ? "loading" : "empty"];
+
+  return (
+    <div className={cn("presento-detail-state presento-room-state", tone === "error" && "presento-detail-state-error")}>
+      <Image
+        alt={stateImage.alt}
+        className="presento-detail-state-image"
+        height={stateImage.height}
+        priority={isLoadingState}
+        sizes="(max-width: 768px) 70vw, 420px"
+        src={stateImage.src}
+        width={stateImage.width}
+      />
+      <div className="presento-detail-state-copy">
+        <h2>{title}</h2>
+      </div>
+    </div>
+  );
+}
+
+function PCGRoom({ projectId }: { projectId: string }) {
+  const { error, exports, isLoading, refresh } = useProjectContentExports(projectId);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const weiyunRef = useRef<HTMLDivElement>(null);
   const inputDocsRef = useRef<HTMLDivElement>(null);
@@ -2317,6 +2379,19 @@ function PCGRoom() {
   const qqRef = useRef<HTMLDivElement>(null);
   const outputDocsRef = useRef<HTMLDivElement>(null);
   const tencentVideoRef = useRef<HTMLDivElement>(null);
+
+  async function generateExports() {
+    setIsGenerating(true);
+    setGenerateError("");
+    try {
+      await createProjectContentExports(projectId);
+      await refresh();
+    } catch (nextError) {
+      setGenerateError(nextError instanceof Error ? nextError.message : "内容输出生成失败");
+    } finally {
+      setIsGenerating(false);
+    }
+  }
 
   return (
     <div
@@ -2336,6 +2411,30 @@ function PCGRoom() {
         aria-hidden="true"
         className="absolute inset-x-[16%] top-16 h-64 rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.16),rgba(16,185,129,0))] blur-3xl"
       />
+      <div className="absolute top-8 right-8 z-40 w-[min(360px,calc(100%-2rem))] rounded-[24px] border border-white/80 bg-white/90 p-4 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-black uppercase tracking-wider text-[var(--presento-faint)]">Content exports</div>
+            <h2 className="text-base font-black text-[var(--presento-ink)]">内容输出</h2>
+          </div>
+          <Button className="rounded-xl font-black" disabled={isGenerating} onClick={generateExports} size="sm">
+            {isGenerating ? "生成中" : "生成"}
+          </Button>
+        </div>
+        {isLoading ? (
+          <p className="text-sm font-bold text-[var(--presento-muted)]">正在读取真实输出...</p>
+        ) : error || generateError ? (
+          <p className="text-sm font-bold text-[#c56a09]">{error ?? generateError}</p>
+        ) : exports.length ? (
+          <div className="flex flex-col gap-2">
+            {exports.slice(0, 3).map((item) => (
+              <StatusRow badge={item.status} icon={<Radio aria-hidden="true" />} key={item.id} label={item.title} meta={item.kind} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm font-bold text-[var(--presento-muted)]">还没有真实内容输出。</p>
+        )}
+      </div>
       <div className="relative z-20 flex h-full min-h-0 flex-col items-center justify-center gap-12 md:flex-row md:justify-between md:gap-16">
         <div className="relative z-10 flex flex-row items-center justify-center gap-4 md:flex-col md:gap-5">
           <BeamHoverNode

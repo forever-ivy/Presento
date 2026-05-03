@@ -1501,6 +1501,56 @@ svg {
   box-shadow: var(--presento-card-shadow);
 }
 
+.presento-detail-state {
+  display: flex;
+  height: 100%;
+  min-height: calc(100vh - var(--presento-topbar-height) - 2.5rem);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.58rem;
+  padding: clamp(1rem, 3.4vw, 3rem);
+  text-align: center;
+  background: transparent;
+}
+
+.presento-room-state {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  min-height: 0;
+}
+
+.presento-detail-state-knowledge {
+  min-height: 420px;
+  flex: 1;
+}
+
+.presento-detail-state-image {
+  display: block;
+  width: clamp(160px, 16vw, 248px);
+  height: auto;
+  max-width: min(58vw, 248px);
+  background: transparent;
+  object-fit: contain;
+}
+
+.presento-detail-state-copy {
+  display: flex;
+  max-width: 620px;
+  flex-direction: column;
+  align-items: center;
+}
+
+.presento-detail-state-copy h2 {
+  margin: 0;
+  color: var(--presento-ink);
+  font-size: clamp(1.22rem, 1.48vw, 1.52rem);
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.18;
+}
+
 .presento-knowledge-room {
   display: flex;
   height: 100%;
@@ -2036,6 +2086,7 @@ svg {
 }
 
 .presento-knowledge-file-group-trigger,
+.presento-knowledge-file-folder-trigger,
 .presento-knowledge-file-tree-item {
   display: inline-flex;
   width: 100%;
@@ -2060,13 +2111,23 @@ svg {
   font-weight: 900;
 }
 
+.presento-knowledge-file-folder-trigger {
+  min-height: 34px;
+  padding: 0.35rem 0.55rem 0.35rem calc(0.55rem + (var(--tree-level, 0) * 0.9rem));
+  color: var(--presento-ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
 .presento-knowledge-file-group-trigger:hover,
+.presento-knowledge-file-folder-trigger:hover,
 .presento-knowledge-file-tree-item:hover {
   background: rgba(31, 35, 41, 0.05);
   transform: none;
 }
 
 .presento-knowledge-file-group-trigger svg,
+.presento-knowledge-file-folder-trigger svg,
 .presento-knowledge-file-tree-item svg {
   flex: 0 0 auto;
   width: 15px;
@@ -2080,25 +2141,38 @@ svg {
   font-weight: 900;
 }
 
+.presento-knowledge-file-folder-trigger small {
+  margin-left: auto;
+  color: var(--presento-muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
 .presento-knowledge-file-group-chevron {
   color: var(--presento-faint);
   transition: transform 180ms ease;
 }
 
-.presento-knowledge-file-group[data-state="open"] .presento-knowledge-file-group-chevron {
+.presento-knowledge-file-group[data-state="open"] > button .presento-knowledge-file-group-chevron,
+.presento-knowledge-file-folder[data-state="open"] > button .presento-knowledge-file-group-chevron {
   transform: rotate(90deg);
 }
 
 .presento-knowledge-file-group-content {
   display: grid;
   gap: 0.15rem;
-  margin-left: 1rem;
+}
+
+.presento-knowledge-file-folder,
+.presento-knowledge-file-folder-content {
+  display: grid;
+  gap: 0.15rem;
 }
 
 .presento-knowledge-file-tree-item {
   min-height: 42px;
   align-items: center;
-  padding: 0.4rem 0.55rem;
+  padding: 0.4rem 0.55rem 0.4rem calc(1.45rem + (var(--tree-level, 0) * 0.9rem));
   color: var(--presento-ink);
 }
 
@@ -2149,6 +2223,8 @@ svg {
   }
 
   .presento-knowledge-file-group,
+  .presento-knowledge-file-folder,
+  .presento-knowledge-file-folder-content,
   .presento-knowledge-file-group-content {
     width: 100%;
     justify-items: center;
@@ -2156,6 +2232,7 @@ svg {
   }
 
   .presento-knowledge-file-group-trigger,
+  .presento-knowledge-file-folder-trigger,
   .presento-knowledge-file-tree-item {
     width: 38px;
     min-width: 38px;
@@ -2166,6 +2243,8 @@ svg {
 
   .presento-knowledge-file-group-trigger span,
   .presento-knowledge-file-group-trigger small,
+  .presento-knowledge-file-folder-trigger span,
+  .presento-knowledge-file-folder-trigger small,
   .presento-knowledge-file-group-chevron,
   .presento-knowledge-file-tree-spacer,
   .presento-knowledge-file-tree-copy {
@@ -2173,6 +2252,7 @@ svg {
   }
 
   .presento-knowledge-file-group-trigger svg,
+  .presento-knowledge-file-folder-trigger svg,
   .presento-knowledge-file-tree-item svg {
     width: 18px;
     height: 18px;
@@ -2541,6 +2621,144 @@ svg {
   font-size: 0.82rem;
 }
 
+.presento-docx-viewer {
+  min-height: 100%;
+  background:
+    linear-gradient(90deg, rgba(31, 35, 41, 0.04), transparent 28px, transparent calc(100% - 28px), rgba(31, 35, 41, 0.035)),
+    #f7f8f8;
+  padding: 1.2rem 1.4rem 4rem;
+}
+
+.presento-docx-viewer-native {
+  padding: 0;
+}
+
+.presento-docx-native-host {
+  min-height: 100%;
+}
+
+.presento-docx-native-host-loading,
+.presento-docx-native-host-hidden {
+  display: none;
+}
+
+.presento-docx-native-host .presento-docx-native-wrapper {
+  align-items: center !important;
+  background:
+    linear-gradient(90deg, rgba(31, 35, 41, 0.04), transparent 28px, transparent calc(100% - 28px), rgba(31, 35, 41, 0.035)),
+    #f7f8f8 !important;
+  padding: 1.2rem 1.4rem 4rem !important;
+}
+
+.presento-docx-native-host .presento-docx-native-wrapper > section.presento-docx-native {
+  max-width: min(100%, 920px);
+  margin-bottom: 1.5rem !important;
+  background: #ffffff !important;
+  box-shadow: 0 18px 50px rgba(31, 35, 41, 0.08) !important;
+}
+
+.presento-docx-native-host .presento-docx-native {
+  color: #20242a;
+}
+
+.presento-docx-native-host .presento-docx-native table {
+  max-width: 100%;
+}
+
+.presento-docx-page {
+  width: min(860px, 100%);
+  min-height: calc(100vh - 13rem);
+  margin: 0 auto;
+  border: 1px solid rgba(31, 35, 41, 0.08);
+  background: #ffffff;
+  padding: clamp(1.4rem, 3.4vw, 3rem);
+  color: #20242a;
+  box-shadow: 0 18px 50px rgba(31, 35, 41, 0.06);
+}
+
+.presento-docx-paragraph {
+  margin: 0 0 0.62rem;
+  color: #2b2f36;
+  font-size: 0.92rem;
+  font-weight: 520;
+  line-height: 1.86;
+  white-space: pre-wrap;
+}
+
+.presento-docx-paragraph-title {
+  margin: 0.35rem 0 1.35rem;
+  color: #1d2530;
+  font-size: clamp(1.36rem, 2.2vw, 2rem);
+  font-weight: 950;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.presento-docx-paragraph-heading1 {
+  margin: 1.35rem 0 0.7rem;
+  color: #1f4f79;
+  font-size: 1.22rem;
+  font-weight: 950;
+  line-height: 1.45;
+}
+
+.presento-docx-paragraph-heading2,
+.presento-docx-paragraph-heading3 {
+  margin: 1.05rem 0 0.55rem;
+  color: #245a83;
+  font-size: 1.06rem;
+  font-weight: 930;
+  line-height: 1.5;
+}
+
+.presento-docx-align-center {
+  text-align: center;
+}
+
+.presento-docx-align-end {
+  text-align: right;
+}
+
+.presento-docx-align-justify {
+  text-align: justify;
+}
+
+.presento-docx-run-bold {
+  font-weight: 900;
+}
+
+.presento-docx-run-italic {
+  font-style: italic;
+}
+
+.presento-docx-run-underline {
+  text-decoration: underline;
+}
+
+.presento-docx-table-wrap {
+  overflow-x: auto;
+  margin: 0.9rem 0 1.25rem;
+}
+
+.presento-docx-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: #20242a;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.presento-docx-table td {
+  min-width: 5.5rem;
+  border: 1px solid rgba(31, 35, 41, 0.42);
+  padding: 0.35rem 0.5rem;
+  vertical-align: middle;
+}
+
+.presento-docx-table td span {
+  display: block;
+}
+
 .presento-knowledge-badge-soft {
   background: var(--presento-soft-blue);
   color: var(--presento-blue-active);
@@ -2702,11 +2920,12 @@ svg {
   height: 100%;
   align-content: center;
   justify-items: center;
-  gap: 1.12rem;
-  border: 1px dashed rgba(88, 101, 242, 0.28);
+  gap: 1.35rem;
+  border: 1px dashed rgba(34, 197, 94, 0.34);
   border-radius: 28px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 248, 248, 0.82));
+    radial-gradient(circle at 50% 40%, rgba(34, 197, 94, 0.08), transparent 18rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 248, 248, 0.84));
   padding: 2.75rem 1.75rem;
   text-align: center;
   transition:
@@ -2725,13 +2944,16 @@ svg {
 
 .presento-upload-dropzone-orb {
   display: grid;
-  width: 88px;
-  height: 88px;
+  width: 128px;
+  height: 128px;
   place-items: center;
   border-radius: 999px;
   overflow: hidden;
-  background: transparent;
-  box-shadow: none;
+  background:
+    radial-gradient(circle at 50% 34%, rgba(255, 255, 255, 0.94), rgba(236, 253, 245, 0.72) 58%, rgba(220, 252, 231, 0.64));
+  box-shadow:
+    0 22px 44px rgba(34, 197, 94, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
   color: var(--presento-blue-active);
 }
 
@@ -2741,8 +2963,8 @@ svg {
 }
 
 .presento-upload-dropzone-orb-image {
-  width: 86px;
-  height: 86px;
+  width: 124px;
+  height: 124px;
   border-radius: 999px;
   mix-blend-mode: multiply;
   object-fit: contain;
@@ -2773,7 +2995,10 @@ svg {
 .presento-upload-dropzone-actions {
   display: grid;
   justify-items: center;
-  gap: 0.65rem;
+  gap: 0.58rem;
+  border-radius: 1.35rem;
+  background: rgba(255, 255, 255, 0.42);
+  padding: 0.42rem;
 }
 
 .presento-upload-tree-trigger {
@@ -3297,6 +3522,21 @@ svg {
   box-shadow: none;
 }
 
+.presento-defense-slide-image-shell {
+  justify-content: center;
+  gap: 0;
+  background: #f7f8f8;
+  padding: 0;
+}
+
+.presento-defense-slide-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+  object-fit: contain;
+}
+
 .presento-defense-slide-kicker,
 .presento-defense-slide-grid {
   display: flex;
@@ -3563,6 +3803,75 @@ svg {
   border: 1px solid rgba(31, 35, 41, 0.08);
   background: #ffffff;
   object-fit: cover;
+}
+
+.presento-defense-thumbnail-preview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 86% 20%, color-mix(in srgb, var(--defense-slide-accent) 16%, transparent), transparent 30%),
+    linear-gradient(135deg, #ffffff, #f4f8f6 58%, #eef5f1);
+  padding: 0.72rem 0.78rem;
+}
+
+.presento-defense-thumbnail-kicker {
+  color: var(--presento-muted);
+  font-size: 0.42rem;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.presento-defense-thumbnail-preview strong {
+  display: block;
+  max-width: 78%;
+  color: var(--presento-ink);
+  font-size: clamp(0.72rem, 0.88vw, 0.92rem);
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.05;
+}
+
+.presento-defense-thumbnail-rule {
+  width: 38%;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--defense-slide-accent) 68%, #ffffff);
+}
+
+.presento-defense-thumbnail-lines {
+  display: grid;
+  gap: 0.18rem;
+  margin-top: auto;
+}
+
+.presento-defense-thumbnail-lines i {
+  display: block;
+  overflow: hidden;
+  color: var(--presento-muted);
+  font-size: 0.36rem;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presento-defense-thumbnail-preview em {
+  position: absolute;
+  right: 0.6rem;
+  bottom: 0.55rem;
+  border-radius: 0.34rem;
+  background: color-mix(in srgb, var(--defense-slide-accent) 16%, #ffffff);
+  color: color-mix(in srgb, var(--defense-slide-accent) 74%, #111827);
+  padding: 0.16rem 0.28rem;
+  font-size: 0.56rem;
+  font-style: normal;
+  font-weight: 950;
+  line-height: 1;
 }
 
 .presento-defense-thumbnail-active .presento-defense-thumbnail-image,

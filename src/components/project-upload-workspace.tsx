@@ -50,10 +50,15 @@ import {
   type DefenseFileInput,
 } from "@/lib/project-workspace";
 import {
+  getUploadDisplayName,
+  getUploadableFiles,
+  getUploadableFilesFromDataTransfer,
+  pickUploadDirectory,
+} from "@/lib/upload-files";
+import {
   buildUploadWorkspaceCopy,
   makePersistedUploadTrayKey,
   mergeUploadTrayItems,
-  uploadWorkspaceMockTrayItems,
   uploadWorkspaceFormats,
   type UploadTrayItem,
   type UploadWorkspaceVariant,
@@ -71,10 +76,13 @@ type UploadResponseBody = {
 
 type UploadMeta = Meta & {
   variant: UploadWorkspaceVariant;
+  name?: string;
+  relativePaths?: string;
 };
 
 type ProjectUploadWorkspaceProps = {
   variant: UploadWorkspaceVariant;
+  projectId?: string;
   safeTopOffset?: number;
   initialFiles?: DefenseFileInput[];
   className?: string;
@@ -98,7 +106,6 @@ type UploadTreeNode = {
   defaultOpen?: boolean;
 };
 
-const allowedFileTypes = uploadWorkspaceFormats.flatMap((item) => item.extensions);
 const uploadLoopFormats = [
   ...uploadWorkspaceFormats,
   ...uploadWorkspaceFormats.slice(0, 6),
@@ -127,8 +134,51 @@ const fileKindIconMap: Record<DefenseFileKind, LucideIcon> = {
   other: Braces,
 };
 
+const uploadActionButtonStyle = {
+  width: "min(11.5rem, 68vw)",
+  minHeight: "3rem",
+  justifyContent: "center",
+  paddingInline: "1rem",
+  fontSize: "0.98rem",
+  letterSpacing: "0",
+} satisfies CSSProperties;
+
+const primaryUploadActionButtonStyle = {
+  ...uploadActionButtonStyle,
+  boxShadow: "0 14px 30px rgba(15, 23, 42, 0.16)",
+} satisfies CSSProperties;
+
+const secondaryUploadActionButtonStyle = {
+  ...uploadActionButtonStyle,
+  background: "rgba(255, 255, 255, 0.78)",
+  borderColor: "rgba(31, 35, 41, 0.16)",
+  boxShadow: "0 10px 24px rgba(31, 35, 41, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.86)",
+} satisfies CSSProperties;
+
+const uploadOrbStyle = {
+  width: "9rem",
+  height: "9rem",
+  background:
+    "radial-gradient(circle at 50% 34%, rgba(255, 255, 255, 0.94), rgba(236, 253, 245, 0.72) 58%, rgba(220, 252, 231, 0.64))",
+  boxShadow:
+    "0 22px 44px rgba(34, 197, 94, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.92)",
+} satisfies CSSProperties;
+
+const uploadOrbImageStyle = {
+  width: "8.75rem",
+  height: "8.75rem",
+} satisfies CSSProperties;
+
+const uploadActionsStyle = {
+  gap: "0.58rem",
+  borderRadius: "1.35rem",
+  background: "rgba(255, 255, 255, 0.42)",
+  padding: "0.42rem",
+} satisfies CSSProperties;
+
 export function ProjectUploadWorkspace({
   variant,
+  projectId,
   safeTopOffset = 0,
   initialFiles = [],
   className,
@@ -137,8 +187,12 @@ export function ProjectUploadWorkspace({
   onUploadActivityChange,
 }: ProjectUploadWorkspaceProps) {
   const copy = buildUploadWorkspaceCopy(variant);
+  const uploadEndpoint = projectId
+    ? `/api/uploads?projectId=${encodeURIComponent(projectId)}`
+    : "/api/uploads";
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const destroyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbacksRef = useRef({
     onUploadComplete,
     onUploadError,
@@ -148,13 +202,26 @@ export function ProjectUploadWorkspace({
   const [isTreeSheetOpen, setIsTreeSheetOpen] = useState(false);
   const [sessionTrayItems, setSessionTrayItems] = useState<UploadTrayItem[]>([]);
   const [uppy] = useState(
-    () =>
-      new Uppy<UploadMeta, UploadResponseBody>({
+    () => {
+      const instance = new Uppy<UploadMeta, UploadResponseBody>({
         autoProceed: true,
-        restrictions: {
-          allowedFileTypes,
+      });
+
+      instance.use(XHRUpload, {
+        endpoint: uploadEndpoint,
+        fieldName: "files",
+        allowedMetaFields: ["variant", "relativePaths"],
+        getResponseData: (xhr) => {
+          try {
+            return JSON.parse(xhr.responseText) as UploadResponseBody;
+          } catch {
+            return { error: "上传响应格式错误" };
+          }
         },
-      }),
+      });
+
+      return instance;
+    },
   );
 
   useEffect(() => {
@@ -166,18 +233,25 @@ export function ProjectUploadWorkspace({
   }, [onUploadActivityChange, onUploadComplete, onUploadError]);
 
   useEffect(() => {
-    uppy.use(XHRUpload, {
-      endpoint: "/api/uploads",
-      fieldName: "files",
-      getResponseData: (xhr) => {
-        try {
-          return JSON.parse(xhr.responseText) as UploadResponseBody;
-        } catch {
-          return { error: "上传响应格式错误" };
-        }
-      },
-    });
+    uppy.getPlugin("XHRUpload")?.setOptions({ endpoint: uploadEndpoint });
+  }, [uppy, uploadEndpoint]);
 
+  useEffect(() => {
+    if (destroyTimerRef.current) {
+      clearTimeout(destroyTimerRef.current);
+      destroyTimerRef.current = null;
+    }
+
+    return () => {
+      destroyTimerRef.current = setTimeout(() => {
+        uppy.cancelAll();
+        uppy.destroy();
+        destroyTimerRef.current = null;
+      });
+    };
+  }, [uppy]);
+
+  useEffect(() => {
     const handleFileAdded = (file: UppyFile<UploadMeta, UploadResponseBody>) => {
       setSessionTrayItems((currentItems) =>
         upsertTrayItem(currentItems, {
@@ -302,8 +376,6 @@ export function ProjectUploadWorkspace({
       uppy.off("upload-progress", handleUploadProgress);
       uppy.off("upload-success", handleUploadSuccess);
       uppy.off("upload-error", handleUploadError);
-      uppy.cancelAll();
-      uppy.destroy();
     };
   }, [uppy]);
 
@@ -323,21 +395,43 @@ export function ProjectUploadWorkspace({
     inputRef.current?.click();
   }
 
+  async function openDirectoryPicker() {
+    try {
+      const files = await pickUploadDirectory();
+      if (!files.length) return;
+      addFiles(files);
+    } catch (error) {
+      notifyUploadError(
+        callbacksRef,
+        error instanceof Error ? error.message : "文件夹导入失败",
+      );
+    }
+  }
+
   function addFiles(files: FileList | File[]) {
-    const nextFiles = Array.from(files);
-    if (!nextFiles.length) return;
+    const nextFiles = getUploadableFiles(files);
+    if (!nextFiles.length) {
+      notifyUploadError(callbacksRef, "没有找到可上传的文件，已跳过依赖目录、隐藏配置和代码压缩包。");
+      return;
+    }
 
     try {
       uppy.addFiles(
-        nextFiles.map((file) => ({
-          name: file.name,
-          type: file.type,
-          data: file,
-          meta: {
-            variant,
-          },
-          source: "local",
-        })),
+        nextFiles.map((file) => {
+          const displayName = getUploadDisplayName(file);
+
+          return {
+            name: displayName,
+            type: file.type,
+            data: file,
+            meta: {
+              name: displayName,
+              relativePaths: displayName,
+              variant,
+            },
+            source: "local",
+          };
+        }),
       );
     } catch (error) {
       notifyUploadError(
@@ -347,20 +441,25 @@ export function ProjectUploadWorkspace({
     }
   }
 
-  function handleDrop(event: DragEvent<HTMLLabelElement>) {
+  async function handleDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
     setIsDragging(false);
-    addFiles(event.dataTransfer.files);
+
+    try {
+      const files = await getUploadableFilesFromDataTransfer(event.dataTransfer);
+      addFiles(files);
+    } catch (error) {
+      notifyUploadError(
+        callbacksRef,
+        error instanceof Error ? error.message : "文件夹导入失败",
+      );
+    }
   }
 
   const uploadedCount = trayItems.filter((item) => item.status === "completed").length;
-  const sheetTrayItems = useMemo(
-    () => mergeMockTrayItems(trayItems, uploadWorkspaceMockTrayItems),
-    [trayItems],
-  );
   const uploadedTreeNodes = useMemo(
-    () => buildUploadExplorerTree(sheetTrayItems),
-    [sheetTrayItems],
+    () => buildUploadExplorerTree(trayItems),
+    [trayItems],
   );
 
   return (
@@ -427,30 +526,45 @@ export function ProjectUploadWorkspace({
             onDragOver={(event) => event.preventDefault()}
             onDrop={handleDrop}
           >
-            <div className="presento-upload-dropzone-orb" aria-hidden="true">
+            <div
+              className="presento-upload-dropzone-orb"
+              aria-hidden="true"
+              style={uploadOrbStyle}
+            >
               <Image
                 alt=""
                 className="presento-upload-dropzone-orb-image"
                 height={86}
                 src="/brand/upload-panda.png"
+                style={uploadOrbImageStyle}
                 width={86}
               />
             </div>
-            <div className="presento-upload-dropzone-copy">
-              <strong>{copy.dropzoneLabel}</strong>
-              {copy.dropzoneHint ? <p>{copy.dropzoneHint}</p> : null}
-            </div>
-            <div className="presento-upload-dropzone-actions">
+            <div className="presento-upload-dropzone-actions" style={uploadActionsStyle}>
               <Button
-                className="rounded-full bg-[var(--presento-blue)] px-5 font-black text-white hover:bg-[var(--presento-blue-active)]"
+                className="presento-upload-action-button rounded-full bg-[var(--presento-blue)] font-black text-white hover:bg-[var(--presento-blue-active)]"
                 onClick={(event) => {
                   event.preventDefault();
                   openPicker();
                 }}
                 size="lg"
+                style={primaryUploadActionButtonStyle}
                 type="button"
               >
                 选择文件
+              </Button>
+              <Button
+                className="presento-upload-action-button rounded-full font-black"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void openDirectoryPicker();
+                }}
+                size="lg"
+                style={secondaryUploadActionButtonStyle}
+                type="button"
+                variant="outline"
+              >
+                选择文件夹
               </Button>
             </div>
             <input
@@ -604,110 +718,80 @@ function UploadTreeNodeRow({ node, level = 0 }: { node: UploadTreeNode; level?: 
 }
 
 function buildUploadExplorerTree(trayItems: UploadTrayItem[]): UploadTreeNode[] {
-  const latestNodes: UploadTreeNode[] = trayItems.map((item) => ({
-    id: `latest:${item.id}`,
-    label: item.name,
-    kind: "file" as const,
-    fileKind: classifyDefenseFile(item.name),
+  const groups = new Map<DefenseFileKind, UploadTrayItem[]>();
+
+  for (const item of trayItems) {
+    const kind = classifyDefenseFile(item.name);
+    const items = groups.get(kind) ?? [];
+    items.push(item);
+    groups.set(kind, items);
+  }
+
+  const folderLabels: Record<DefenseFileKind, string> = {
+    presentation: "演示资料",
+    document: "项目文档",
+    code: "代码文件",
+    database: "数据库脚本",
+    dataset: "数据表",
+    asset: "图片素材",
+    other: "其他资料",
+  };
+
+  const children = Array.from(groups.entries()).map(([kind, items]) => ({
+    id: `folder:${kind}`,
+    label: folderLabels[kind],
+    kind: "folder" as const,
+    defaultOpen: true,
+    children: buildPathTree(items, kind),
   }));
 
   return [
     {
       id: "workspace-root",
-      label: "智能点餐系统",
+      label: "已接入资料",
       kind: "folder",
       defaultOpen: true,
-      children: [
-        {
-          id: "presentations",
-          label: "演示资料",
-          kind: "folder",
-          defaultOpen: true,
-          children: [
-            fileNode("答辩 PPT.pdf"),
-            fileNode("答辩原稿.pptx"),
-            fileNode("项目报告.pdf"),
-          ],
-        },
-        {
-          id: "docs",
-          label: "项目文档",
-          kind: "folder",
-          defaultOpen: true,
-          children: [
-            fileNode("README.md"),
-            fileNode("项目速记.md"),
-            {
-              id: "docs-review",
-              label: "答辩复盘",
-              kind: "folder",
-              children: [
-                fileNode("高危追问清单.md"),
-                fileNode("老师点评摘录.txt"),
-                fileNode("下一轮讲练计划.md"),
-              ],
-            },
-          ],
-        },
-        {
-          id: "engineering",
-          label: "代码与数据",
-          kind: "folder",
-          defaultOpen: true,
-          children: [
-            {
-              id: "code",
-              label: "backend",
-              kind: "folder",
-              children: [
-                fileNode("routes/orders.ts"),
-                fileNode("routes/kitchen.ts"),
-                fileNode("backend.zip"),
-              ],
-            },
-            {
-              id: "data",
-              label: "data",
-              kind: "folder",
-              children: [
-                fileNode("orders.sql"),
-                fileNode("订单数据.xlsx"),
-                fileNode("metrics.csv"),
-              ],
-            },
-          ],
-        },
-        {
-          id: "latest",
-          label: "本次追加",
-          kind: "folder",
-          defaultOpen: true,
-          children: latestNodes,
-        },
-      ],
+      children,
     },
   ];
 }
 
-function fileNode(name: string): UploadTreeNode {
-  return {
-    id: `file:${name}`,
-    label: name,
-    kind: "file",
-    fileKind: classifyDefenseFile(name),
-  };
-}
+function buildPathTree(items: UploadTrayItem[], kind: DefenseFileKind): UploadTreeNode[] {
+  const roots: UploadTreeNode[] = [];
+  const folderMap = new Map<string, UploadTreeNode>();
 
-function mergeMockTrayItems(
-  trayItems: UploadTrayItem[],
-  mockItems: UploadTrayItem[],
-): UploadTrayItem[] {
-  const merged = new Map<string, UploadTrayItem>();
+  for (const item of items) {
+    const parts = item.name.split("/").filter(Boolean);
+    const fileLabel = parts.pop() ?? item.name;
+    let siblings = roots;
+    let currentPath = "";
 
-  for (const item of [...trayItems, ...mockItems]) {
-    const key = item.persistedKey ?? item.name;
-    if (!merged.has(key)) merged.set(key, item);
+    for (const part of parts) {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      let folder = folderMap.get(currentPath);
+
+      if (!folder) {
+        folder = {
+          id: `folder-path:${currentPath}`,
+          label: part,
+          kind: "folder",
+          defaultOpen: true,
+          children: [],
+        };
+        folderMap.set(currentPath, folder);
+        siblings.push(folder);
+      }
+
+      siblings = folder.children ?? [];
+    }
+
+    siblings.push({
+      id: `file:${item.id}`,
+      label: fileLabel,
+      kind: "file",
+      fileKind: kind,
+    });
   }
 
-  return Array.from(merged.values());
+  return roots;
 }

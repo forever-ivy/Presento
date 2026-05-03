@@ -14,6 +14,7 @@
 /coverage
 /.data
 /.playwright-cli/
+.venv-notebook-rag/
 __pycache__/
 *.pyc
 

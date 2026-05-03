@@ -33,10 +33,10 @@ export default function SigmaKnowledgeGraphInner({
           defaultEdgeColor: "rgba(55, 65, 81, 0.52)",
           defaultEdgeType: "line",
           labelColor: { color: "#52606d" },
-          labelDensity: 0.14,
+          labelDensity: 0.08,
           labelFont: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-          labelGridCellSize: 72,
-          labelRenderedSizeThreshold: 4,
+          labelGridCellSize: 112,
+          labelRenderedSizeThreshold: 8,
           labelWeight: "600",
           defaultDrawNodeHover: drawNodeOnlyHover,
           renderEdgeLabels: false,
@@ -105,7 +105,7 @@ function GraphLoader({
         y: node.position?.y ?? 0,
         size: nodeSize,
         color: museumNodeColor(node, isActive, isCenter),
-        forceLabel: node.depth !== 2 || isActive || Boolean(node.expandable),
+        forceLabel: (node.depth ?? 2) <= 1 || isActive || Boolean(node.expandable),
         kind: node.kind,
         zIndex: isActive ? 3 : isCenter ? 2 : 1,
       });
@@ -115,7 +115,7 @@ function GraphLoader({
       if (!graph.hasNode(edge.fromNodeId) || !graph.hasNode(edge.toNodeId)) return;
       graph.addEdgeWithKey(edge.id ?? `edge-${index}`, edge.fromNodeId, edge.toNodeId, {
         label: edge.label,
-        size: edge.emphasis === "active" ? 3.4 : edge.emphasis === "branch" ? 2.45 : 1.9,
+        size: edge.emphasis === "active" ? 2.8 : edge.emphasis === "branch" ? 1.45 : 0.9,
         color: edgeColor(edge),
         zIndex: edge.emphasis === "active" ? 2 : 1,
       });
@@ -203,15 +203,16 @@ function inferEdges(nodes: SigmaKnowledgeNode[]): SigmaKnowledgeEdge[] {
 }
 
 function labelForNode(node: SigmaKnowledgeNode) {
-  if (!node.expandable || !node.childCount) return node.title;
-  return `${node.title}  +${node.childCount}`;
+  const title = compactNodeTitle(node);
+  if (!node.expandable || !node.childCount) return title;
+  return `${title}  +${node.childCount}`;
 }
 
 function sizeForNode(node: SigmaKnowledgeNode, active: boolean) {
   if (node.kind === "project") return active ? 31 : 28;
   if (node.depth === 1) return active ? 15 : node.expandable ? 13.6 : 12;
-  if (node.depth === 2) return active ? 11.5 : 9.8;
-  return active ? 10 : 8.5;
+  if (node.depth === 2) return active ? 10.8 : 7.6;
+  return active ? 9.2 : 6.9;
 }
 
 function cameraRatioForNode(node: SigmaKnowledgeNode) {
@@ -241,6 +242,20 @@ function museumNodeColor(
 
 function edgeColor(edge: SigmaKnowledgeEdge) {
   if (edge.emphasis === "active") return "rgba(3, 105, 161, 1)";
-  if (edge.emphasis === "branch") return "rgba(55, 65, 81, 0.82)";
-  return "rgba(55, 65, 81, 0.68)";
+  if (edge.emphasis === "branch") return "rgba(71, 85, 105, 0.42)";
+  return "rgba(100, 116, 139, 0.26)";
+}
+
+function compactNodeTitle(node: SigmaKnowledgeNode) {
+  const depth = node.depth ?? 2;
+  if (depth <= 1) return truncateMiddle(node.title, 28);
+  const leafName = node.title.split(/[\\/]/).filter(Boolean).pop() ?? node.title;
+  return truncateMiddle(leafName, depth === 2 ? 24 : 20);
+}
+
+function truncateMiddle(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+  const leftLength = Math.ceil((maxLength - 1) * 0.58);
+  const rightLength = Math.floor((maxLength - 1) * 0.42);
+  return `${value.slice(0, leftLength)}…${value.slice(value.length - rightLength)}`;
 }

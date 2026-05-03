@@ -16,7 +16,6 @@ import {
   MessageSquareText,
   Presentation,
   Search,
-  Sparkles,
   Table2,
   Target,
   ZoomIn,
@@ -24,6 +23,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion, type MotionProps } from "framer-motion";
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
@@ -77,14 +77,19 @@ import {
 import {
   appendFileExplanationTurn,
   createFileExplanation,
+  createWorkspaceKnowledgeMap,
   getKnowledgeNodeActivation,
   loadFileNodePreview,
   loadKnowledgeMap,
+  mergeWorkspaceKnowledgeMap,
   type FileExplanationUi,
   type FilePreviewUi,
   type KnowledgeMapNodeUi,
   type KnowledgeMapUi,
 } from "@/lib/knowledge-map-client";
+import type { DefenseWorkspace } from "@/lib/project-workspace";
+import { fetchProjectWorkspace } from "@/lib/project-workspace-api";
+import { projectRoute } from "@/lib/project-routes";
 import {
   buildKnowledgeMapScene,
   projectKnowledgeMapScene,
@@ -92,6 +97,23 @@ import {
   type KnowledgeMapSceneNode,
   type KnowledgeMapSceneRenderNode,
 } from "@/lib/knowledge-map-scene";
+import { cn } from "@/lib/utils";
+import type { NotebookCitation, NotebookExplanationMode } from "@shared/domain";
+
+const detailStateImages = {
+  empty: {
+    alt: "暂无资料",
+    height: 921,
+    src: "/states/detail-empty-transparent.png",
+    width: 918,
+  },
+  loading: {
+    alt: "正在加载",
+    height: 829,
+    src: "/states/detail-loading-transparent.png",
+    width: 716,
+  },
+} as const;
 
 const PdfFileViewer = dynamic(
   () => import("./pdf-file-viewer").then((module) => module.PdfFileViewer),
@@ -124,8 +146,6 @@ const DocumentFileViewer = dynamic(
     loading: () => <PreviewSkeleton variant="document" />,
   },
 );
-import type { NotebookCitation, NotebookExplanationMode } from "@shared/domain";
-import { cn } from "@/lib/utils";
 
 const graphFilters = [
   { id: "all", label: "全部" },
@@ -170,7 +190,23 @@ type KnowledgeReaderFileGroup = {
   id: string;
   label: string;
   nodes: KnowledgeMapSceneNode[];
+  children: KnowledgeReaderFileTreeNode[];
 };
+
+type KnowledgeReaderFileTreeNode =
+  | {
+      id: string;
+      kind: "folder";
+      label: string;
+      count: number;
+      children: KnowledgeReaderFileTreeNode[];
+    }
+  | {
+      id: string;
+      kind: "file";
+      label: string;
+      node: KnowledgeMapSceneNode;
+    };
 
 function createEmptyKnowledgeMap(projectId: string): KnowledgeMapUi {
   return {
@@ -188,11 +224,11 @@ function messageFromError(error: unknown, fallback: string) {
 export function KnowledgeMapRoom({
   onReaderBackHandlerChange,
   onReaderModeChange,
-  projectId = "demo",
+  projectId,
 }: {
   onReaderBackHandlerChange?: (handler: (() => void) | null) => void;
   onReaderModeChange?: (isReaderMode: boolean) => void;
-  projectId?: string;
+  projectId: string;
 }) {
   const router = useRouter();
   const isNarrowLayout = useIsNarrowKnowledgeLayout();
@@ -204,6 +240,9 @@ export function KnowledgeMapRoom({
   const [expandedBranchIds, setExpandedBranchIds] = useState<Set<string>>(() => new Set());
   const [isLoadingMap, setIsLoadingMap] = useState(true);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState<DefenseWorkspace | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
   const [readerNodeId, setReaderNodeId] = useState<string | null>(null);
   const [mode, setMode] = useState<NotebookExplanationMode>("quick");
   const [preview, setPreview] = useState<FilePreviewUi | null>(null);
@@ -246,7 +285,43 @@ export function KnowledgeMapRoom({
     };
   }, [projectId]);
 
-  const scene = useMemo(() => buildKnowledgeMapScene(knowledgeMap), [knowledgeMap]);
+  useEffect(() => {
+    let cancelled = false;
+
+    void Promise.resolve()
+      .then(async () => {
+        if (cancelled) return null;
+        setIsLoadingWorkspace(true);
+        setWorkspaceError(null);
+        return fetchProjectWorkspace(projectId);
+      })
+      .then((nextWorkspace) => {
+        if (cancelled) return;
+        setWorkspace(nextWorkspace);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setWorkspace(null);
+        setWorkspaceError(messageFromError(error, "项目资料状态读取失败。"));
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingWorkspace(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  const effectiveKnowledgeMap = useMemo(
+    () => {
+      if (!workspace?.files.length) return knowledgeMap;
+      if (!knowledgeMap.nodes.length) return createWorkspaceKnowledgeMap(workspace);
+      return mergeWorkspaceKnowledgeMap(knowledgeMap, workspace);
+    },
+    [knowledgeMap, workspace],
+  );
+  const scene = useMemo(() => buildKnowledgeMapScene(effectiveKnowledgeMap), [effectiveKnowledgeMap]);
   const sanitizedExpandedBranchIds = useMemo(
     () => new Set(
       [...expandedBranchIds].filter((branchId) => scene.nodesById[branchId]?.depth === 1),
@@ -266,7 +341,10 @@ export function KnowledgeMapRoom({
     }),
     [activeNodeId, filter, query, sanitizedExpandedBranchIds, scene],
   );
-  const readerFileGroups = useMemo(() => buildKnowledgeReaderFileGroups(scene), [scene]);
+  const readerFileGroups = useMemo(
+    () => buildKnowledgeReaderFileGroups(scene, workspace?.project.name),
+    [scene, workspace?.project.name],
+  );
   const activeOverviewNode = useMemo(
     () => activeNode ? overviewProjection.nodes.find((node) => node.id === activeNode.id) ?? null : null,
     [activeNode, overviewProjection.nodes],
@@ -395,14 +473,14 @@ export function KnowledgeMapRoom({
     if (!node) return;
     const activation = getKnowledgeNodeActivation(node);
     if (activation === "scripts") {
-      router.push("/projects/demo/scripts");
+      router.push(projectRoute(projectId, "scripts"));
       return;
     }
     if (activation === "reader") {
       setReaderNodeId(node.id);
       return;
     }
-    router.push("/projects/demo/defense");
+    router.push(projectRoute(projectId, "defense"));
   }
 
   function handleReaderFileSelect(nodeId: string) {
@@ -411,7 +489,7 @@ export function KnowledgeMapRoom({
     const activation = getKnowledgeNodeActivation(node);
 
     if (activation === "scripts") {
-      router.push("/projects/demo/scripts");
+      router.push(projectRoute(projectId, "scripts"));
       return;
     }
 
@@ -450,11 +528,19 @@ export function KnowledgeMapRoom({
   }
 
   if (mapError || (!isLoadingMap && scene.nodes.length === 0)) {
+    const emptyState = describeEmptyKnowledgeMapState({
+      isLoadingWorkspace,
+      mapError,
+      workspace,
+      workspaceError,
+    });
+
     return (
       <KnowledgeResizableShell mode="overview">
         <KnowledgeMapStatePanel
-          description={mapError ?? "当前项目还没有可展示的知识地图数据。上传并处理资料后，这里会显示文件、风险和训练入口。"}
-          title={mapError ? "知识地图读取失败" : "暂无知识地图"}
+          description={emptyState.description}
+          loading={emptyState.loading}
+          title={emptyState.title}
         />
       </KnowledgeResizableShell>
     );
@@ -511,6 +597,89 @@ export function KnowledgeMapRoom({
   );
 }
 
+function describeEmptyKnowledgeMapState({
+  isLoadingWorkspace,
+  mapError,
+  workspace,
+  workspaceError,
+}: {
+  isLoadingWorkspace: boolean;
+  mapError: string | null;
+  workspace: DefenseWorkspace | null;
+  workspaceError: string | null;
+}) {
+  if (mapError) {
+    return {
+      description: mapError,
+      loading: false,
+      title: "知识地图读取失败",
+    };
+  }
+
+  if (isLoadingWorkspace) {
+    return {
+      description: "正在读取项目资料和后台处理状态。",
+      loading: true,
+      title: "正在检查资料状态",
+    };
+  }
+
+  if (workspaceError) {
+    return {
+      description: workspaceError,
+      loading: false,
+      title: "项目资料状态读取失败",
+    };
+  }
+
+  const files = workspace?.files ?? [];
+  const tasks = workspace?.processingTasks ?? [];
+  const processingTasks = tasks.filter((task) => task.status === "processing");
+  const pendingTasks = tasks.filter((task) => task.status === "pending");
+  const failedTasks = tasks.filter((task) => task.status === "failed");
+
+  if (processingTasks.length) {
+    return {
+      description: `${files.length} 份资料已接入，${processingTasks.length} 个解析任务正在处理。完成后这里会显示文件、风险和训练入口。`,
+      loading: true,
+      title: "资料解析中",
+    };
+  }
+
+  if (pendingTasks.length) {
+    return {
+      description: `${files.length} 份资料已接入，${pendingTasks.length} 个解析任务还在队列中。后台开始处理后会自动生成知识地图。`,
+      loading: true,
+      title: "资料已上传，等待解析",
+    };
+  }
+
+  if (failedTasks.length) {
+    const firstError = failedTasks.find((task) => task.error)?.error;
+    return {
+      description: firstError
+        ? `${failedTasks.length} 个解析任务失败：${firstError}`
+        : `${failedTasks.length} 个解析任务失败，请重新上传或检查文件格式。`,
+      loading: false,
+      title: "资料解析失败",
+    };
+  }
+
+  if (files.length) {
+    return {
+      description: `${files.length} 份资料已接入，但还没有生成知识节点。后台处理完成后会显示知识地图。`,
+      loading: false,
+      title: "等待生成知识地图",
+    };
+  }
+
+  return {
+    description: "当前项目还没有可展示的知识地图数据。上传并处理资料后，这里会显示文件、风险和训练入口。",
+    loading: false,
+    title: "暂无知识地图",
+  };
+}
+
 function useIsNarrowKnowledgeLayout() {
   const [isNarrow, setIsNarrow] = useState(false);
 
@@ -526,7 +695,6 @@ function useIsNarrowKnowledgeLayout() {
 }
 
 function KnowledgeMapStatePanel({
-  description,
   loading = false,
   title,
 }: {
@@ -534,20 +702,21 @@ function KnowledgeMapStatePanel({
   loading?: boolean;
   title: string;
 }) {
+  const stateImage = detailStateImages[loading ? "loading" : "empty"];
+
   return (
-    <section className="presento-knowledge-pane flex min-h-[420px] items-center justify-center p-6">
-      <div className="max-w-md text-center">
-        <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
-          <FolderIcon aria-hidden="true" />
-        </div>
-        <h2 className="mt-5 text-xl font-black text-[var(--presento-ink)]">{title}</h2>
-        <p className="mt-3 text-sm font-semibold leading-6 text-[var(--presento-muted)]">{description}</p>
-        {loading ? (
-          <div className="mt-6 space-y-2">
-            <Skeleton className="mx-auto h-3 w-64" />
-            <Skeleton className="mx-auto h-3 w-48" />
-          </div>
-        ) : null}
+    <section className="presento-detail-state presento-detail-state-knowledge">
+      <Image
+        alt={stateImage.alt}
+        className="presento-detail-state-image"
+        height={stateImage.height}
+        priority={loading}
+        sizes="(max-width: 768px) 70vw, 420px"
+        src={stateImage.src}
+        width={stateImage.width}
+      />
+      <div className="presento-detail-state-copy">
+        <h2>{title}</h2>
       </div>
     </section>
   );
@@ -815,10 +984,6 @@ function KnowledgeReaderPanels({
     const isCollapsed = panelSize.asPercentage <= explanationCollapsedPercent + 0.5;
     setIsExplanationCollapsed((current) => (current === isCollapsed ? current : isCollapsed));
   }, [explanationCollapsedPercent]);
-  const collapseExplanationPanel = useCallback(() => {
-    explanationPanelRef.current?.collapse();
-    setIsExplanationCollapsed(true);
-  }, []);
   return (
     <ResizablePanelGroup
       className="presento-knowledge-resizable presento-knowledge-reader-resizable"
@@ -863,7 +1028,6 @@ function KnowledgeReaderPanels({
                   isSending={isSending}
                   mode={mode}
                   node={readerNode}
-                  onCollapse={collapseExplanationPanel}
                   onInputChange={onInputChange}
                   onModeChange={onModeChange}
                   onSubmit={onSubmit}
@@ -902,12 +1066,13 @@ function KnowledgeFileLibraryPanel({
                   </Button>
                 </CollapsibleTrigger>
                 <CollapsibleContent className="presento-knowledge-file-group-content">
-                  {group.nodes.map((node) => (
-                    <KnowledgeFileTreeItem
-                      active={node.id === activeNodeId}
+                  {group.children.map((node) => (
+                    <KnowledgeFileTreeNodeRow
+                      activeNodeId={activeNodeId}
                       key={node.id}
+                      level={0}
                       node={node}
-                      onSelect={onFileSelect}
+                      onFileSelect={onFileSelect}
                     />
                   ))}
                 </CollapsibleContent>
@@ -920,12 +1085,69 @@ function KnowledgeFileLibraryPanel({
   );
 }
 
+function KnowledgeFileTreeNodeRow({
+  activeNodeId,
+  level,
+  node,
+  onFileSelect,
+}: {
+  activeNodeId: string;
+  level: number;
+  node: KnowledgeReaderFileTreeNode;
+  onFileSelect: (nodeId: string) => void;
+}) {
+  if (node.kind === "file") {
+    return (
+      <KnowledgeFileTreeItem
+        active={node.node.id === activeNodeId}
+        label={node.label}
+        level={level}
+        node={node.node}
+        onSelect={onFileSelect}
+      />
+    );
+  }
+
+  return (
+    <Collapsible className="presento-knowledge-file-folder" defaultOpen>
+      <CollapsibleTrigger asChild>
+        <Button
+          className="presento-knowledge-file-folder-trigger"
+          style={{ "--tree-level": level } as CSSProperties}
+          type="button"
+          variant="ghost"
+        >
+          <ChevronRight className="presento-knowledge-file-group-chevron" aria-hidden="true" />
+          <FolderIcon aria-hidden="true" />
+          <span>{node.label}</span>
+          <small>{node.count}</small>
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="presento-knowledge-file-folder-content">
+        {node.children.map((child) => (
+          <KnowledgeFileTreeNodeRow
+            activeNodeId={activeNodeId}
+            key={child.id}
+            level={level + 1}
+            node={child}
+            onFileSelect={onFileSelect}
+          />
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function KnowledgeFileTreeItem({
   active,
+  label,
+  level,
   node,
   onSelect,
 }: {
   active: boolean;
+  label: string;
+  level: number;
   node: KnowledgeMapSceneNode;
   onSelect: (nodeId: string) => void;
 }) {
@@ -934,13 +1156,13 @@ function KnowledgeFileTreeItem({
       className={cn("presento-knowledge-file-tree-item", active && "presento-knowledge-file-tree-item-active")}
       onClick={() => onSelect(node.id)}
       size="sm"
+      style={{ "--tree-level": level } as CSSProperties}
       type="button"
       variant="ghost"
     >
-      <span className="presento-knowledge-file-tree-spacer" aria-hidden="true" />
       <KnowledgeFileIcon node={node} />
       <span className="presento-knowledge-file-tree-copy">
-        <strong>{node.title}</strong>
+        <strong>{label}</strong>
         <small>{fileKindLabel(node)}</small>
       </span>
     </Button>
@@ -948,7 +1170,7 @@ function KnowledgeFileTreeItem({
 }
 
 function KnowledgeFileIcon({ node }: { node: KnowledgeMapNodeUi }) {
-  if (node.fileKind === "ppt" || node.fileKind === "presentation-pdf") return <Presentation aria-hidden="true" />;
+  if (node.fileKind === "presentation" || node.fileKind === "ppt" || node.fileKind === "pptx" || node.fileKind === "presentation-pdf") return <Presentation aria-hidden="true" />;
   if (node.fileKind === "code") return <FileCode2 aria-hidden="true" />;
   if (node.fileKind === "sql") return <DatabaseZap aria-hidden="true" />;
   if (node.fileKind === "xlsx" || node.fileKind === "csv") return <FileSpreadsheet aria-hidden="true" />;
@@ -1000,22 +1222,11 @@ function NodeDetailContent({
   onOpenReader: () => void;
 }) {
   const activation = getKnowledgeNodeActivation(node);
-  const layerLabel = layerLabelForNode(node.depth);
-  const branchLabel = overviewNode?.path[1] ?? null;
   return (
     <>
       <header className="presento-knowledge-pane-header">
         <div className="min-w-0">
-          <div className="presento-knowledge-panel-eyebrow">
-            <span>{layerLabel}</span>
-            {branchLabel ? <span>· 分支 {branchLabel}</span> : null}
-          </div>
           <h2 className="text-lg font-black">{node.title}</h2>
-          {node.summary ? (
-            <p className="mt-2 font-semibold leading-6 text-[var(--presento-muted)]">
-              {node.summary}
-            </p>
-          ) : null}
         </div>
         <NodeKindIcon node={node} />
       </header>
@@ -1144,7 +1355,6 @@ function ExplanationPanel({
   isSending,
   mode,
   node,
-  onCollapse,
   onInputChange,
   onModeChange,
   onSubmit,
@@ -1156,7 +1366,6 @@ function ExplanationPanel({
   isSending: boolean;
   mode: NotebookExplanationMode;
   node: KnowledgeMapNodeUi;
-  onCollapse: () => void;
   onInputChange: (value: string) => void;
   onModeChange: (mode: NotebookExplanationMode) => void;
   onSubmit: (message: PromptInputMessage) => void | Promise<void>;
@@ -1165,24 +1374,22 @@ function ExplanationPanel({
   return (
     <section className="presento-knowledge-pane presento-knowledge-explain-panel">
       <header className="presento-knowledge-pane-header">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="flex items-center gap-2 text-lg font-black">
-              <Sparkles aria-hidden="true" />
-              AI 资料讲解
-            </h2>
-            <p className="mt-2 font-semibold text-[var(--presento-muted)]">
-              始终围绕答辩准备、证据引用和训练动作。
-            </p>
+        <div className="flex items-center gap-3">
+          <div className="relative size-14 shrink-0 overflow-hidden rounded-2xl bg-emerald-50">
+            <Image
+              alt=""
+              aria-hidden="true"
+              className="object-cover"
+              fill
+              sizes="56px"
+              src="/brand/knowledge-guide-thinking.png"
+            />
           </div>
-          <button
-            aria-label="收起 AI 资料讲解"
-            className="presento-knowledge-explain-collapse"
-            onClick={onCollapse}
-            type="button"
-          >
-            <ChevronRight aria-hidden="true" />
-          </button>
+          <div className="min-w-0">
+            <h2 className="text-xl font-black text-[var(--presento-ink)]">
+              知识导学
+            </h2>
+          </div>
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -1358,66 +1565,111 @@ function NodeKindIcon({ node }: { node: KnowledgeMapNodeUi }) {
   return <div className={cn("presento-knowledge-node-icon", `presento-knowledge-node-icon-${node.tone}`)}>{icon}</div>;
 }
 
-function buildKnowledgeReaderFileGroups(scene: KnowledgeMapScene): KnowledgeReaderFileGroup[] {
-  const groups = new Map<string, KnowledgeReaderFileGroup>();
+function buildKnowledgeReaderFileGroups(scene: KnowledgeMapScene, projectName?: string): KnowledgeReaderFileGroup[] {
+  const nodes = scene.nodes
+    .filter((node) => node.kind === "file" && getKnowledgeNodeActivation(node) === "reader")
+    .toSorted((left, right) => left.order - right.order);
+  if (!nodes.length) return [];
 
-  for (const node of scene.nodes) {
-    if (node.kind !== "file") continue;
-    const label = fileGroupLabel(scene, node);
-    const id = `file-group-${label}`;
-    const group = groups.get(id) ?? { id, label, nodes: [] };
-    group.nodes.push(node);
-    groups.set(id, group);
-  }
-
-  const preferredOrder = ["演示资料", "项目文档", "代码与数据", "项目资料"];
-  return [...groups.values()]
-    .map((group) => ({
-      ...group,
-      nodes: group.nodes.toSorted((left, right) => left.order - right.order),
-    }))
-    .toSorted((left, right) => {
-      const leftIndex = preferredOrder.indexOf(left.label);
-      const rightIndex = preferredOrder.indexOf(right.label);
-      const normalizedLeft = leftIndex === -1 ? preferredOrder.length : leftIndex;
-      const normalizedRight = rightIndex === -1 ? preferredOrder.length : rightIndex;
-      if (normalizedLeft !== normalizedRight) return normalizedLeft - normalizedRight;
-      return left.label.localeCompare(right.label, "zh-Hans-CN");
-    });
+  const projectNode = scene.nodesById[scene.rootId];
+  const label = projectName?.trim() || projectNode?.title?.trim() || "项目资料";
+  return [{
+    id: `file-group-${scene.projectId}`,
+    label,
+    nodes,
+    children: buildKnowledgeFilePathTree(nodes),
+  }];
 }
 
-function fileGroupLabel(scene: KnowledgeMapScene, node: KnowledgeMapSceneNode) {
-  const fileKind = node.fileKind ?? "";
-  if (node.sourceId === "source-presentation" || fileKind === "ppt" || fileKind === "presentation-pdf") {
-    return "演示资料";
-  }
-  if (node.sourceId === "source-code" || node.sourceId === "source-data" || ["code", "zip", "sql", "xlsx", "csv"].includes(fileKind)) {
-    return "代码与数据";
-  }
-  if (node.sourceId === "source-docs" || ["pdf", "docx", "md", "txt"].includes(fileKind)) {
-    return "项目文档";
+function buildKnowledgeFilePathTree(nodes: KnowledgeMapSceneNode[]): KnowledgeReaderFileTreeNode[] {
+  const root: KnowledgeReaderMutableFolder = {
+    children: new Map(),
+    files: [],
+    id: "root",
+    label: "root",
+  };
+
+  for (const node of nodes) {
+    const path = knowledgeFilePathParts(node);
+    let folder = root;
+    for (const segment of path.slice(0, -1)) {
+      const existing = folder.children.get(segment);
+      if (existing) {
+        folder = existing;
+        continue;
+      }
+      const nextFolder: KnowledgeReaderMutableFolder = {
+        children: new Map(),
+        files: [],
+        id: `${folder.id}/${segment}`,
+        label: segment,
+      };
+      folder.children.set(segment, nextFolder);
+      folder = nextFolder;
+    }
+    folder.files.push({
+      id: `file-${node.id}`,
+      kind: "file",
+      label: path.at(-1) ?? node.title,
+      node,
+    });
   }
 
-  const branchNode = scene.nodesById[node.branchId];
-  return branchNode && branchNode.id !== scene.rootId ? branchNode.title : "项目资料";
+  return materializeKnowledgeFileTree(root);
+}
+
+type KnowledgeReaderMutableFolder = {
+  id: string;
+  label: string;
+  children: Map<string, KnowledgeReaderMutableFolder>;
+  files: Extract<KnowledgeReaderFileTreeNode, { kind: "file" }>[];
+};
+
+function materializeKnowledgeFileTree(folder: KnowledgeReaderMutableFolder): KnowledgeReaderFileTreeNode[] {
+  const childFolders: KnowledgeReaderFileTreeNode[] = [...folder.children.values()]
+    .toSorted((left, right) => left.label.localeCompare(right.label, "zh-Hans-CN"))
+    .map((child) => {
+      const children = materializeKnowledgeFileTree(child);
+      return {
+        id: `folder-${child.id}`,
+        kind: "folder",
+        label: child.label,
+        count: countKnowledgeFileTreeItems(children),
+        children,
+      };
+    });
+  const files = folder.files.toSorted((left, right) => {
+    const orderDiff = left.node.order - right.node.order;
+    if (orderDiff !== 0) return orderDiff;
+    return left.label.localeCompare(right.label, "zh-Hans-CN");
+  });
+  return [...childFolders, ...files];
+}
+
+function countKnowledgeFileTreeItems(nodes: KnowledgeReaderFileTreeNode[]): number {
+  return nodes.reduce((count, node) => count + (node.kind === "file" ? 1 : node.count), 0);
+}
+
+function knowledgeFilePathParts(node: KnowledgeMapSceneNode) {
+  const fallbackName = node.title || node.preview.fileName || "未命名资料";
+  const path = node.preview.fileName || node.title || fallbackName;
+  const parts = path
+    .replaceAll("\\", "/")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment && segment !== "." && segment !== "..");
+  return parts.length ? parts : [fallbackName];
 }
 
 function fileKindLabel(node: KnowledgeMapNodeUi) {
   if (node.fileKind === "presentation-pdf") return "PPT 讲稿";
-  if (node.fileKind === "ppt") return "PPT 原稿";
+  if (node.fileKind === "presentation" || node.fileKind === "ppt" || node.fileKind === "pptx") return "PPT 原稿";
   if (node.fileKind === "pdf") return "PDF 文档";
   if (node.fileKind === "docx") return "项目文档";
   if (node.fileKind === "code") return "代码文件";
   if (node.fileKind === "sql") return "数据库脚本";
   if (node.fileKind === "xlsx" || node.fileKind === "csv") return "数据表";
   return node.fileKind?.toUpperCase() ?? "资料";
-}
-
-function layerLabelForNode(depth: 0 | 1 | 2 | 3) {
-  if (depth === 0) return "项目核心";
-  if (depth === 1) return "二层主枝";
-  if (depth === 2) return "三层展开节点";
-  return "训练入口";
 }
 
 function formatCitation(citation: NotebookCitation) {

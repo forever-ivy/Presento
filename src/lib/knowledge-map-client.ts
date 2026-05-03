@@ -6,6 +6,12 @@ import type {
   NotebookExplanationMode,
 } from "../../packages/shared/src/domain.ts";
 import { readApiErrorMessage } from "./api-error.ts";
+import type {
+  DefenseFileKind,
+  DefenseFileRecord,
+  DefenseProcessingTask,
+  DefenseWorkspace,
+} from "./project-workspace.ts";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -97,6 +103,144 @@ export function normalizeKnowledgeMapPayload(
   };
 }
 
+export function createWorkspaceKnowledgeMap(workspace: DefenseWorkspace): KnowledgeMapUi {
+  const createdAt = new Date().toISOString();
+  const projectNode: KnowledgeNodeRecord = {
+    id: `workspace-project-${workspace.project.id}`,
+    projectId: workspace.project.id,
+    kind: "project",
+    title: workspace.project.name || "项目资料",
+    summary: `${workspace.files.length} 份资料已接入，后台解析完成后会自动生成完整知识地图。`,
+    tone: "blue",
+    metadata: {
+      layout: { ring: 0 },
+    },
+    createdAt,
+  };
+
+  const filesByKind = groupFilesByKind(workspace.files);
+  const categoryNodes = Array.from(filesByKind.entries()).map(([kind, files]) =>
+    createWorkspaceCategoryNode(workspace.project.id, kind, files.length, createdAt),
+  );
+  const fileNodes = workspace.files.map((file) =>
+    createWorkspaceFileNode(workspace.project.id, file, workspace.processingTasks, createdAt),
+  );
+  const edges: KnowledgeEdgeRecord[] = [
+    ...categoryNodes.map((node) => ({
+      id: `workspace-edge-${projectNode.id}-${node.id}`,
+      projectId: workspace.project.id,
+      fromNodeId: projectNode.id,
+      toNodeId: node.id,
+      kind: "contains" as const,
+      label: "资料类型",
+      createdAt,
+    })),
+    ...workspace.files.map((file) => ({
+      id: `workspace-edge-${workspaceCategoryId(file.kind)}-${workspaceFileNodeId(file.id)}`,
+      projectId: workspace.project.id,
+      fromNodeId: workspaceCategoryId(file.kind),
+      toNodeId: workspaceFileNodeId(file.id),
+      kind: "evidence" as const,
+      label: "已上传",
+      createdAt,
+    })),
+  ];
+
+  return normalizeKnowledgeMapPayload(workspace.project.id, {
+    edges,
+    nodes: [projectNode, ...categoryNodes, ...fileNodes],
+  });
+}
+
+export function mergeWorkspaceKnowledgeMap(
+  apiMap: KnowledgeMapUi,
+  workspace: DefenseWorkspace | null | undefined,
+): KnowledgeMapUi {
+  if (!workspace?.files.length) return apiMap;
+
+  const workspaceMap = createWorkspaceKnowledgeMap(workspace);
+  if (!apiMap.nodes.length) return workspaceMap;
+
+  const representedFileIds = new Set(
+    apiMap.nodes
+      .map((node) => node.fileId)
+      .filter((fileId): fileId is string => Boolean(fileId)),
+  );
+  const missingFiles = workspace.files.filter((file) => !representedFileIds.has(file.id));
+  if (!missingFiles.length) return apiMap;
+
+  const nodes = [...apiMap.nodes];
+  const edges = [...apiMap.edges];
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const edgeIds = new Set(edges.map((edge) => edge.id));
+  const rootNode = nodes.find((node) => node.kind === "project") ?? nodes[0];
+  const missingFilesByKind = groupFilesByKind(missingFiles);
+
+  for (const [kind, files] of missingFilesByKind) {
+    const categoryNode = findCategoryNodeForKind(nodes, kind)
+      ?? workspaceMap.nodes.find((node) => node.kind === "source-category" && categoryKindForNode(node) === kind);
+    if (!categoryNode) continue;
+
+    if (!nodeIds.has(categoryNode.id)) {
+      nodes.push(categoryNode);
+      nodeIds.add(categoryNode.id);
+    }
+
+    if (rootNode && categoryNode.id !== rootNode.id) {
+      pushKnowledgeEdge(edges, edgeIds, {
+        id: `workspace-edge-${rootNode.id}-${categoryNode.id}`,
+        projectId: apiMap.projectId,
+        fromNodeId: rootNode.id,
+        toNodeId: categoryNode.id,
+        kind: "contains",
+        label: "已上传",
+        active: false,
+        raw: {
+          id: `workspace-edge-${rootNode.id}-${categoryNode.id}`,
+          projectId: apiMap.projectId,
+          fromNodeId: rootNode.id,
+          toNodeId: categoryNode.id,
+          kind: "contains",
+          label: "已上传",
+          createdAt: new Date().toISOString(),
+        },
+      });
+    }
+
+    for (const file of files) {
+      const fileNode = workspaceMap.nodes.find((node) => node.fileId === file.id);
+      if (!fileNode || nodeIds.has(fileNode.id)) continue;
+
+      nodes.push(fileNode);
+      nodeIds.add(fileNode.id);
+      pushKnowledgeEdge(edges, edgeIds, {
+        id: `workspace-edge-${categoryNode.id}-${fileNode.id}`,
+        projectId: apiMap.projectId,
+        fromNodeId: categoryNode.id,
+        toNodeId: fileNode.id,
+        kind: "evidence",
+        label: "已上传",
+        active: false,
+        raw: {
+          id: `workspace-edge-${categoryNode.id}-${fileNode.id}`,
+          projectId: apiMap.projectId,
+          fromNodeId: categoryNode.id,
+          toNodeId: fileNode.id,
+          kind: "evidence",
+          label: "已上传",
+          createdAt: new Date().toISOString(),
+        },
+      });
+    }
+  }
+
+  return {
+    ...apiMap,
+    nodes,
+    edges,
+  };
+}
+
 export async function loadKnowledgeMap(
   projectId: string,
   fetcher: FetchLike = fetch,
@@ -105,6 +249,141 @@ export async function loadKnowledgeMap(
   if (!response.ok) throw new Error(await readApiErrorMessage(response, "Knowledge map request failed."));
   const payload = await response.json() as { nodes?: KnowledgeNodeRecord[]; edges?: KnowledgeEdgeRecord[] };
   return normalizeKnowledgeMapPayload(projectId, payload, "api");
+}
+
+function groupFilesByKind(files: DefenseFileRecord[]) {
+  const groups = new Map<DefenseFileKind, DefenseFileRecord[]>();
+  for (const file of files) {
+    const group = groups.get(file.kind) ?? [];
+    group.push(file);
+    groups.set(file.kind, group);
+  }
+  return groups;
+}
+
+function createWorkspaceCategoryNode(
+  projectId: string,
+  kind: DefenseFileKind,
+  count: number,
+  createdAt: string,
+): KnowledgeNodeRecord {
+  return {
+    id: workspaceCategoryId(kind),
+    projectId,
+    kind: "source-category",
+    title: workspaceCategoryLabel(kind),
+    summary: `${count} 份${workspaceCategoryLabel(kind)}已接入。`,
+    tone: workspaceToneForKind(kind),
+    metadata: {
+      fileKind: kind,
+      layout: { ring: 1 },
+    },
+    createdAt,
+  };
+}
+
+function createWorkspaceFileNode(
+  projectId: string,
+  file: DefenseFileRecord,
+  tasks: DefenseProcessingTask[],
+  createdAt: string,
+): KnowledgeNodeRecord {
+  const task = tasks.find((item) => item.fileId === file.id);
+  const statusText = workspaceFileStatusText(file, task);
+  return {
+    id: workspaceFileNodeId(file.id),
+    projectId,
+    kind: "file",
+    title: file.name,
+    summary: statusText,
+    tone: workspaceToneForKind(file.kind),
+    sourceId: file.source,
+    metadata: {
+      actions: ["查看文件", "等待解析"],
+      evidence: [file.name, statusText],
+      explainable: false,
+      fileId: file.id,
+      fileKind: file.kind,
+      mimeType: file.type,
+      preview: {
+        text: statusText,
+      },
+      riskLevel: "low",
+      viewer: workspaceViewerForKind(file.kind),
+      layout: { ring: 2 },
+    },
+    createdAt,
+  };
+}
+
+function workspaceCategoryId(kind: DefenseFileKind) {
+  return `workspace-category-${kind}`;
+}
+
+function workspaceFileNodeId(fileId: string) {
+  return `workspace-file-${fileId}`;
+}
+
+function workspaceFileStatusText(file: DefenseFileRecord, task: DefenseProcessingTask | undefined) {
+  if (!task) return `${file.status || "文件已接入"}。`;
+  if (task.status === "completed") return "文件已解析完成，等待生成知识节点。";
+  if (task.status === "failed") return task.error ? `解析失败：${task.error}` : "解析失败，请检查文件格式。";
+  if (task.status === "processing") return `正在解析：${task.title}。`;
+  return `等待解析：${task.title}。`;
+}
+
+function workspaceCategoryLabel(kind: DefenseFileKind) {
+  const labels: Record<DefenseFileKind, string> = {
+    presentation: "演示资料",
+    document: "项目文档",
+    code: "代码文件",
+    database: "数据库脚本",
+    dataset: "数据表",
+    asset: "图片素材",
+    other: "其他资料",
+  };
+  return labels[kind];
+}
+
+function findCategoryNodeForKind(nodes: KnowledgeMapNodeUi[], kind: DefenseFileKind) {
+  return nodes.find((node) => node.kind === "source-category" && categoryKindForNode(node) === kind);
+}
+
+function categoryKindForNode(node: KnowledgeMapNodeUi) {
+  const metadataKind = stringFromMetadata(node.raw.metadata, "kind");
+  return node.fileKind ?? metadataKind;
+}
+
+function pushKnowledgeEdge(
+  edges: KnowledgeMapEdgeUi[],
+  edgeIds: Set<string>,
+  edge: KnowledgeMapEdgeUi,
+) {
+  if (edgeIds.has(edge.id)) return;
+  edges.push(edge);
+  edgeIds.add(edge.id);
+}
+
+function workspaceToneForKind(kind: DefenseFileKind): KnowledgeNodeRecord["tone"] {
+  const tones: Record<DefenseFileKind, KnowledgeNodeRecord["tone"]> = {
+    presentation: "purple",
+    document: "cyan",
+    code: "green",
+    database: "orange",
+    dataset: "blue",
+    asset: "cyan",
+    other: "blue",
+  };
+  return tones[kind];
+}
+
+function workspaceViewerForKind(kind: DefenseFileKind): KnowledgeMapViewer {
+  if (kind === "presentation") return "presentation";
+  if (kind === "code") return "code";
+  if (kind === "database") return "sql";
+  if (kind === "dataset") return "table";
+  if (kind === "document") return "docx";
+  return "details";
 }
 
 export async function loadFileNodePreview(
@@ -165,7 +444,7 @@ export async function appendFileExplanationTurn(
 
 export function getKnowledgeNodeActivation(node: Pick<KnowledgeMapNodeUi, "kind" | "fileKind"> | { kind?: string; fileKind?: string }) {
   if (node.kind !== "file") return "details";
-  if (node.fileKind === "ppt" || node.fileKind === "presentation-pdf") return "scripts";
+  if (isPresentationFileKind(node.fileKind)) return "scripts";
   return "reader";
 }
 
@@ -304,7 +583,7 @@ function viewerForNode(kind: KnowledgeNodeKind, fileKind?: string, preferred?: s
   if (fileKind === "code") return "code";
   if (fileKind === "sql") return "sql";
   if (fileKind === "csv" || fileKind === "xlsx") return "table";
-  if (fileKind === "ppt" || fileKind === "presentation-pdf") return "presentation";
+  if (isPresentationFileKind(fileKind)) return "presentation";
   return "details";
 }
 
@@ -313,11 +592,15 @@ function normalizeViewer(value: string): KnowledgeMapViewer {
     return value;
   }
   if (value === "xlsx" || value === "csv") return "table";
-  if (value === "ppt" || value === "presentation-pdf") return "presentation";
+  if (isPresentationFileKind(value)) return "presentation";
   if (value === "code-ide") return "code";
   if (value === "document" || value === "markdown" || value === "txt") return "docx";
   if (value === "slide-script") return "presentation";
   return "details";
+}
+
+function isPresentationFileKind(fileKind: string | undefined) {
+  return fileKind === "presentation" || fileKind === "ppt" || fileKind === "pptx" || fileKind === "presentation-pdf";
 }
 
 function codeFilesFromPreview({

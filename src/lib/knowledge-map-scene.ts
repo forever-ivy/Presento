@@ -329,7 +329,17 @@ function layoutVisibleNodes(scene: KnowledgeMapScene, visibleIds: Set<string>) {
     const children = visibleNodes
       .filter((node) => node.depth === 2 && node.branchIds.includes(branchNode.id))
       .toSorted(compareSceneNodes);
-    const spread = children.length <= 1 ? 0 : Math.min(0.78, 0.24 * (children.length - 1));
+    if (children.length >= 9) {
+      positionDenseBranchChildren({
+        branchAngle,
+        branchPosition: positioned.get(branchNode.id) ?? { x: 1.25, y: 0 },
+        children,
+        positioned,
+      });
+      continue;
+    }
+
+    const spread = children.length <= 1 ? 0 : Math.min(0.58, 0.18 * (children.length - 1));
 
     children.forEach((child, index) => {
       const offset = children.length <= 1
@@ -360,6 +370,46 @@ function layoutVisibleNodes(scene: KnowledgeMapScene, visibleIds: Set<string>) {
     ...node,
     position: positioned.get(node.id) ?? { x: 1.25, y: 0 },
   }));
+}
+
+function positionDenseBranchChildren({
+  branchAngle,
+  branchPosition,
+  children,
+  positioned,
+}: {
+  branchAngle: number;
+  branchPosition: { x: number; y: number };
+  children: KnowledgeMapSceneNode[];
+  positioned: Map<string, { x: number; y: number }>;
+}) {
+  const radial = {
+    x: Math.cos(branchAngle),
+    y: Math.sin(branchAngle),
+  };
+  const tangent = {
+    x: -Math.sin(branchAngle),
+    y: Math.cos(branchAngle),
+  };
+  const maxRows = 7;
+  const columns = Math.ceil(children.length / maxRows);
+  const rowSpacing = 0.72;
+  const columnSpacing = 1.18;
+  const radialStart = 1.95;
+
+  children.forEach((child, index) => {
+    const column = Math.floor(index / maxRows);
+    const row = index % maxRows;
+    const rowsInColumn = Math.min(maxRows, children.length - column * maxRows);
+    const rowOffset = (row - (rowsInColumn - 1) / 2) * rowSpacing;
+    const columnOffset = radialStart + column * columnSpacing;
+    const columnBalanceOffset = (column - (columns - 1) / 2) * 0.1;
+
+    positioned.set(child.id, {
+      x: branchPosition.x + radial.x * columnOffset + tangent.x * (rowOffset + columnBalanceOffset),
+      y: branchPosition.y + radial.y * columnOffset + tangent.y * (rowOffset + columnBalanceOffset),
+    });
+  });
 }
 
 function deriveSceneDepth(

@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createWorkspaceKnowledgeMap,
   getKnowledgeNodeActivation,
   loadFileNodePreview,
   loadKnowledgeMap,
+  mergeWorkspaceKnowledgeMap,
   normalizeKnowledgeMapPayload,
 } from "./knowledge-map-client.ts";
 import type { KnowledgeEdgeRecord, KnowledgeNodeRecord } from "../../packages/shared/src/domain.ts";
@@ -77,6 +79,149 @@ test("loadKnowledgeMap keeps empty API results as real empty state", async () =>
   assert.equal(map.edges.length, 0);
 });
 
+test("createWorkspaceKnowledgeMap exposes uploaded files before generated knowledge nodes exist", () => {
+  const map = createWorkspaceKnowledgeMap({
+    project: {
+      id: "project-demo",
+      name: "智能点餐系统",
+      category: "软件 / AI / 数据类",
+      ownerScope: "",
+      teammateScope: "",
+      createdAt: "2026-04-30T00:00:00.000Z",
+    },
+    files: [
+      {
+        id: "file-src-main",
+        name: "src/main.ts",
+        size: 128,
+        type: "text/typescript",
+        kind: "code",
+        status: "已上传，待 Repomix 处理",
+        source: "代码解释 Skill",
+        addedAt: "2026-04-30T00:00:00.000Z",
+        storagePath: ".data/uploads/main.ts",
+      },
+    ],
+    processingTasks: [
+      {
+        id: "task-src-main",
+        fileId: "file-src-main",
+        fileName: "src/main.ts",
+        kind: "code",
+        title: "打包代码上下文",
+        engine: "Repomix",
+        status: "pending",
+        progress: 0,
+        createdAt: "2026-04-30T00:00:00.000Z",
+      },
+    ],
+    artifacts: [],
+  });
+
+  assert.equal(map.nodes.length, 3);
+  assert.equal(map.nodes[0].kind, "project");
+  assert.equal(map.nodes[1].title, "代码文件");
+  assert.equal(map.nodes[2].title, "src/main.ts");
+  assert.equal(map.nodes[2].fileId, "file-src-main");
+  assert.equal(map.nodes[2].viewer, "code");
+  assert.match(map.nodes[2].summary, /等待解析/u);
+  assert.deepEqual(
+    map.edges.map((edge) => [edge.fromNodeId, edge.toNodeId]),
+    [["workspace-project-project-demo", "workspace-category-code"], ["workspace-category-code", "workspace-file-file-src-main"]],
+  );
+});
+
+test("mergeWorkspaceKnowledgeMap keeps uploaded document files visible when API map is stale", () => {
+  const apiMap = normalizeKnowledgeMapPayload("project-demo", {
+    edges: [{
+      id: "edge-project-code",
+      projectId: "project-demo",
+      fromNodeId: "node-project-project-demo",
+      toNodeId: "node-source-category-project-demo-code",
+      kind: "source",
+      label: "资料类别",
+      createdAt: "2026-04-30T00:00:00.000Z",
+    }],
+    nodes: [
+      {
+        id: "node-project-project-demo",
+        projectId: "project-demo",
+        kind: "project",
+        title: "项目中心",
+        summary: "",
+        tone: "blue",
+        metadata: {},
+        createdAt: "2026-04-30T00:00:00.000Z",
+      },
+      {
+        id: "node-source-category-project-demo-code",
+        projectId: "project-demo",
+        kind: "source-category",
+        title: "代码资料",
+        summary: "",
+        tone: "green",
+        metadata: {
+          kind: "code",
+          layout: { ring: 1 },
+        },
+        createdAt: "2026-04-30T00:00:00.000Z",
+      },
+    ],
+  });
+  const merged = mergeWorkspaceKnowledgeMap(apiMap, {
+    project: {
+      id: "project-demo",
+      name: "智能点餐系统",
+      category: "软件 / AI / 数据类",
+      ownerScope: "",
+      teammateScope: "",
+      createdAt: "2026-04-30T00:00:00.000Z",
+    },
+    files: [
+      {
+        id: "file-main",
+        name: "src/main.ts",
+        size: 128,
+        type: "text/typescript",
+        kind: "code",
+        status: "已上传，待 Repomix 处理",
+        source: "代码解释 Skill",
+        addedAt: "2026-04-30T00:00:00.000Z",
+        storagePath: ".data/uploads/main.ts",
+      },
+      {
+        id: "file-readme",
+        name: "README.md",
+        size: 256,
+        type: "text/markdown",
+        kind: "document",
+        status: "已上传，待入库",
+        source: "项目速记 Skill",
+        addedAt: "2026-04-30T00:00:00.000Z",
+        storagePath: ".data/uploads/README.md",
+      },
+    ],
+    processingTasks: [
+      {
+        id: "task-readme",
+        fileId: "file-readme",
+        fileName: "README.md",
+        kind: "document",
+        title: "抽取项目知识库文本",
+        engine: "Docling / Marker",
+        status: "pending",
+        progress: 0,
+        createdAt: "2026-04-30T00:00:00.000Z",
+      },
+    ],
+    artifacts: [],
+  });
+
+  assert.ok(merged.nodes.some((node) => node.title === "项目文档"));
+  assert.ok(merged.nodes.some((node) => node.title === "README.md" && node.fileId === "file-readme"));
+  assert.ok(merged.edges.some((edge) => edge.toNodeId === "workspace-file-file-readme"));
+});
+
 test("loadKnowledgeMap surfaces fetch and API failures", async () => {
   await assert.rejects(
     () => loadKnowledgeMap("demo", async () => {
@@ -147,6 +292,10 @@ test("classifies file node activation between reader, slide scripts, and detail 
   );
   assert.equal(
     getKnowledgeNodeActivation({ kind: "file", fileKind: "presentation-pdf" }),
+    "scripts",
+  );
+  assert.equal(
+    getKnowledgeNodeActivation({ kind: "file", fileKind: "presentation" }),
     "scripts",
   );
   assert.equal(

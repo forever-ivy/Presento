@@ -4,11 +4,13 @@ import { createFileRepository } from "../../db/src/repositories/files.ts";
 import { createJobRunRepository } from "../../db/src/repositories/job-runs.ts";
 import type { FileRecord, ProcessingTaskRecord } from "../../db/src/repositories/files.ts";
 import type { JobRunRecord } from "../../shared/src/domain.ts";
+import type { ParsedFileResult } from "../../shared/src/domain.ts";
 import type { DefenseFileRecord, DefenseProcessingTask } from "../../../src/lib/project-workspace.ts";
 import { prepareRetrievalChunks } from "../../../src/lib/knowledge-db.ts";
 import { readStoredFileBuffer, resolveSidecarFileSource } from "../../../src/lib/stored-file-access.ts";
 import { ingestLocalFile } from "./pipeline.ts";
 import { persistIngestedFile } from "./persist.ts";
+import { renderPresentationSlides } from "./presentation-render.ts";
 import { buildPresentationSlideRecords } from "./slides.ts";
 import { createNotebookRagClient } from "./notebook-rag-client.ts";
 import type { CodeRepositorySourceRecord } from "../../../src/lib/github-repository-source.ts";
@@ -60,12 +62,17 @@ export async function processFileIngestJob({
       createdAt: startedAt,
     });
     ingestResult.chunks = await prepareRetrievalChunks(ingestResult.chunks);
+    const renderedSlides = await renderPresentationSlides({
+      buffer,
+      file,
+      projectId,
+    });
     const slideArtifacts = buildPresentationSlideRecords({
       projectId,
       file,
       source: ingestResult.source,
       content: extracted.content,
-      parsedSlides: parsed.slides ?? [],
+      parsedSlides: mergeRenderedSlides(parsed.slides ?? [], renderedSlides),
       createdAt: startedAt,
       synthetic: extracted.synthetic,
     });
@@ -214,6 +221,9 @@ export async function processRepositoryIngestJob({
 async function parseWithSidecar(file: DefenseFileRecord, buffer: Buffer) {
   const client = createNotebookRagClient();
   if (!client) {
+    if (file.kind === "code") {
+      return createLocalParsedFileResult(file, buffer);
+    }
     throw new Error("Notebook RAG sidecar is not configured.");
   }
   const fileSource = await resolveSidecarFileSource(file);
@@ -228,6 +238,85 @@ async function parseWithSidecar(file: DefenseFileRecord, buffer: Buffer) {
     signedUrl: fileSource.signedUrl,
     contentBase64: fileSource.signedUrl ? undefined : buffer.toString("base64"),
   });
+}
+
+export function createLocalParsedFileResult(
+  file: DefenseFileRecord,
+  buffer: Buffer,
+): ParsedFileResult {
+  const content = decodeTextBuffer(buffer);
+  const lineCount = content ? content.split(/\r?\n/u).length : 0;
+
+  return {
+    source: {
+      title: file.name,
+      summary: content
+        ? `本地源码解析：${file.name}，约 ${lineCount} 行。`
+        : `本地源码解析：${file.name}，文件内容为空。`,
+      fileKind: file.kind,
+      metadata: {
+        parser: "local-code-fallback",
+        storagePath: file.storagePath,
+        storageKey: file.storageKey,
+      },
+    },
+    metadata: {
+      parser: "local-code-fallback",
+    },
+    chunks: content
+      ? [{
+        content,
+        source: `${file.name} · ${file.kind}`,
+        metadata: {
+          codePath: file.name,
+          language: languageFromPath(file.name),
+          lineEnd: lineCount,
+          lineStart: 1,
+          parser: "local-code-fallback",
+        },
+      }]
+      : [],
+    preview: {
+      text: content,
+      outline: content ? [file.name] : [],
+      metadata: {
+        parser: "local-code-fallback",
+      },
+    },
+    codeTree: [{
+      path: file.name,
+      language: languageFromPath(file.name),
+      summary: content ? `约 ${lineCount} 行源码` : "空源码文件",
+      lineCount,
+    }],
+  };
+}
+
+function decodeTextBuffer(buffer: Buffer) {
+  return buffer.toString("utf8").replace(/\u0000/g, "").trimEnd();
+}
+
+function languageFromPath(fileName: string) {
+  const extension = fileName.toLowerCase().split(".").pop();
+  if (extension === "ts" || extension === "tsx") return "typescript";
+  if (extension === "js" || extension === "jsx" || extension === "mjs" || extension === "cjs") return "javascript";
+  if (extension === "py") return "python";
+  if (extension === "sql") return "sql";
+  if (extension === "json") return "json";
+  if (extension === "md") return "markdown";
+  if (extension === "css" || extension === "scss" || extension === "sass" || extension === "less") return "css";
+  if (extension === "html" || extension === "vue" || extension === "svelte") return "html";
+  if (extension === "java") return "java";
+  if (extension === "go") return "go";
+  if (extension === "rs") return "rust";
+  if (extension === "php") return "php";
+  if (extension === "rb") return "ruby";
+  if (extension === "swift") return "swift";
+  if (extension === "kt" || extension === "kts") return "kotlin";
+  if (extension === "cs") return "csharp";
+  if (extension === "c" || extension === "h") return "c";
+  if (extension === "cpp" || extension === "cc" || extension === "cxx" || extension === "hpp") return "cpp";
+  return undefined;
 }
 
 async function parseRepositoryWithSidecar(file: DefenseFileRecord, repositoryUrl: string) {
@@ -352,4 +441,24 @@ function readParserName(parsed: Awaited<ReturnType<NonNullable<ReturnType<typeof
 function readStringMetadata(metadata: Record<string, unknown> | undefined, key: string) {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function mergeRenderedSlides<T extends { page: number; metadata?: Record<string, unknown> }>(
+  parsedSlides: T[],
+  renderedSlides: Array<{ page: number; imagePath: string; thumbnailPath: string }>,
+) {
+  if (!renderedSlides.length) return parsedSlides;
+  const renderedByPage = new Map(renderedSlides.map((slide) => [slide.page, slide]));
+  return parsedSlides.map((slide) => {
+    const rendered = renderedByPage.get(slide.page);
+    if (!rendered) return slide;
+    return {
+      ...slide,
+      metadata: {
+        ...slide.metadata,
+        imagePath: rendered.imagePath,
+        thumbnailPath: rendered.thumbnailPath,
+      },
+    };
+  });
 }

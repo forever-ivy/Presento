@@ -11,6 +11,7 @@ import {
   Cpu,
   FileQuestion,
   FileText,
+  FolderKanban,
   Home,
   Link2,
   Map,
@@ -33,6 +34,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useState,
   type ReactNode,
 } from "react";
 import {
@@ -61,6 +63,14 @@ import {
   type KnowledgeMapFlowNodeData,
 } from "@/lib/knowledge-map-flow";
 import { presentoBrandLogo } from "@/lib/brand";
+import {
+  extractProjectIdFromPathname,
+  extractProjectStepFromPathname,
+  projectManagementRoute,
+  projectRoute,
+  type ProjectRouteStep,
+} from "@/lib/project-routes";
+import { fetchProjects, type ProjectListItem } from "@/lib/projects-api";
 import { cn } from "@/lib/utils";
 
 export { cn } from "@/lib/utils";
@@ -97,22 +107,30 @@ const presentoScrollLockClass = "presento-app-scroll-lock";
 let presentoScrollLockCount = 0;
 
 const navigationItems: Array<{
-  href: string;
+  href?: string;
   label: string;
   icon: LucideIcon;
   badge?: string;
+  step?: ProjectRouteStep;
 }> = [
-  { href: "/projects/demo/knowledge-map", label: "知识地图", icon: Map },
-  { href: "/projects/demo/files", label: "资料导入", icon: UploadCloud },
-  { href: "/projects/demo/scripts", label: "逐页讲稿", icon: FileQuestion },
-  { href: "/projects/demo/defense", label: "模拟讲练", icon: Mic, badge: "HOT" },
-  { href: "/projects/demo/deep-dive", label: "薄弱点", icon: Target, badge: "3" },
-  { href: "/projects/demo/review", label: "复盘", icon: MessageSquareText },
-  { href: "/projects/demo/skills", label: "Agent Skills", icon: Cpu },
-  { href: "/projects/demo/pcg", label: "PCG 连接", icon: Radio },
+  { href: projectManagementRoute, label: "项目管理", icon: FolderKanban },
+  { step: "knowledge", label: "知识地图", icon: Map },
+  { step: "files", label: "资料导入", icon: UploadCloud },
+  { step: "scripts", label: "逐页讲稿", icon: FileQuestion },
+  { step: "defense", label: "模拟讲练", icon: Mic, badge: "HOT" },
+  { step: "deepDive", label: "薄弱点", icon: Target },
+  { step: "review", label: "复盘", icon: MessageSquareText },
+  { step: "skills", label: "Agent Skills", icon: Cpu },
+  { step: "pcg", label: "PCG 连接", icon: Radio },
 ];
 
-export function AppFrame({ children }: { children: ReactNode }) {
+export function AppFrame({
+  children,
+  ambient = true,
+}: {
+  children: ReactNode;
+  ambient?: boolean;
+}) {
   useEffect(() => {
     presentoScrollLockCount += 1;
     document.documentElement.classList.add(presentoScrollLockClass);
@@ -128,17 +146,19 @@ export function AppFrame({ children }: { children: ReactNode }) {
   return (
     <AppShellContext.Provider value={{ leftExpanded: false, setLeftExpanded: () => undefined }}>
       <main className="presento-shell">
-        <div className="presento-ambient" aria-hidden="true">
-          <DotPattern
-            className="presento-dot-pattern"
-            cr={1.45}
-            cx={1.5}
-            cy={1.5}
-            glow={false}
-            height={16}
-            width={16}
-          />
-        </div>
+        {ambient ? (
+          <div className="presento-ambient" aria-hidden="true">
+            <DotPattern
+              className="presento-dot-pattern"
+              cr={1.45}
+              cx={1.5}
+              cy={1.5}
+              glow={false}
+              height={16}
+              width={16}
+            />
+          </div>
+        ) : null}
         {children}
       </main>
     </AppShellContext.Provider>
@@ -231,6 +251,7 @@ type TopNavDetailExit = {
 
 export function TopNav({
   onNavigate,
+  projectId,
   detailState,
   detailEntrance,
   detailExit,
@@ -240,6 +261,7 @@ export function TopNav({
   onToggleBackgroundHint,
 }: {
   onNavigate?: (href: string) => void;
+  projectId?: string;
   detailState?: TopNavDetailState;
   detailEntrance?: TopNavDetailEntrance;
   detailExit?: TopNavDetailExit;
@@ -249,6 +271,10 @@ export function TopNav({
   onToggleBackgroundHint?: () => void;
 } = {}) {
   const pathname = usePathname();
+  const activeProjectId = projectId ?? extractProjectIdFromPathname(pathname);
+  const activeStep = extractProjectStepFromPathname(pathname) ?? "knowledge";
+  const [projects, setProjects] = useState<ProjectListItem[]>([]);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
   const titleTransition = {
     duration: (detailTransition?.durationMs ?? 360) / 1000,
     ease: [0.2, 0.72, 0.24, 1] as const,
@@ -263,6 +289,33 @@ export function TopNav({
   };
   const titleDrift = detailTransition ? detailTransition.direction * 18 : 0;
   const showMapActions = !detailState || Boolean(detailExit);
+  const currentProject = projects.find((project) => project.id === activeProjectId) ?? null;
+  const projectSwitchLabel = currentProject?.name ?? (activeProjectId ? "当前项目" : "选择项目");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProjects() {
+      try {
+        const nextProjects = await fetchProjects();
+        if (!cancelled) {
+          setProjects(nextProjects);
+          setProjectsError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setProjects([]);
+          setProjectsError(error instanceof Error ? error.message : "项目列表读取失败");
+        }
+      }
+    }
+
+    void loadProjects();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>
@@ -329,28 +382,34 @@ export function TopNav({
             <DropdownMenu>
               <DropdownMenuTrigger className="presento-project-switch">
                 <Box aria-hidden="true" />
-                <span className="truncate">智能点餐系统</span>
+                <span className="truncate">{projectSwitchLabel}</span>
                 <ChevronDown aria-hidden="true" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="presento-project-menu">
                 <DropdownMenuLabel className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-[var(--presento-faint)]">
-                  最近项目
+                  项目
                 </DropdownMenuLabel>
                 <DropdownMenuGroup>
-                  {["智能点餐系统", "数据结构期末答辩", "大创比赛路演"].map((name, index) => (
-                    <DropdownMenuItem asChild key={name}>
+                  {projects.length ? projects.map((project) => (
+                    <DropdownMenuItem asChild key={project.id}>
                       <Link
                         className={cn(
                           "flex items-center justify-between px-4 py-2 text-sm font-bold text-[var(--presento-muted)] transition hover:bg-[var(--presento-hover)]",
-                          index === 0 && "bg-emerald-50/60 text-[var(--presento-ink)]",
+                          project.id === activeProjectId && "bg-emerald-50/60 text-[var(--presento-ink)]",
                         )}
-                        href="/"
+                        href={projectRoute(project.id, activeStep)}
                       >
-                        {name}
-                        {index === 0 ? <span className="size-2 rounded-full bg-[var(--presento-blue)]" /> : null}
+                        <span className="min-w-0 truncate">{project.name}</span>
+                        {project.id === activeProjectId ? <span className="size-2 rounded-full bg-[var(--presento-blue)]" /> : null}
                       </Link>
                     </DropdownMenuItem>
-                  ))}
+                  )) : (
+                    <DropdownMenuItem disabled>
+                      <span className="px-4 py-2 text-sm font-bold text-[var(--presento-muted)]">
+                        {projectsError ?? "暂无项目"}
+                      </span>
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator className="my-1 h-px bg-[var(--presento-border)]" />
                 <DropdownMenuItem asChild>
@@ -359,7 +418,7 @@ export function TopNav({
                     href="/projects/new"
                   >
                     <Plus aria-hidden="true" />
-                    新建训练项目
+                    项目管理
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -394,22 +453,25 @@ export function TopNav({
         >
           {navigationItems.map((item) => {
             const Icon = item.icon;
-            const active = pathname.startsWith(item.href);
+            const href = item.href ?? (activeProjectId ? projectRoute(activeProjectId, item.step ?? "knowledge") : projectManagementRoute);
+            const active = item.href
+              ? pathname === item.href
+              : Boolean(activeProjectId && item.step === activeStep);
 
             return (
               <DockIcon
                 className={cn("presento-dock-icon", active && "presento-dock-icon-active")}
-                key={item.href}
+                key={item.href ?? item.step}
               >
                 <Link
                   aria-label={item.label}
                   className={cn("presento-dock-link", active && "presento-dock-link-active")}
                   data-label={item.label}
-                  href={item.href}
+                  href={href}
                   onClick={(event) => {
-                    if (!onNavigate) return;
+                    if (!onNavigate || href === projectManagementRoute) return;
                     event.preventDefault();
-                    onNavigate(item.href);
+                    onNavigate(href);
                   }}
                   title={item.label}
                 >
@@ -425,17 +487,19 @@ export function TopNav({
       <nav className="presento-mobile-nav" aria-label="Presento mobile navigation">
         {navigationItems.slice(0, 5).map((item) => {
           const Icon = item.icon;
-          const active =
-            item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          const href = item.href ?? (activeProjectId ? projectRoute(activeProjectId, item.step ?? "knowledge") : projectManagementRoute);
+          const active = item.href
+            ? pathname === item.href
+            : Boolean(activeProjectId && item.step === activeStep);
           return (
             <Link
               className={cn("presento-mobile-nav-item", active && "text-[var(--presento-blue)]")}
-              href={item.href}
-              key={item.href}
+              href={href}
+              key={item.href ?? item.step}
               onClick={(event) => {
-                if (!onNavigate) return;
+                if (!onNavigate || href === projectManagementRoute) return;
                 event.preventDefault();
-                onNavigate(item.href);
+                onNavigate(href);
               }}
             >
               <Icon aria-hidden="true" />
@@ -490,7 +554,6 @@ function TopNavDetailContent({
               key={`${detailTransition.key}-from`}
               transition={titleTransition}
             >
-              {detailTransition.from.contextLabel ? <span>{detailTransition.from.contextLabel}</span> : null}
               <strong>{detailTransition.from.title}</strong>
             </motion.div>
             <motion.div
@@ -504,13 +567,11 @@ function TopNavDetailContent({
               key={`${detailTransition.key}-to`}
               transition={titleTransition}
             >
-              {detailTransition.to.contextLabel ? <span>{detailTransition.to.contextLabel}</span> : null}
               <strong>{detailTransition.to.title}</strong>
             </motion.div>
           </>
         ) : (
           <div className="presento-topbar-detail-copy presento-topbar-detail-copy-static">
-            {detailState.contextLabel ? <span>{detailState.contextLabel}</span> : null}
             <strong>{detailState.title}</strong>
           </div>
         )}
@@ -950,9 +1011,6 @@ function KnowledgeCardNode({ id, data }: NodeProps<Node<KnowledgeMapFlowNodeData
           <KnowledgeNodeIcon id={id} />
         </div>
         <span className="truncate text-sm font-black">{data.title}</span>
-        <span className="truncate text-[11px] font-bold text-[var(--presento-muted)]">
-          {data.type}
-        </span>
       </motion.div>
     </>
   );

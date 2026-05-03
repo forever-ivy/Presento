@@ -47,7 +47,17 @@ SELECT COALESCE(
       'ownerScope', "ownerScope",
       'teammateScope', "teammateScope",
       'createdAt', to_json("createdAt"),
-      'updatedAt', to_json("updatedAt")
+      'updatedAt', to_json("updatedAt"),
+      'fileCount', COALESCE((
+        SELECT count(*)
+        FROM "FileAsset" file_rows
+        WHERE file_rows."projectId" = "Project"."id"
+      ), 0),
+      'trainingSessionCount', COALESCE((
+        SELECT count(*)
+        FROM "TrainingSession" training_rows
+        WHERE training_rows."projectId" = "Project"."id"
+      ), 0)
     )
     ORDER BY "updatedAt" DESC, "createdAt" DESC
   ),

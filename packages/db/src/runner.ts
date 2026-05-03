@@ -1,10 +1,10 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 
 export type PsqlRunner = (sql: string) => Promise<string>;
 
 export async function runDockerComposePsql(sql: string, cwd = process.cwd()) {
   return new Promise<string>((resolve, reject) => {
-    execFile(
+    const child = spawn(
       "docker",
       [
         "compose",
@@ -19,23 +19,33 @@ export async function runDockerComposePsql(sql: string, cwd = process.cwd()) {
         "-tA",
         "-v",
         "ON_ERROR_STOP=1",
-        "-c",
-        sql,
       ],
       {
         cwd,
-        encoding: "utf8",
-        maxBuffer: 20 * 1024 * 1024,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(stderr || error.message));
-          return;
-        }
-
-        resolve(stdout);
       },
     );
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code) {
+        reject(new Error(stderr || `psql exited with code ${code}`));
+        return;
+      }
+        resolve(stdout);
+    });
+
+    child.stdin.end(`${sql}\n`);
   });
 }
 

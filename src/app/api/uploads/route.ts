@@ -3,33 +3,51 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { createFileRepository } from "@db/repositories/files";
 import { buildPersistedFileBatch } from "../projects/helpers";
-import { assertSupportedUploadFiles } from "@/lib/project-workspace";
+import { assertSupportedUploadFiles, isUnsupportedCodeArchive } from "@/lib/project-workspace";
 import { readObjectStorageConfig, uploadObjectToStorage } from "@/lib/object-storage";
 import {
   buildStoredFileRecord,
+  isIgnoredUploadPath,
+  normalizeUploadPath,
   uploadDateFolder,
 } from "@/lib/upload-storage";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const requestUrl = new URL(request.url);
   const formData = await request.formData();
-  const projectIdValue = formData.get("projectId");
+  const projectIdValue = formData.get("projectId") ?? requestUrl.searchParams.get("projectId");
   const projectId = typeof projectIdValue === "string" && projectIdValue.trim() ? projectIdValue.trim() : null;
   const files = formData
     .getAll("files")
     .filter((value): value is File => value instanceof File && value.size > 0);
+  const relativePaths = formData.getAll("relativePaths");
+  const uploadItems = files
+    .map((file, index) => {
+      const relativePath = relativePaths[index];
+      const displayName = normalizeUploadPath(
+        typeof relativePath === "string" ? relativePath : undefined,
+        file.name,
+      );
 
-  if (!files.length) {
+      return { file, displayName };
+    })
+    .filter(({ displayName }) =>
+      !isIgnoredUploadPath(displayName)
+      && !(displayName.includes("/") && isUnsupportedCodeArchive(displayName)),
+    );
+
+  if (!uploadItems.length) {
     return NextResponse.json(
-      { error: "No files were uploaded." },
+      { error: "No supported files were uploaded." },
       { status: 400 },
     );
   }
 
   try {
-    assertSupportedUploadFiles(files.map((file) => ({
-      name: file.name,
+    assertSupportedUploadFiles(uploadItems.map(({ file, displayName }) => ({
+      name: displayName,
       size: file.size,
       type: file.type,
     })));
@@ -50,12 +68,12 @@ export async function POST(request: Request) {
   }
 
   const uploadedFiles = await Promise.all(
-    files.map(async (file) => {
+    uploadItems.map(async ({ file, displayName }) => {
       const nonce = crypto.randomUUID().slice(0, 8);
       const bytes = Buffer.from(await file.arrayBuffer());
       const record = buildStoredFileRecord(
         {
-          name: file.name,
+          name: displayName,
           size: file.size,
           type: file.type,
         },

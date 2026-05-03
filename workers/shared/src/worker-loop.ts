@@ -19,7 +19,15 @@ export async function runWorkerLoop({
       continue;
     }
 
-    await runJob(job);
+    try {
+      await runJob(job);
+    } catch (error) {
+      console.error(
+        `[worker] job ${job.id} failed:`,
+        error instanceof Error ? error.message : error,
+      );
+      if (once) continue;
+    }
 
     if (once) {
       return { processed: 1, idle: false };

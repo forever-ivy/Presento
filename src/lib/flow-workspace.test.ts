@@ -22,21 +22,21 @@ import {
 } from "./flow-workspace.ts";
 
 test("maps product routes to flow workspace steps", () => {
-  assert.equal(getFlowStepByRoute("/projects/demo/files").id, "files");
+  assert.equal(getFlowStepByRoute("/projects/project-a/files").id, "files");
   assert.equal(getFlowStepByRoute("/").id, "knowledge");
-  assert.equal(getFlowStepByRoute("/projects/demo/knowledge-map").id, "knowledge");
-  assert.equal(getFlowStepByRoute("/projects/demo/scripts").id, "scripts");
-  assert.equal(getFlowStepByRoute("/projects/demo/defense").id, "defense");
-  assert.equal(getFlowStepByRoute("/projects/demo/review").id, "review");
-  assert.equal(getFlowStepByRoute("/projects/demo/deep-dive").id, "deepDive");
-  assert.equal(getFlowStepByRoute("/projects/demo/skills").id, "skills");
-  assert.equal(getFlowStepByRoute("/projects/demo/pcg").id, "pcg");
+  assert.equal(getFlowStepByRoute("/projects/project-a/knowledge-map").id, "knowledge");
+  assert.equal(getFlowStepByRoute("/projects/project-a/scripts").id, "scripts");
+  assert.equal(getFlowStepByRoute("/projects/project-a/defense").id, "defense");
+  assert.equal(getFlowStepByRoute("/projects/project-a/review").id, "review");
+  assert.equal(getFlowStepByRoute("/projects/project-a/deep-dive").id, "deepDive");
+  assert.equal(getFlowStepByRoute("/projects/project-a/skills").id, "skills");
+  assert.equal(getFlowStepByRoute("/projects/project-a/pcg").id, "pcg");
 });
 
 test("uses canonical routes for flow steps", () => {
-  assert.equal(flowStepToRoute("files"), "/projects/demo/files");
-  assert.equal(flowStepToRoute("knowledge"), "/projects/demo/knowledge-map");
-  assert.equal(flowStepToRoute("defense"), "/projects/demo/defense");
+  assert.equal(flowStepToRoute("files", "project-a"), "/projects/project-a/files");
+  assert.equal(flowStepToRoute("knowledge", "project-a"), "/projects/project-a/knowledge-map");
+  assert.equal(flowStepToRoute("defense", "project-a"), "/projects/project-a/defense");
 });
 
 test("creates active flow graph with colored status edges", () => {
@@ -59,8 +59,8 @@ test("creates active flow graph with colored status edges", () => {
 
 test("distinguishes map overview routes from inside room routes", () => {
   assert.equal(flowRouteToMode("/"), "map");
-  assert.equal(flowRouteToMode("/projects/demo/knowledge-map"), "inside");
-  assert.equal(flowRouteToMode("/projects/demo/defense"), "inside");
+  assert.equal(flowRouteToMode("/projects/project-a/knowledge-map"), "inside");
+  assert.equal(flowRouteToMode("/projects/project-a/defense"), "inside");
 });
 
 test("skips mode-transition animation on the initial inside-room render", () => {

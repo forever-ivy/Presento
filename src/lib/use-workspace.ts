@@ -1,168 +1,80 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { fetchProjectWorkspace } from "./project-workspace-api";
 import {
-  appendWorkspaceFiles,
-  completeProcessingTask,
-  createProjectWorkspace,
-  failProcessingTask,
-  loadWorkspace,
-  saveWorkspace,
   summarizeWorkspace,
-  startNextProcessingTask,
-  workspaceChangedEvent,
-  workspaceStorageKey,
-  type DefenseFileInput,
   type DefenseWorkspace,
-  type DefenseWorkspaceInput,
 } from "./project-workspace";
-import { runProcessingTask } from "./run-processing-task";
-import { fetchServerWorkspace, persistServerWorkspace } from "./workspace-api";
 
-export function useWorkspace() {
-  const workspace = useSyncExternalStore(
-    subscribeWorkspace,
-    getWorkspaceSnapshot,
-    getServerWorkspaceSnapshot,
-  );
+export function useProjectWorkspace(projectId: string) {
+  const [workspace, setWorkspace] = useState<DefenseWorkspace | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!projectId) {
+      setWorkspace(null);
+      setIsLoading(false);
+      setError("缺少项目 ID");
+      return null;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const nextWorkspace = await fetchProjectWorkspace(projectId);
+      setWorkspace(nextWorkspace);
+      return nextWorkspace;
+    } catch (nextError) {
+      const message = nextError instanceof Error ? nextError.message : "项目资料读取失败";
+      setWorkspace(null);
+      setError(message);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [projectId]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function syncInitialWorkspace() {
-      const serverWorkspace = await fetchServerWorkspace();
-      if (cancelled) return;
-
-      if (serverWorkspace) {
-        saveWorkspace(serverWorkspace);
-        return;
-      }
-
-      const localWorkspace = loadWorkspace();
-      if (localWorkspace) {
-        await saveWorkspaceEverywhere(localWorkspace);
+    async function load() {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const nextWorkspace = await fetchProjectWorkspace(projectId);
+        if (!cancelled) setWorkspace(nextWorkspace);
+      } catch (nextError) {
+        if (!cancelled) {
+          setWorkspace(null);
+          setError(nextError instanceof Error ? nextError.message : "项目资料读取失败");
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
     }
 
-    void syncInitialWorkspace();
+    void load();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [projectId]);
 
-  function createWorkspace(input: DefenseWorkspaceInput) {
-    const nextWorkspace = createProjectWorkspace(input);
-    void saveWorkspaceEverywhere(nextWorkspace);
-    return nextWorkspace;
-  }
-
-  function addFiles(files: DefenseFileInput[]) {
-    if (!workspace) return null;
-    const nextWorkspace = appendWorkspaceFiles(workspace, files);
-    void saveWorkspaceEverywhere(nextWorkspace);
-    return nextWorkspace;
-  }
-
-  function startProcessing() {
-    if (!workspace) return null;
-    const nextWorkspace = startNextProcessingTask(workspace);
-    void saveWorkspaceEverywhere(nextWorkspace);
-    return nextWorkspace;
-  }
-
-  function completeProcessing(taskId: string) {
-    if (!workspace) return null;
-    const nextWorkspace = completeProcessingTask(workspace, taskId);
-    void saveWorkspaceEverywhere(nextWorkspace);
-    return nextWorkspace;
-  }
-
-  async function runProcessing(taskId: string) {
-    if (!workspace) return null;
-    const task = workspace.processingTasks.find((item) => item.id === taskId);
-    const file = workspace.files.find((item) => item.id === task?.fileId);
-    if (!task || !file) return null;
-
-    try {
-      const artifact = await runProcessingTask({
-        projectId: workspace.project.id,
-        file,
-        task,
-      });
-      const nextWorkspace = completeProcessingTask(
-        workspace,
-        taskId,
-        artifact.createdAt,
-        artifact,
-      );
-      await saveWorkspaceEverywhere(nextWorkspace);
-      return nextWorkspace;
-    } catch (error) {
-      const nextWorkspace = failProcessingTask(
-        workspace,
-        taskId,
-        error instanceof Error ? error.message : "解析任务失败",
-      );
-      await saveWorkspaceEverywhere(nextWorkspace);
-      return nextWorkspace;
-    }
-  }
-
-  function failProcessing(taskId: string, error: string) {
-    if (!workspace) return null;
-    const nextWorkspace = failProcessingTask(workspace, taskId, error);
-    void saveWorkspaceEverywhere(nextWorkspace);
-    return nextWorkspace;
-  }
+  const summary = useMemo(
+    () => (workspace ? summarizeWorkspace(workspace) : null),
+    [workspace],
+  );
 
   return {
     workspace,
-    summary: workspace ? summarizeWorkspace(workspace) : null,
-    isLoaded: true,
-    createWorkspace,
-    addFiles,
-    startProcessing,
-    completeProcessing,
-    runProcessing,
-    failProcessing,
+    summary,
+    isLoading,
+    isLoaded: !isLoading,
+    error,
+    refresh,
   };
-}
-
-async function saveWorkspaceEverywhere(workspace: DefenseWorkspace) {
-  saveWorkspace(workspace);
-
-  try {
-    await persistServerWorkspace(workspace);
-  } catch (error) {
-    console.warn("Failed to sync workspace to server", error);
-  }
-}
-
-function subscribeWorkspace(onStoreChange: () => void) {
-  window.addEventListener(workspaceChangedEvent, onStoreChange);
-  window.addEventListener("storage", onStoreChange);
-
-  return () => {
-    window.removeEventListener(workspaceChangedEvent, onStoreChange);
-    window.removeEventListener("storage", onStoreChange);
-  };
-}
-
-let cachedRawWorkspace: string | null = null;
-let cachedWorkspace: DefenseWorkspace | null = null;
-
-function getWorkspaceSnapshot() {
-  const rawWorkspace = window.localStorage.getItem(workspaceStorageKey);
-  if (rawWorkspace === cachedRawWorkspace) return cachedWorkspace;
-
-  cachedRawWorkspace = rawWorkspace;
-  cachedWorkspace = loadWorkspace();
-  return cachedWorkspace;
-}
-
-function getServerWorkspaceSnapshot(): DefenseWorkspace | null {
-  return null;
 }
 
 export function filesToInputs(files: FileList | File[]) {
