@@ -13,7 +13,6 @@ import {
   FolderIcon,
   Gauge,
   Layers3,
-  MessageSquareText,
   Presentation,
   Search,
   Table2,
@@ -24,7 +23,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion, type MotionProps } from "framer-motion";
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import {
@@ -211,6 +210,7 @@ type KnowledgeReaderFileTreeNode =
 function createEmptyKnowledgeMap(projectId: string): KnowledgeMapUi {
   return {
     edges: [],
+    generation: { status: "idle" },
     nodes: [],
     projectId,
     source: "api",
@@ -231,6 +231,8 @@ export function KnowledgeMapRoom({
   projectId: string;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const isNarrowLayout = useIsNarrowKnowledgeLayout();
   const [knowledgeMap, setKnowledgeMap] = useState<KnowledgeMapUi>(() => createEmptyKnowledgeMap(projectId));
   const [activeNodeId, setActiveNodeId] = useState("");
@@ -316,7 +318,11 @@ export function KnowledgeMapRoom({
   const effectiveKnowledgeMap = useMemo(
     () => {
       if (!workspace?.files.length) return knowledgeMap;
-      if (!knowledgeMap.nodes.length) return createWorkspaceKnowledgeMap(workspace);
+      if (!knowledgeMap.nodes.length) {
+        return knowledgeMap.generation.status === "failed"
+          ? knowledgeMap
+          : createWorkspaceKnowledgeMap(workspace);
+      }
       return mergeWorkspaceKnowledgeMap(knowledgeMap, workspace);
     },
     [knowledgeMap, workspace],
@@ -353,6 +359,59 @@ export function KnowledgeMapRoom({
     () => readerNodeId ? scene.nodesById[readerNodeId] ?? null : null,
     [readerNodeId, scene],
   );
+  const readerFocusNode = useMemo(
+    () => resolveReaderFocusNode(scene, activeNode, readerNode),
+    [activeNode, readerNode, scene],
+  );
+  const readerFocusNodeId = readerFocusNode?.id;
+  const queryStateKey = searchParams.toString();
+
+  const replaceKnowledgeMapQuery = useCallback((next: {
+    evidenceNodeId?: string | null;
+    mode?: "overview" | "reader";
+    nodeId?: string | null;
+  }) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("mode");
+    params.delete("nodeId");
+    params.delete("evidenceNodeId");
+    if (next.mode === "reader") {
+      params.set("mode", "reader");
+      if (next.nodeId) params.set("nodeId", next.nodeId);
+      if (next.evidenceNodeId) params.set("evidenceNodeId", next.evidenceNodeId);
+    } else if (next.nodeId) {
+      params.set("nodeId", next.nodeId);
+    }
+    const queryString = params.toString();
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  useEffect(() => {
+    if (!scene.nodes.length) return;
+    const params = new URLSearchParams(queryStateKey);
+    const modeParam = params.get("mode");
+    const nodeIdParam = params.get("nodeId");
+    const evidenceNodeIdParam = params.get("evidenceNodeId");
+
+    if (modeParam === "reader" && evidenceNodeIdParam && scene.nodesById[evidenceNodeIdParam]) {
+      const focusNodeId = nodeIdParam && scene.nodesById[nodeIdParam]
+        ? nodeIdParam
+        : resolveReaderFocusNode(scene, null, scene.nodesById[evidenceNodeIdParam])?.id;
+      startTransition(() => {
+        if (focusNodeId) setActiveNodeId(focusNodeId);
+        setReaderNodeId(evidenceNodeIdParam);
+      });
+      return;
+    }
+
+    if (readerNodeId) {
+      startTransition(() => setReaderNodeId(null));
+    }
+
+    if (nodeIdParam && scene.nodesById[nodeIdParam] && !readerNodeId) {
+      startTransition(() => setActiveNodeId(nodeIdParam));
+    }
+  }, [queryStateKey, readerNodeId, scene]);
 
   useEffect(() => {
     onReaderModeChange?.(Boolean(readerNode));
@@ -363,9 +422,12 @@ export function KnowledgeMapRoom({
   }, [onReaderModeChange]);
 
   useEffect(() => {
-    onReaderBackHandlerChange?.(() => setReaderNodeId(null));
+    onReaderBackHandlerChange?.(() => {
+      setReaderNodeId(null);
+      replaceKnowledgeMapQuery({ mode: "overview", nodeId: activeNodeId || scene.rootId });
+    });
     return () => onReaderBackHandlerChange?.(null);
-  }, [onReaderBackHandlerChange]);
+  }, [activeNodeId, onReaderBackHandlerChange, replaceKnowledgeMapQuery, scene.rootId]);
 
   const sigmaNodes = useMemo(
     () => overviewProjection.nodes.map((node) => ({
@@ -424,8 +486,8 @@ export function KnowledgeMapRoom({
         setPreview(readerNode.preview);
         setExplanation(null);
         const [nextPreview, nextExplanation] = await Promise.all([
-          loadFileNodePreview(projectId, readerNode),
-          createFileExplanation(projectId, readerNode, mode),
+          loadFileNodePreview(projectId, readerNode, undefined, { focusNodeId: readerFocusNodeId }),
+          createFileExplanation(projectId, readerNode, mode, undefined, { focusNodeId: readerFocusNodeId }),
         ]);
         if (cancelled) return;
         return { nextPreview, nextExplanation };
@@ -448,7 +510,7 @@ export function KnowledgeMapRoom({
     return () => {
       cancelled = true;
     };
-  }, [mode, projectId, readerNode]);
+  }, [mode, projectId, readerFocusNodeId, readerNode]);
 
   function handleNodeSelect(nodeId: string) {
     const node = scene.nodesById[nodeId];
@@ -466,6 +528,7 @@ export function KnowledgeMapRoom({
         });
       }
     });
+    replaceKnowledgeMapQuery({ mode: "overview", nodeId });
   }
 
   function handleNodeOpen(nodeId: string) {
@@ -478,9 +541,35 @@ export function KnowledgeMapRoom({
     }
     if (activation === "reader") {
       setReaderNodeId(node.id);
+      const focusNodeId = resolveReaderFocusNode(scene, activeNode, node)?.id ?? activeNode?.id ?? node.id;
+      replaceKnowledgeMapQuery({
+        evidenceNodeId: node.id,
+        mode: "reader",
+        nodeId: focusNodeId,
+      });
       return;
     }
     router.push(projectRoute(projectId, "defense"));
+  }
+
+  function handleEvidenceOpen(evidenceNodeId: string) {
+    const node = scene.nodesById[evidenceNodeId];
+    if (!node) return;
+    const activation = getKnowledgeNodeActivation(node);
+    if (activation === "scripts") {
+      router.push(projectRoute(projectId, "scripts"));
+      return;
+    }
+    if (activation !== "reader") return;
+
+    startTransition(() => {
+      setReaderNodeId(node.id);
+    });
+    replaceKnowledgeMapQuery({
+      evidenceNodeId: node.id,
+      mode: "reader",
+      nodeId: activeNode?.id ?? scene.rootId,
+    });
   }
 
   function handleReaderFileSelect(nodeId: string) {
@@ -496,8 +585,12 @@ export function KnowledgeMapRoom({
     if (activation !== "reader") return;
 
     startTransition(() => {
-      setActiveNodeId(node.id);
       setReaderNodeId(node.id);
+    });
+    replaceKnowledgeMapQuery({
+      evidenceNodeId: node.id,
+      mode: "reader",
+      nodeId: readerFocusNodeId ?? activeNode?.id ?? scene.rootId,
     });
   }
 
@@ -529,6 +622,7 @@ export function KnowledgeMapRoom({
 
   if (mapError || (!isLoadingMap && scene.nodes.length === 0)) {
     const emptyState = describeEmptyKnowledgeMapState({
+      generation: knowledgeMap.generation,
       isLoadingWorkspace,
       mapError,
       workspace,
@@ -560,10 +654,11 @@ export function KnowledgeMapRoom({
     <KnowledgeResizableShell mode={readerNode ? "reader" : "overview"}>
       {readerNode ? (
         <KnowledgeReaderPanels
-          activeNodeId={activeNodeId}
+          activeNodeId={readerNode.id}
           chatInput={chatInput}
           explanation={explanation}
           fileGroups={readerFileGroups}
+          focusNode={readerFocusNode}
           isLoadingExplanation={isLoadingExplanation}
           isNarrowLayout={isNarrowLayout}
           isSending={isSending}
@@ -586,6 +681,7 @@ export function KnowledgeMapRoom({
           filterSlideDirection={filterSlideDirection}
           isNarrowLayout={isNarrowLayout}
           nodes={sigmaNodes}
+          onEvidenceOpen={handleEvidenceOpen}
           onFilterChange={handleFilterChange}
           onNodeOpen={() => handleNodeOpen(overviewActiveNode.id)}
           onQueryChange={setQuery}
@@ -598,11 +694,13 @@ export function KnowledgeMapRoom({
 }
 
 function describeEmptyKnowledgeMapState({
+  generation,
   isLoadingWorkspace,
   mapError,
   workspace,
   workspaceError,
 }: {
+  generation: KnowledgeMapUi["generation"];
   isLoadingWorkspace: boolean;
   mapError: string | null;
   workspace: DefenseWorkspace | null;
@@ -613,6 +711,24 @@ function describeEmptyKnowledgeMapState({
       description: mapError,
       loading: false,
       title: "知识地图读取失败",
+    };
+  }
+
+  if (generation.status === "failed") {
+    return {
+      description: generation.error
+        ? `表达地图生成失败：${generation.error}`
+        : "表达地图生成失败，请检查模型配置后重新生成。",
+      loading: false,
+      title: "表达地图生成失败",
+    };
+  }
+
+  if (generation.status === "queued" || generation.status === "running" || generation.status === "retryable") {
+    return {
+      description: "资料解析已完成，正在生成面向答辩讲点的表达地图。",
+      loading: true,
+      title: "表达地图生成中",
     };
   }
 
@@ -695,6 +811,7 @@ function useIsNarrowKnowledgeLayout() {
 }
 
 function KnowledgeMapStatePanel({
+  description,
   loading = false,
   title,
 }: {
@@ -717,6 +834,7 @@ function KnowledgeMapStatePanel({
       />
       <div className="presento-detail-state-copy">
         <h2>{title}</h2>
+        <p>{description}</p>
       </div>
     </section>
   );
@@ -761,6 +879,7 @@ function KnowledgeOverviewPanels({
   filterSlideDirection,
   isNarrowLayout,
   nodes,
+  onEvidenceOpen,
   onFilterChange,
   onNodeOpen,
   onQueryChange,
@@ -775,6 +894,7 @@ function KnowledgeOverviewPanels({
   filterSlideDirection: 1 | -1;
   isNarrowLayout: boolean;
   nodes: KnowledgeSigmaNode[];
+  onEvidenceOpen: (nodeId: string) => void;
   onFilterChange: (filter: KnowledgeGraphFilter) => void;
   onNodeOpen: () => void;
   onQueryChange: (query: string) => void;
@@ -808,7 +928,12 @@ function KnowledgeOverviewPanels({
           maxSize={overviewDetailMaxSize}
           minSize={overviewDetailMinReadableSize}
         >
-          <KnowledgeDetailPane node={activeNode} overviewNode={activeOverviewNode} onOpenReader={onNodeOpen} />
+          <KnowledgeDetailPane
+            node={activeNode}
+            overviewNode={activeOverviewNode}
+            onOpenEvidence={onEvidenceOpen}
+            onOpenReader={onNodeOpen}
+          />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
@@ -935,6 +1060,7 @@ function KnowledgeReaderPanels({
   chatInput,
   explanation,
   fileGroups,
+  focusNode,
   isLoadingExplanation,
   isNarrowLayout,
   isSending,
@@ -951,6 +1077,7 @@ function KnowledgeReaderPanels({
   chatInput: string;
   explanation: FileExplanationUi | null;
   fileGroups: KnowledgeReaderFileGroup[];
+  focusNode: KnowledgeMapSceneNode | null;
   isLoadingExplanation: boolean;
   isNarrowLayout: boolean;
   isSending: boolean;
@@ -1024,6 +1151,7 @@ function KnowledgeReaderPanels({
                   chatInput={chatInput}
                   explanation={explanation}
                   error={readerError}
+                  focusNode={focusNode}
                   isLoading={isLoadingExplanation}
                   isSending={isSending}
                   mode={mode}
@@ -1181,10 +1309,12 @@ function KnowledgeFileIcon({ node }: { node: KnowledgeMapNodeUi }) {
 function KnowledgeDetailPane({
   node,
   overviewNode,
+  onOpenEvidence,
   onOpenReader,
 }: {
   node: KnowledgeMapSceneNode;
   overviewNode: KnowledgeMapSceneRenderNode | null;
+  onOpenEvidence: (nodeId: string) => void;
   onOpenReader: () => void;
 }) {
   const reduceMotion = useReducedMotion();
@@ -1204,7 +1334,12 @@ function KnowledgeDetailPane({
             key={node.id}
             transition={transition}
           >
-            <NodeDetailContent node={node} overviewNode={overviewNode} onOpenReader={onOpenReader} />
+            <NodeDetailContent
+              node={node}
+              overviewNode={overviewNode}
+              onOpenEvidence={onOpenEvidence}
+              onOpenReader={onOpenReader}
+            />
           </motion.div>
         </AnimatePresence>
       </div>
@@ -1214,19 +1349,34 @@ function KnowledgeDetailPane({
 
 function NodeDetailContent({
   node,
+  onOpenEvidence,
   overviewNode,
   onOpenReader,
 }: {
   node: KnowledgeMapSceneNode;
+  onOpenEvidence: (nodeId: string) => void;
   overviewNode: KnowledgeMapSceneRenderNode | null;
   onOpenReader: () => void;
 }) {
   const activation = getKnowledgeNodeActivation(node);
+  const expression = node.expression;
+  const evidenceRefs = node.evidenceRefs.slice(0, 3);
+  const oneSentence = expression?.oneSentence || node.summary || "这个节点需要结合证据讲清项目价值、实现方式和个人贡献。";
+  const talkTrack = expression?.talkTrack || node.actions[0] || "先讲问题，再讲做法，最后落到证据和训练动作。";
+  const topQuestion = expression?.topQuestion || node.riskQuestions[0] || "老师可能追问这个点的证据、边界和差异化。";
   return (
     <>
       <header className="presento-knowledge-pane-header">
         <div className="min-w-0">
-          <h2 className="text-lg font-black">{node.title}</h2>
+          <div className="presento-knowledge-panel-eyebrow">
+            <span>节点表达卡</span>
+          </div>
+          <h2 className="mt-2 text-lg font-black">{node.title}</h2>
+          <p className="mt-1 text-xs font-black text-[var(--presento-muted)]">
+            {node.nodeRole === "mainline" ? "答辩主线" : node.nodeRole === "expression" ? "核心表达节点" : node.nodeRole === "evidence" ? "证据资料" : "答辩风险"}
+            {node.riskLevel === "high" ? " · 高风险" : ""}
+            {node.evidenceRefs.length ? ` · ${node.evidenceRefs.length} 个证据` : ""}
+          </p>
         </div>
         <NodeKindIcon node={node} />
       </header>
@@ -1249,24 +1399,75 @@ function NodeDetailContent({
           ) : null}
           <div className="flex flex-wrap gap-2">
             <RiskBadge risk={node.riskLevel} />
-            <Badge variant="outline">{node.kind}</Badge>
+            {node.nodeRole ? <Badge variant="outline">{node.nodeRole}</Badge> : <Badge variant="outline">{node.kind}</Badge>}
             {node.fileKind ? <Badge variant="secondary">{node.fileKind}</Badge> : null}
             {node.expandable && node.childCount ? <Badge className="presento-knowledge-badge-soft">可展开 {node.childCount}</Badge> : null}
           </div>
-          <DetailBlock icon={<FileText aria-hidden="true" />} title="证据链" items={node.evidence} />
-          <DetailBlock icon={<MessageSquareText aria-hidden="true" />} title="高危追问" items={node.riskQuestions.length ? node.riskQuestions : ["老师可能追问证据来源、个人负责范围和技术边界。"]} />
-          <DetailBlock icon={<Target aria-hidden="true" />} title="推荐动作" items={node.actions} />
+          <ExpressionCardBlock title="一句话讲清楚">
+            {oneSentence}
+          </ExpressionCardBlock>
+          <ExpressionCardBlock title="建议这样讲">
+            {talkTrack}
+          </ExpressionCardBlock>
+          <ExpressionCardBlock title="最可能被问" tone="risk">
+            {topQuestion}
+          </ExpressionCardBlock>
+          <section className="presento-knowledge-detail-block">
+            <div className="flex items-center gap-2 text-sm font-black">
+              <FileText aria-hidden="true" />
+              证据
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {evidenceRefs.length ? evidenceRefs.map((ref) => (
+                <Button
+                  className="presento-knowledge-evidence-chip"
+                  key={`${node.id}-${ref.nodeId}`}
+                  onClick={() => onOpenEvidence(ref.nodeId)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <FileText data-icon="inline-start" aria-hidden="true" />
+                  {ref.label}
+                </Button>
+              )) : node.evidence.slice(0, 3).map((item) => (
+                <span className="presento-knowledge-file-chip" key={item}>
+                  <CheckCircle2 aria-hidden="true" />
+                  {item}
+                </span>
+              ))}
+            </div>
+          </section>
         </div>
       </ScrollArea>
       <div className="presento-knowledge-pane-actions">
         <Button className="rounded-xl bg-[var(--presento-navy)] font-black text-white" onClick={onOpenReader} type="button">
           {activation === "reader" ? "打开资料讲解" : activation === "scripts" ? "查看逐页讲稿" : "围绕此节点讲练"}
         </Button>
-        <Button className="rounded-xl font-black" type="button" variant="outline">
-          加入薄弱点修复
-        </Button>
+        {evidenceRefs.length ? (
+          <Button className="rounded-xl font-black" onClick={() => onOpenEvidence(evidenceRefs[0].nodeId)} type="button" variant="outline">
+            查看证据资料
+          </Button>
+        ) : null}
       </div>
     </>
+  );
+}
+
+function ExpressionCardBlock({
+  children,
+  title,
+  tone,
+}: {
+  children: ReactNode;
+  title: string;
+  tone?: "risk";
+}) {
+  return (
+    <section className={cn("presento-knowledge-expression-block", tone === "risk" && "presento-knowledge-expression-block-risk")}>
+      <div className="text-xs font-black text-[var(--presento-muted)]">{title}</div>
+      <p>{children}</p>
+    </section>
   );
 }
 
@@ -1351,6 +1552,7 @@ function ExplanationPanel({
   chatInput,
   error,
   explanation,
+  focusNode,
   isLoading,
   isSending,
   mode,
@@ -1362,6 +1564,7 @@ function ExplanationPanel({
   chatInput: string;
   error: string | null;
   explanation: FileExplanationUi | null;
+  focusNode: KnowledgeMapNodeUi | null;
   isLoading: boolean;
   isSending: boolean;
   mode: NotebookExplanationMode;
@@ -1402,6 +1605,11 @@ function ExplanationPanel({
         <div className="presento-knowledge-summary">
           <div className="text-xs font-black text-[var(--presento-muted)]">当前文件</div>
           <div className="mt-1 text-sm font-black">{node.title}</div>
+          {focusNode ? (
+            <div className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black leading-5 text-emerald-800">
+              支撑讲点：{focusNode.title}
+            </div>
+          ) : null}
           {error ? (
             <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-bold leading-6 text-red-700">
               {error}
@@ -1527,25 +1735,6 @@ function TablePreview({ preview }: { preview: FilePreviewUi }) {
   );
 }
 
-function DetailBlock({ icon, items, title }: { icon: ReactNode; items: string[]; title: string }) {
-  return (
-    <section className="presento-knowledge-detail-block">
-      <div className="flex items-center gap-2 text-sm font-black">
-        {icon}
-        {title}
-      </div>
-      <div className="mt-3 flex flex-col gap-2">
-        {items.map((item) => (
-          <div className="presento-knowledge-detail-row" key={item}>
-            <CheckCircle2 aria-hidden="true" />
-            <span>{item}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function RiskBadge({ risk }: { risk: KnowledgeMapNodeUi["riskLevel"] }) {
   if (risk === "high") return <Badge className="bg-red-50 text-red-700">高风险</Badge>;
   if (risk === "low") return <Badge className="bg-emerald-50 text-emerald-700">低风险</Badge>;
@@ -1579,6 +1768,28 @@ function buildKnowledgeReaderFileGroups(scene: KnowledgeMapScene, projectName?: 
     nodes,
     children: buildKnowledgeFilePathTree(nodes),
   }];
+}
+
+function resolveReaderFocusNode(
+  scene: KnowledgeMapScene,
+  activeNode: KnowledgeMapSceneNode | null,
+  readerNode: KnowledgeMapSceneNode | null,
+) {
+  if (activeNode?.nodeRole === "expression") return activeNode;
+  if (activeNode?.kind === "module" && activeNode.layer === 2) return activeNode;
+  if (!readerNode) return activeNode?.nodeRole === "mainline" ? activeNode : null;
+
+  const expressionParentId = readerNode.parentIds.find((parentId) => {
+    const parent = scene.nodesById[parentId];
+    return parent?.nodeRole === "expression" || (parent?.kind === "module" && parent.layer === 2);
+  });
+  if (expressionParentId) return scene.nodesById[expressionParentId] ?? null;
+
+  const sceneParentId = readerNode.sceneParentIds.find((parentId) => {
+    const parent = scene.nodesById[parentId];
+    return parent?.nodeRole === "expression" || (parent?.kind === "module" && parent.layer === 2);
+  });
+  return sceneParentId ? scene.nodesById[sceneParentId] ?? null : activeNode;
 }
 
 function buildKnowledgeFilePathTree(nodes: KnowledgeMapSceneNode[]): KnowledgeReaderFileTreeNode[] {

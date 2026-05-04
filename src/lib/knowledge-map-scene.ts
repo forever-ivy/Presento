@@ -419,6 +419,8 @@ function deriveSceneDepth(
   layoutRing: number | null,
 ): 0 | 1 | 2 | 3 {
   if (isRoot || node.kind === "project") return 0;
+  const expressionLayer = readExpressionLayer(node);
+  if (expressionLayer !== null) return expressionLayer;
   if (node.kind === "training") return 3;
   if (typeof graphDepth === "number" && Number.isFinite(graphDepth)) {
     return graphDepth <= 1 ? 1 : 2;
@@ -647,6 +649,13 @@ function readLayoutRing(node: KnowledgeMapNodeUi) {
   if (!layout || typeof layout !== "object") return null;
   const ring = (layout as { ring?: unknown }).ring;
   return typeof ring === "number" && Number.isFinite(ring) ? ring : null;
+}
+
+function readExpressionLayer(node: KnowledgeMapNodeUi): 0 | 1 | 2 | 3 | null {
+  const layer = node.raw.metadata.layer;
+  if (layer === "risk") return 3;
+  if (layer === 0 || layer === 1 || layer === 2 || layer === 3) return layer;
+  return null;
 }
 
 function uniqueSorted(values: string[], nodesById: Record<string, { order: number }>) {

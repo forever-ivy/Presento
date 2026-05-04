@@ -4,12 +4,13 @@ import { apiError, apiOk } from "../../../../../../_utils";
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ projectId: string; nodeId: string }> },
 ) {
   try {
     const { projectId, nodeId } = await params;
-    const preview = await getFileNodePreview(projectId, nodeId);
+    const focusNodeId = new URL(request.url).searchParams.get("focusNodeId") ?? undefined;
+    const preview = await getFileNodePreview(projectId, nodeId, { focusNodeId });
     return apiOk(preview);
   } catch (error) {
     return apiError(

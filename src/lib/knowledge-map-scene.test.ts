@@ -73,6 +73,7 @@ test("buildKnowledgeMapScene falls back to layout ring hints when graph depth is
   const scene = buildKnowledgeMapScene({
     projectId: "demo",
     source: "api",
+    generation: { status: "idle" },
     nodes: nodes.map((node) => ({
       ...createKnowledgeMapFixture("demo").nodes[0],
       ...node,
@@ -98,9 +99,108 @@ test("buildKnowledgeMapScene falls back to layout ring hints when graph depth is
   assert.equal(scene.nodesById["dangling-training"].depth, 3);
 });
 
+test("buildKnowledgeMapScene respects expression map metadata layers", () => {
+  const createdAt = "2026-05-03T08:00:00.000Z";
+  const nodes: KnowledgeNodeRecord[] = [
+    {
+      id: "project",
+      projectId: "demo",
+      kind: "project",
+      title: "项目中心",
+      summary: "",
+      tone: "blue",
+      metadata: { nodeRole: "mainline", layer: 0 },
+      createdAt,
+    },
+    {
+      id: "mainline-product",
+      projectId: "demo",
+      kind: "module",
+      title: "产品功能主线",
+      summary: "",
+      tone: "green",
+      metadata: { nodeRole: "mainline", layer: 1 },
+      createdAt,
+    },
+    {
+      id: "expression-map",
+      projectId: "demo",
+      kind: "module",
+      title: "项目知识地图",
+      summary: "",
+      tone: "purple",
+      metadata: { nodeRole: "expression", layer: 2 },
+      createdAt,
+    },
+    {
+      id: "evidence-ppt",
+      projectId: "demo",
+      kind: "file",
+      title: "PPT 第 3 页",
+      summary: "",
+      tone: "orange",
+      metadata: { nodeRole: "evidence", layer: 3, fileKind: "presentation" },
+      createdAt,
+    },
+    {
+      id: "risk-directory",
+      projectId: "demo",
+      kind: "risk",
+      title: "和普通目录有什么区别？",
+      summary: "",
+      tone: "red",
+      metadata: { nodeRole: "risk", layer: "risk" },
+      createdAt,
+    },
+  ];
+  const edges: KnowledgeEdgeRecord[] = [
+    {
+      id: "edge-project-mainline",
+      projectId: "demo",
+      fromNodeId: "project",
+      toNodeId: "mainline-product",
+      kind: "contains",
+      createdAt,
+    },
+    {
+      id: "edge-mainline-expression",
+      projectId: "demo",
+      fromNodeId: "mainline-product",
+      toNodeId: "expression-map",
+      kind: "contains",
+      createdAt,
+    },
+    {
+      id: "edge-expression-evidence",
+      projectId: "demo",
+      fromNodeId: "expression-map",
+      toNodeId: "evidence-ppt",
+      kind: "evidence",
+      createdAt,
+    },
+    {
+      id: "edge-expression-risk",
+      projectId: "demo",
+      fromNodeId: "expression-map",
+      toNodeId: "risk-directory",
+      kind: "risk",
+      createdAt,
+    },
+  ];
+
+  const scene = buildKnowledgeMapScene(normalizeKnowledgeMapPayload("demo", { edges, nodes }));
+
+  assert.equal(scene.nodesById["mainline-product"].depth, 1);
+  assert.equal(scene.nodesById["expression-map"].depth, 2);
+  assert.equal(scene.nodesById["evidence-ppt"].depth, 3);
+  assert.equal(scene.nodesById["risk-directory"].depth, 3);
+  assert.deepEqual(scene.nodesById["evidence-ppt"].sceneParentIds, ["expression-map"]);
+});
+
 test("projectKnowledgeMapScene handles real empty maps", () => {
   const scene = buildKnowledgeMapScene({
     edges: [],
+    generation: { status: "idle" },
     nodes: [],
     projectId: "demo",
     source: "api",

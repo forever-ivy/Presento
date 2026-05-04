@@ -19,11 +19,30 @@ import {
 } from "./knowledge-db";
 import { createFileExplanationUIMessageStream } from "./file-explanation-stream";
 
-export async function getFileNodePreview(projectId: string, nodeId: string) {
+type FocusNodeContext = {
+  node: KnowledgeNodeRecord;
+  question: string;
+};
+
+export async function getFileNodePreview(
+  projectId: string,
+  nodeId: string,
+  options: {
+    focusNodeId?: string;
+  } = {},
+) {
   const node = await readExplainableFileNode(projectId, nodeId);
+  const focus = await readFocusNodeContext(projectId, options.focusNodeId);
   const chunks = await readOrderedFileChunks(projectId, String(node.metadata.fileId), 8);
   return {
     node,
+    focusNode: focus
+      ? {
+        id: focus.node.id,
+        title: focus.node.title,
+        question: focus.question,
+      }
+      : undefined,
     viewer: node.metadata.viewer,
     explainable: node.metadata.explainable,
     file: {
@@ -43,27 +62,32 @@ export async function getFileNodePreview(projectId: string, nodeId: string) {
 }
 
 export async function createFileExplanationSession({
+  focusNodeId,
   projectId,
   nodeId,
   mode,
 }: {
+  focusNodeId?: string;
   projectId: string;
   nodeId: string;
   mode: NotebookExplanationMode;
 }) {
   const node = await readExplainableFileNode(projectId, nodeId);
+  const focus = await readFocusNodeContext(projectId, focusNodeId);
   const fileId = String(node.metadata.fileId);
   const chunks = await readExplanationCandidateChunks({
     projectId,
     fileId,
     fileName: node.title,
     mode,
+    question: focus?.question,
   });
   const now = new Date().toISOString();
   const explanation = await explainWithSidecarOrFallback({
     node,
     chunks,
     mode,
+    question: focus?.question,
   });
   const session: FileExplanationSessionRecord = {
     id: `file-session-${crypto.randomUUID()}`,
@@ -76,7 +100,10 @@ export async function createFileExplanationSession({
     summary: explanation.summary,
     outline: explanation.outline,
     citations: explanation.citations,
-    metadata: buildSessionMetadata(explanation, chunks.length),
+    metadata: {
+      ...buildSessionMetadata(explanation, chunks.length),
+      ...focusMetadata(focus),
+    },
     createdAt: now,
     updatedAt: now,
   };
@@ -90,6 +117,7 @@ export async function createFileExplanationSession({
     metadata: buildTurnMetadata({
       mode,
       explanation,
+      focus,
       retrievalFallbackCount: chunks.length,
       initial: true,
     }),
@@ -177,22 +205,26 @@ export async function addFileExplanationTurn({
 }
 
 export async function createFileExplanationSessionStream({
+  focusNodeId,
   projectId,
   nodeId,
   mode,
 }: {
+  focusNodeId?: string;
   projectId: string;
   nodeId: string;
   mode: NotebookExplanationMode;
 }) {
   const repository = createFileExplanationRepository();
   const node = await readExplainableFileNode(projectId, nodeId);
+  const focus = await readFocusNodeContext(projectId, focusNodeId);
   const fileId = String(node.metadata.fileId);
   const chunks = await readExplanationCandidateChunks({
     projectId,
     fileId,
     fileName: node.title,
     mode,
+    question: focus?.question,
   });
   const now = new Date().toISOString();
   const session: FileExplanationSessionRecord = {
@@ -215,6 +247,7 @@ export async function createFileExplanationSessionStream({
       retrievalCount: chunks.length,
       fallbackUsed: false,
       engine: "stream-pending",
+      ...focusMetadata(focus),
     },
     createdAt: now,
     updatedAt: now,
@@ -232,6 +265,7 @@ export async function createFileExplanationSessionStream({
         fileName: node.title,
         mode,
         chunks,
+        question: focus?.question,
       }),
       async (error) => {
         await repository.createSession(markSessionFailed(session, error));
@@ -245,7 +279,10 @@ export async function createFileExplanationSessionStream({
         summary: result.summary,
         outline: result.outline,
         citations: result.citations,
-        metadata: buildSessionMetadata(result, chunks.length),
+        metadata: {
+          ...buildSessionMetadata(result, chunks.length),
+          ...focusMetadata(focus),
+        },
         updatedAt: createdAt,
       });
       await repository.addTurn({
@@ -258,6 +295,7 @@ export async function createFileExplanationSessionStream({
         metadata: buildTurnMetadata({
           mode,
           explanation: result,
+          focus,
           retrievalFallbackCount: chunks.length,
           initial: true,
         }),
@@ -379,6 +417,18 @@ async function readExplainableFileNode(projectId: string, nodeId: string) {
   return node;
 }
 
+async function readFocusNodeContext(projectId: string, focusNodeId: string | undefined): Promise<FocusNodeContext | undefined> {
+  if (!focusNodeId) return undefined;
+  const node = await createKnowledgeMapRepository().readNode(projectId, focusNodeId);
+  if (!node) {
+    throw new Error("Focus knowledge node was not found.");
+  }
+  return {
+    node,
+    question: `这份资料如何支撑「${node.title}」这个答辩讲点？`,
+  };
+}
+
 async function readOrderedFileChunks(projectId: string, fileId: string, limit = 24) {
   return readFileKnowledgeChunks({
     projectId,
@@ -430,10 +480,12 @@ async function explainWithSidecarOrFallback({
   node,
   chunks,
   mode,
+  question,
 }: {
   node: KnowledgeNodeRecord;
   chunks: KnowledgeChunkRecord[];
   mode: NotebookExplanationMode;
+  question?: string;
 }): Promise<ExplainFileResponse> {
   const client = createNotebookRagClient();
   if (client) {
@@ -443,6 +495,7 @@ async function explainWithSidecarOrFallback({
       mode,
       retrievalMode: mode,
       topK: topKForMode(mode),
+      question,
       chunks: chunks.map((chunk) => ({
         content: chunk.content,
         metadata: chunk.metadata,
@@ -450,7 +503,7 @@ async function explainWithSidecarOrFallback({
     });
   }
 
-  return fallbackExplain(node.title, chunks, mode);
+  return fallbackExplain(node.title, chunks, mode, question);
 }
 
 async function explainWithSidecarStreamOrFallback({
@@ -458,11 +511,13 @@ async function explainWithSidecarStreamOrFallback({
   fileName,
   mode,
   chunks,
+  question,
 }: {
   fileId: string;
   fileName: string;
   mode: NotebookExplanationMode;
   chunks: KnowledgeChunkRecord[];
+  question?: string;
 }) {
   const client = createNotebookRagClient();
   if (client) {
@@ -473,6 +528,7 @@ async function explainWithSidecarStreamOrFallback({
         mode,
         retrievalMode: mode,
         topK: topKForMode(mode),
+        question,
         chunks: chunks.map((chunk) => ({
           content: chunk.content,
           metadata: chunk.metadata,
@@ -483,7 +539,7 @@ async function explainWithSidecarStreamOrFallback({
     }
   }
 
-  return streamFallbackExplanation(fileName, chunks, mode);
+  return streamFallbackExplanation(fileName, chunks, mode, question);
 }
 
 async function chatWithSidecarOrFallback({
@@ -564,12 +620,14 @@ function fallbackExplain(
   fileName: string,
   chunks: KnowledgeChunkRecord[],
   mode: NotebookExplanationMode,
+  question?: string,
 ): ExplainFileResponse {
   if (chunks.length === 0) {
+    const focusPrefix = question ? `围绕“${question}”，` : "";
     return {
       summary: "依据不足：当前文件还没有可检索的解析片段。",
       outline: [],
-      answer: "依据不足：当前文件还没有可检索的解析片段，请先确认文件解析任务已完成。",
+      answer: `${focusPrefix}依据不足：当前文件还没有可检索的解析片段，请先确认文件解析任务已完成。`,
       citations: [],
       grounded: false,
       insufficientEvidence: true,
@@ -585,19 +643,22 @@ function fallbackExplain(
   const outline = topChunks.map((chunk) => firstLine(chunk.content)).filter(Boolean);
   const citations = topChunks.map((chunk) => citationFromChunk(chunk));
   const summary = `${fileName} 主要围绕 ${outline.slice(0, 3).join("、")}。`;
+  const focusLine = question ? `围绕“${question}”，这份资料可以作为当前讲点的证据。` : "";
   const answer = mode === "quick"
     ? [
+        focusLine,
         `一句话：${summary}`,
         `关键点：${outline.slice(0, 5).join("；")}`,
         "高危追问：老师可能会问你的职责边界、技术选择依据和数据/代码证据。",
         "30 秒回答框架：先讲目标，再讲方法，最后讲结果和你负责的部分。",
-      ].join("\n")
+      ].filter(Boolean).join("\n")
     : [
+        focusLine,
         summary,
         "分段讲解：",
         ...outline.map((item, index) => `${index + 1}. ${item}`),
         "自测题：请用自己的话说明这个文件的核心目标、关键证据和可能被追问的风险点。",
-      ].join("\n");
+      ].filter(Boolean).join("\n");
 
   return {
     summary,
@@ -662,8 +723,9 @@ async function* streamFallbackExplanation(
   fileName: string,
   chunks: KnowledgeChunkRecord[],
   mode: NotebookExplanationMode,
+  question?: string,
 ) {
-  const result = fallbackExplain(fileName, chunks, mode);
+  const result = fallbackExplain(fileName, chunks, mode, question);
   yield {
     type: "retrieval",
     retrievalCount: readRetrievalCount(result.metadata, chunks.length),
@@ -765,17 +827,20 @@ function buildSessionMetadata(explanation: ExplainFileResponse, retrievalFallbac
 function buildTurnMetadata({
   mode,
   explanation,
+  focus,
   retrievalFallbackCount,
   initial = false,
 }: {
   mode: NotebookExplanationMode;
   explanation: ExplainFileResponse;
+  focus?: FocusNodeContext;
   retrievalFallbackCount: number;
   initial?: boolean;
 }) {
   return {
     mode,
     ...(initial ? { initial: true } : {}),
+    ...focusMetadata(focus),
     grounded: explanation.grounded,
     insufficientEvidence: explanation.insufficientEvidence,
     retrievalCount: readRetrievalCount(explanation.metadata, retrievalFallbackCount),
@@ -783,6 +848,15 @@ function buildTurnMetadata({
     fallbackUsed: readFallbackUsed(explanation.metadata),
     followUps: explanation.followUps ?? [],
     weaknessCandidates: explanation.weaknessCandidates ?? [],
+  };
+}
+
+function focusMetadata(focus: FocusNodeContext | undefined) {
+  if (!focus) return {};
+  return {
+    focusNodeId: focus.node.id,
+    focusNodeTitle: focus.node.title,
+    focusQuestion: focus.question,
   };
 }
 
