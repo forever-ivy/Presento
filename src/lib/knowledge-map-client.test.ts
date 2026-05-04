@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createFileExplanation,
   createWorkspaceKnowledgeMap,
   getKnowledgeNodeActivation,
   loadFileNodePreview,
@@ -77,6 +78,23 @@ test("loadKnowledgeMap keeps empty API results as real empty state", async () =>
   assert.equal(map.source, "api");
   assert.equal(map.nodes.length, 0);
   assert.equal(map.edges.length, 0);
+});
+
+test("loadKnowledgeMap exposes generation status for expression map jobs", async () => {
+  const map = await loadKnowledgeMap("demo", async () => jsonResponse({
+    nodes: [],
+    edges: [],
+    generation: {
+      status: "failed",
+      jobId: "job-knowledge-map-demo",
+      error: "LLM provider is not configured.",
+      updatedAt: "2026-05-03T08:00:00.000Z",
+    },
+  }));
+
+  assert.equal(map.generation.status, "failed");
+  assert.equal(map.generation.jobId, "job-knowledge-map-demo");
+  assert.match(map.generation.error ?? "", /LLM provider/u);
 });
 
 test("createWorkspaceKnowledgeMap exposes uploaded files before generated knowledge nodes exist", () => {
@@ -283,6 +301,65 @@ test("loadFileNodePreview adds content asset url and code files from chunks", as
   assert.equal(preview.codeFiles.length, 1);
   assert.equal(preview.codeFiles[0].path, "routes/orders.ts");
   assert.equal(preview.codeFiles[0].content, "export const ok = true;");
+});
+
+test("file preview and explanation requests can stay focused on the selected expression node", async () => {
+  const map = normalizeKnowledgeMapPayload("demo", {
+    nodes: [{
+      ...apiNode,
+      id: "node-file-readme",
+    }],
+    edges: [],
+  });
+  const requestedUrls: string[] = [];
+  const requestBodies: unknown[] = [];
+
+  await loadFileNodePreview("demo", map.nodes[0], async (url) => {
+    requestedUrls.push(url);
+    return jsonResponse({
+      file: {
+        id: "file-readme",
+        kind: "document",
+        mimeType: "text/markdown",
+      },
+      viewer: "document",
+      preview: { text: "README" },
+      chunks: [],
+    });
+  }, {
+    focusNodeId: "node-expression-map",
+  });
+
+  await createFileExplanation("demo", map.nodes[0], "quick", async (url, init) => {
+    requestedUrls.push(url);
+    requestBodies.push(JSON.parse(String(init?.body ?? "{}")));
+    return jsonResponse({
+      session: {
+        id: "session-1",
+        projectId: "demo",
+        nodeId: "node-file-readme",
+        fileId: "file-readme",
+        mode: "quick",
+        status: "completed",
+        summary: "README",
+        outline: [],
+        citations: [],
+        metadata: {},
+        turns: [],
+        createdAt: "2026-05-03T08:00:00.000Z",
+        updatedAt: "2026-05-03T08:00:00.000Z",
+      },
+    });
+  }, {
+    focusNodeId: "node-expression-map",
+  });
+
+  assert.equal(requestedUrls[0], "/api/projects/demo/knowledge-map/nodes/node-file-readme/preview?focusNodeId=node-expression-map");
+  assert.equal(requestedUrls[1], "/api/projects/demo/knowledge-map/nodes/node-file-readme/explanations");
+  assert.deepEqual(requestBodies[0], {
+    focusNodeId: "node-expression-map",
+    mode: "quick",
+  });
 });
 
 test("classifies file node activation between reader, slide scripts, and detail panel", () => {

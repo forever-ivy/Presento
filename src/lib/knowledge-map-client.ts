@@ -18,6 +18,35 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 export type KnowledgeMapSource = "api";
 export type KnowledgeMapViewer = "details" | "pdf" | "docx" | "code" | "table" | "sql" | "presentation";
 export type KnowledgeNodeActivation = "details" | "reader" | "scripts";
+export type KnowledgeNodeRole = "mainline" | "expression" | "evidence" | "risk";
+export type KnowledgeNodeLayer = 0 | 1 | 2 | 3 | "risk";
+
+export type KnowledgeExpressionEvidenceRefUi = {
+  nodeId: string;
+  fileId: string;
+  label: string;
+  reason: string;
+  citation?: Record<string, unknown>;
+};
+
+export type KnowledgeExpressionUi = {
+  oneSentence: string;
+  talkTrack: string;
+  topQuestion: string;
+  riskLevel: "low" | "medium" | "high";
+  evidenceRefs: KnowledgeExpressionEvidenceRefUi[];
+  actions: string[];
+};
+
+export type KnowledgeMapGenerationUi = {
+  status: "idle" | "queued" | "running" | "succeeded" | "failed" | "retryable";
+  jobId?: string;
+  error?: string;
+  updatedAt?: string;
+  completedAt?: string;
+  nodeCount?: number;
+  edgeCount?: number;
+};
 
 export type KnowledgeMapNodeUi = {
   id: string;
@@ -37,6 +66,10 @@ export type KnowledgeMapNodeUi = {
   relatedSlides: string[];
   relatedFiles: string[];
   riskQuestions: string[];
+  nodeRole?: KnowledgeNodeRole;
+  layer?: KnowledgeNodeLayer;
+  expression?: KnowledgeExpressionUi;
+  evidenceRefs: KnowledgeExpressionEvidenceRefUi[];
   preview: FilePreviewUi;
   raw: KnowledgeNodeRecord;
 };
@@ -57,6 +90,7 @@ export type KnowledgeMapUi = {
   source: KnowledgeMapSource;
   nodes: KnowledgeMapNodeUi[];
   edges: KnowledgeMapEdgeUi[];
+  generation: KnowledgeMapGenerationUi;
 };
 
 export type FilePreviewUi = {
@@ -89,7 +123,7 @@ export type FileExplanationUi = FileExplanationSessionWithTurns & {
 
 export function normalizeKnowledgeMapPayload(
   projectId: string,
-  payload: { nodes?: KnowledgeNodeRecord[]; edges?: KnowledgeEdgeRecord[] },
+  payload: { nodes?: KnowledgeNodeRecord[]; edges?: KnowledgeEdgeRecord[]; generation?: unknown },
   source: KnowledgeMapSource = "api",
 ): KnowledgeMapUi {
   const nodes = payload.nodes ?? [];
@@ -100,6 +134,7 @@ export function normalizeKnowledgeMapPayload(
     source,
     nodes: nodes.map(normalizeNode),
     edges: edges.map((edge) => normalizeEdge(edge, false)),
+    generation: normalizeGeneration(payload.generation),
   };
 }
 
@@ -247,7 +282,7 @@ export async function loadKnowledgeMap(
 ): Promise<KnowledgeMapUi> {
   const response = await fetcher(`/api/projects/${projectId}/knowledge-map`);
   if (!response.ok) throw new Error(await readApiErrorMessage(response, "Knowledge map request failed."));
-  const payload = await response.json() as { nodes?: KnowledgeNodeRecord[]; edges?: KnowledgeEdgeRecord[] };
+  const payload = await response.json() as { nodes?: KnowledgeNodeRecord[]; edges?: KnowledgeEdgeRecord[]; generation?: unknown };
   return normalizeKnowledgeMapPayload(projectId, payload, "api");
 }
 
@@ -390,8 +425,14 @@ export async function loadFileNodePreview(
   projectId: string,
   node: KnowledgeMapNodeUi,
   fetcher: FetchLike = fetch,
+  options: {
+    focusNodeId?: string;
+  } = {},
 ): Promise<FilePreviewUi> {
-  const response = await fetcher(`/api/projects/${projectId}/knowledge-map/nodes/${node.id}/preview`);
+  const query = new URLSearchParams();
+  if (options.focusNodeId) query.set("focusNodeId", options.focusNodeId);
+  const suffix = query.size ? `?${query.toString()}` : "";
+  const response = await fetcher(`/api/projects/${projectId}/knowledge-map/nodes/${node.id}/preview${suffix}`);
   if (!response.ok) throw new Error(await readApiErrorMessage(response, "Preview request failed."));
   const payload = await response.json() as {
     chunks?: unknown;
@@ -413,11 +454,17 @@ export async function createFileExplanation(
   node: KnowledgeMapNodeUi,
   mode: NotebookExplanationMode,
   fetcher: FetchLike = fetch,
+  options: {
+    focusNodeId?: string;
+  } = {},
 ): Promise<FileExplanationUi> {
   const response = await fetcher(`/api/projects/${projectId}/knowledge-map/nodes/${node.id}/explanations`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode }),
+    body: JSON.stringify({
+      mode,
+      ...(options.focusNodeId ? { focusNodeId: options.focusNodeId } : {}),
+    }),
   });
   if (!response.ok) throw new Error(await readApiErrorMessage(response, "Explanation request failed."));
   const payload = await response.json() as { session?: FileExplanationSessionWithTurns };
@@ -444,6 +491,7 @@ export async function appendFileExplanationTurn(
 
 export function getKnowledgeNodeActivation(node: Pick<KnowledgeMapNodeUi, "kind" | "fileKind"> | { kind?: string; fileKind?: string }) {
   if (node.kind !== "file") return "details";
+  if ("nodeRole" in node && node.nodeRole === "evidence") return "reader";
   if (isPresentationFileKind(node.fileKind)) return "scripts";
   return "reader";
 }
@@ -491,6 +539,13 @@ export function markActiveKnowledgeEdges(edges: KnowledgeMapEdgeUi[], activeNode
 function normalizeNode(node: KnowledgeNodeRecord): KnowledgeMapNodeUi {
   const fileKind = stringFromMetadata(node.metadata, "fileKind");
   const viewer = viewerForNode(node.kind, fileKind, stringFromMetadata(node.metadata, "viewer"));
+  const expression = expressionFromMetadata(node.metadata);
+  const evidenceRefs = expression?.evidenceRefs ?? evidenceRefsFromMetadata(node.metadata.evidenceRefs);
+  const riskQuestions = stringListFromMetadata(
+    node.metadata,
+    "riskQuestions",
+    expression?.topQuestion ? [expression.topQuestion] : [],
+  );
   return {
     id: node.id,
     projectId: node.projectId,
@@ -501,16 +556,43 @@ function normalizeNode(node: KnowledgeNodeRecord): KnowledgeMapNodeUi {
     sourceId: node.sourceId,
     fileId: stringFromMetadata(node.metadata, "fileId"),
     fileKind,
-    riskLevel: riskLevelFromMetadata(node.metadata),
+    riskLevel: expression?.riskLevel ?? riskLevelFromMetadata(node.metadata),
     viewer,
     explainable: booleanFromMetadata(node.metadata, "explainable", node.kind === "file" && viewer !== "presentation"),
-    evidence: stringListFromMetadata(node.metadata, "evidence", [node.title, node.sourceId].filter(Boolean) as string[]),
-    actions: stringListFromMetadata(node.metadata, "actions", defaultActionsForKind(node.kind)),
+    evidence: stringListFromMetadata(
+      node.metadata,
+      "evidence",
+      evidenceRefs.length
+        ? evidenceRefs.map((ref) => `${ref.label}：${ref.reason}`)
+        : [node.title, node.sourceId].filter(Boolean) as string[],
+    ),
+    actions: stringListFromMetadata(node.metadata, "actions", expression?.actions ?? defaultActionsForKind(node.kind)),
     relatedSlides: stringListFromMetadata(node.metadata, "relatedSlides", []),
     relatedFiles: stringListFromMetadata(node.metadata, "relatedFiles", []),
-    riskQuestions: stringListFromMetadata(node.metadata, "riskQuestions", []),
+    riskQuestions,
+    nodeRole: nodeRoleFromMetadata(node.metadata),
+    layer: layerFromMetadata(node.metadata),
+    expression,
+    evidenceRefs,
     preview: normalizePreview(node, node.metadata.preview, viewer),
     raw: node,
+  };
+}
+
+function normalizeGeneration(value: unknown): KnowledgeMapGenerationUi {
+  if (!isRecord(value)) return { status: "idle" };
+  const status = value.status;
+  const normalizedStatus = status === "queued" || status === "running" || status === "succeeded" || status === "failed" || status === "retryable"
+    ? status
+    : "idle";
+  return {
+    status: normalizedStatus,
+    completedAt: stringValue(value.completedAt),
+    edgeCount: numberValue(value.edgeCount),
+    error: stringValue(value.error),
+    jobId: stringValue(value.jobId),
+    nodeCount: numberValue(value.nodeCount),
+    updatedAt: stringValue(value.updatedAt),
   };
 }
 
@@ -682,6 +764,55 @@ function riskLevelFromMetadata(metadata: Record<string, unknown>): KnowledgeMapN
   const value = metadata.riskLevel;
   if (value === "low" || value === "medium" || value === "high") return value;
   return "medium";
+}
+
+function nodeRoleFromMetadata(metadata: Record<string, unknown>): KnowledgeNodeRole | undefined {
+  const value = metadata.nodeRole;
+  if (value === "mainline" || value === "expression" || value === "evidence" || value === "risk") return value;
+  return undefined;
+}
+
+function layerFromMetadata(metadata: Record<string, unknown>): KnowledgeNodeLayer | undefined {
+  const value = metadata.layer;
+  if (value === "risk") return value;
+  if (value === 0 || value === 1 || value === 2 || value === 3) return value;
+  return undefined;
+}
+
+function expressionFromMetadata(metadata: Record<string, unknown>): KnowledgeExpressionUi | undefined {
+  const expression = isRecord(metadata.expression) ? metadata.expression : null;
+  if (!expression) return undefined;
+  const oneSentence = stringValue(expression.oneSentence);
+  const talkTrack = stringValue(expression.talkTrack);
+  const topQuestion = stringValue(expression.topQuestion);
+  if (!oneSentence || !talkTrack || !topQuestion) return undefined;
+  return {
+    oneSentence,
+    talkTrack,
+    topQuestion,
+    riskLevel: riskLevelFromMetadata(expression),
+    evidenceRefs: evidenceRefsFromMetadata(expression.evidenceRefs),
+    actions: stringArray(expression.actions),
+  };
+}
+
+function evidenceRefsFromMetadata(value: unknown): KnowledgeExpressionEvidenceRefUi[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const nodeId = stringValue(item.nodeId);
+    const fileId = stringValue(item.fileId);
+    const label = stringValue(item.label);
+    const reason = stringValue(item.reason);
+    if (!nodeId || !fileId || !label || !reason) return [];
+    return [{
+      nodeId,
+      fileId,
+      label,
+      reason,
+      ...(isRecord(item.citation) ? { citation: item.citation } : {}),
+    }];
+  });
 }
 
 function defaultActionsForKind(kind: KnowledgeNodeKind) {

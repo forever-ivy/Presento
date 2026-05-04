@@ -7,6 +7,9 @@ import type { JobRunRecord } from "../../shared/src/domain.ts";
 import type { ParsedFileResult } from "../../shared/src/domain.ts";
 import type { DefenseFileRecord, DefenseProcessingTask } from "../../../src/lib/project-workspace.ts";
 import { prepareRetrievalChunks } from "../../../src/lib/knowledge-db.ts";
+import {
+  generateExpressionKnowledgeMapForProject,
+} from "../../../src/lib/expression-knowledge-map.ts";
 import { readStoredFileBuffer, resolveSidecarFileSource } from "../../../src/lib/stored-file-access.ts";
 import { ingestLocalFile } from "./pipeline.ts";
 import { persistIngestedFile } from "./persist.ts";
@@ -14,6 +17,11 @@ import { renderPresentationSlides } from "./presentation-render.ts";
 import { buildPresentationSlideRecords } from "./slides.ts";
 import { createNotebookRagClient } from "./notebook-rag-client.ts";
 import type { CodeRepositorySourceRecord } from "../../../src/lib/github-repository-source.ts";
+import type { LlmProvider } from "../../../src/lib/llm-provider.ts";
+
+type ProcessIngestJobOptions = {
+  llmProvider?: LlmProvider | null;
+};
 
 export async function processFileIngestJob({
   projectId,
@@ -91,6 +99,13 @@ export async function processFileIngestJob({
       slideCount: slideArtifacts.slides.length,
       contentType: extracted.contentType,
       parser: readParserName(parsed),
+    }).catch(() => undefined);
+    await triggerKnowledgeMapGenerationAfterIngest({
+      fileId: file.id,
+      projectId,
+      runSql,
+      sourceJobId: jobId,
+      taskId: task.id,
     }).catch(() => undefined);
 
     return {
@@ -187,6 +202,13 @@ export async function processRepositoryIngestJob({
       slideCount: 0,
       contentType: "sidecar",
       parser: readParserName(parsed),
+    }).catch(() => undefined);
+    await triggerKnowledgeMapGenerationAfterIngest({
+      fileId: file.id,
+      projectId,
+      runSql,
+      sourceJobId: jobId,
+      taskId: task.id,
     }).catch(() => undefined);
 
     return {
@@ -348,7 +370,121 @@ function contentFromParsedFile(parsed: Awaited<ReturnType<NonNullable<ReturnType
   ].filter(Boolean).join("\n");
 }
 
-export async function processClaimedIngestJob(job: JobRunRecord, runSql?: PsqlRunner) {
+export function createKnowledgeMapJobRecord({
+  createdAt = new Date().toISOString(),
+  projectId,
+  trigger,
+}: {
+  createdAt?: string;
+  projectId: string;
+  trigger?: {
+    fileId?: string;
+    sourceJobId?: string;
+    taskId?: string;
+  };
+}): JobRunRecord {
+  return {
+    id: `job-knowledge-map-${projectId}`,
+    projectId,
+    kind: "knowledge_map",
+    status: "queued",
+    payload: {
+      reason: "file_ingest_succeeded",
+      ...(trigger?.fileId ? { fileId: trigger.fileId } : {}),
+      ...(trigger?.sourceJobId ? { sourceJobId: trigger.sourceJobId } : {}),
+      ...(trigger?.taskId ? { taskId: trigger.taskId } : {}),
+    },
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+export async function processKnowledgeMapJob({
+  jobId,
+  llmProvider,
+  projectId,
+  runSql,
+}: {
+  jobId: string;
+  llmProvider?: LlmProvider | null;
+  projectId: string;
+  runSql?: PsqlRunner;
+}) {
+  const jobRepository = createJobRunRepository(runSql);
+  const startedAt = new Date().toISOString();
+  await jobRepository.markRunning(jobId, startedAt).catch(() => undefined);
+
+  try {
+    const result = await generateExpressionKnowledgeMapForProject({
+      llmProvider,
+      projectId,
+      runSql,
+    });
+    const completedAt = new Date().toISOString();
+    await jobRepository.markSucceeded(jobId, completedAt, {
+      edgeCount: result.edges.length,
+      nodeCount: result.nodes.length,
+      nodeRole: "expression_map",
+    }).catch(() => undefined);
+    return {
+      edgeCount: result.edges.length,
+      nodeCount: result.nodes.length,
+    };
+  } catch (error) {
+    const failedAt = new Date().toISOString();
+    const message = error instanceof Error ? error.message : "Knowledge map generation failed.";
+    await jobRepository.markFailed(jobId, failedAt, message).catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function triggerKnowledgeMapGenerationAfterIngest({
+  fileId,
+  projectId,
+  runSql,
+  sourceJobId,
+  taskId,
+}: {
+  fileId: string;
+  projectId: string;
+  runSql?: PsqlRunner;
+  sourceJobId: string;
+  taskId: string;
+}) {
+  const job = createKnowledgeMapJobRecord({
+    projectId,
+    trigger: {
+      fileId,
+      sourceJobId,
+      taskId,
+    },
+  });
+  const jobRepository = createJobRunRepository(runSql);
+  await jobRepository.create(job);
+  return processKnowledgeMapJob({
+    jobId: job.id,
+    projectId,
+    runSql,
+  });
+}
+
+export async function processClaimedIngestJob(
+  job: JobRunRecord,
+  runSql?: PsqlRunner,
+  options: ProcessIngestJobOptions = {},
+) {
+  if (job.kind === "knowledge_map") {
+    if (!job.projectId) {
+      throw new Error("Knowledge map job payload missing projectId.");
+    }
+    return processKnowledgeMapJob({
+      jobId: job.id,
+      llmProvider: options.llmProvider,
+      projectId: job.projectId,
+      runSql,
+    });
+  }
+
   const fileRepository = createFileRepository(runSql);
   const repositoryRepository = createCodeRepositoryRepository(runSql);
   const fileId = String(job.payload?.fileId ?? "");

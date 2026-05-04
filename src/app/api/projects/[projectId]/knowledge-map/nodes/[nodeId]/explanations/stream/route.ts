@@ -6,6 +6,7 @@ import { apiError } from "../../../../../../../_utils";
 export const runtime = "nodejs";
 
 const createExplanationSchema = z.object({
+  focusNodeId: z.string().min(1).optional(),
   mode: z.enum(["quick", "mastery"]).default("quick"),
 });
 
@@ -19,6 +20,7 @@ export async function POST(
     return await createFileExplanationSessionStream({
       projectId,
       nodeId,
+      focusNodeId: payload.focusNodeId,
       mode: payload.mode as NotebookExplanationMode,
     });
   } catch (error) {

@@ -31,6 +31,20 @@ export function createKnowledgeMapRepository(runSql: PsqlRunner = runDockerCompo
       await helpers.run(statements.join("\n"));
       return { nodes, edges };
     },
+
+    async replaceProjectMap(projectId: string, nodes: KnowledgeNodeRecord[], edges: KnowledgeEdgeRecord[]) {
+      const statements = [
+        "BEGIN;",
+        `DELETE FROM "KnowledgeEdge" WHERE "projectId" = ${sqlText(projectId)};`,
+        `DELETE FROM "KnowledgeNode" WHERE "projectId" = ${sqlText(projectId)};`,
+        insertKnowledgeNodesSql(nodes),
+        insertKnowledgeEdgesSql(edges),
+        "COMMIT;",
+      ].filter(Boolean);
+
+      await helpers.run(statements.join("\n"));
+      return { nodes, edges };
+    },
   };
 }
 

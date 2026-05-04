@@ -2286,6 +2286,35 @@ svg {
   background: rgba(243, 244, 246, 0.9);
 }
 
+.presento-knowledge-expression-block {
+  border: 1px solid rgba(31, 35, 41, 0.08);
+  border-radius: 18px;
+  background: rgba(247, 248, 248, 0.82);
+  padding: 0.9rem;
+}
+
+.presento-knowledge-expression-block p {
+  margin-top: 0.45rem;
+  color: var(--presento-ink);
+  font-size: 0.88rem;
+  font-weight: 800;
+  line-height: 1.65;
+}
+
+.presento-knowledge-expression-block-risk {
+  border-color: rgba(224, 108, 117, 0.18);
+  background: rgba(254, 242, 242, 0.72);
+}
+
+.presento-knowledge-evidence-chip {
+  min-width: 0;
+  max-width: 100%;
+  justify-content: flex-start;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
 .presento-knowledge-summary {
   border: 1px solid rgba(31, 35, 41, 0.08);
   border-radius: 18px;

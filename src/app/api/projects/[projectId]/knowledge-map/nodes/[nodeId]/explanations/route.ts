@@ -5,6 +5,7 @@ import { apiError, apiOk } from "../../../../../../_utils";
 export const runtime = "nodejs";
 
 const createExplanationSchema = z.object({
+  focusNodeId: z.string().min(1).optional(),
   mode: z.enum(["quick", "mastery"]).default("quick"),
 });
 
@@ -18,6 +19,7 @@ export async function POST(
     const session = await createFileExplanationSession({
       projectId,
       nodeId,
+      focusNodeId: payload.focusNodeId,
       mode: payload.mode,
     });
     return apiOk({ session }, { status: 201 });
