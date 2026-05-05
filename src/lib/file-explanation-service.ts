@@ -489,18 +489,22 @@ async function explainWithSidecarOrFallback({
 }): Promise<ExplainFileResponse> {
   const client = createNotebookRagClient();
   if (client) {
-    return client.explainFile({
-      fileId: String(node.metadata.fileId),
-      fileName: node.title,
-      mode,
-      retrievalMode: mode,
-      topK: topKForMode(mode),
-      question,
-      chunks: chunks.map((chunk) => ({
-        content: chunk.content,
-        metadata: chunk.metadata,
-      })),
-    });
+    try {
+      return await client.explainFile({
+        fileId: String(node.metadata.fileId),
+        fileName: node.title,
+        mode,
+        retrievalMode: mode,
+        topK: topKForMode(mode),
+        question,
+        chunks: chunks.map((chunk) => ({
+          content: chunk.content,
+          metadata: chunk.metadata,
+        })),
+      });
+    } catch {
+      // A sidecar outage should not make the evidence reader unusable.
+    }
   }
 
   return fallbackExplain(node.title, chunks, mode, question);
@@ -559,19 +563,23 @@ async function chatWithSidecarOrFallback({
 }): Promise<ExplainFileResponse> {
   const client = createNotebookRagClient();
   if (client) {
-    return client.chatFile({
-      fileId,
-      fileName,
-      mode,
-      retrievalMode: mode,
-      topK: topKForMode(mode),
-      conversationContext,
-      chunks: chunks.map((chunk) => ({
-        content: chunk.content,
-        metadata: chunk.metadata,
-      })),
-      question,
-    });
+    try {
+      return await client.chatFile({
+        fileId,
+        fileName,
+        mode,
+        retrievalMode: mode,
+        topK: topKForMode(mode),
+        conversationContext,
+        chunks: chunks.map((chunk) => ({
+          content: chunk.content,
+          metadata: chunk.metadata,
+        })),
+        question,
+      });
+    } catch {
+      // Keep follow-up Q&A available even when Notebook RAG is down.
+    }
   }
 
   return fallbackChat(fileName, chunks, question);

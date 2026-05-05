@@ -1148,7 +1148,7 @@ function KnowledgeReaderPanels({
       </ResizablePanel>
       <ResizableHandle className="presento-knowledge-resize-handle" withHandle />
       <ResizablePanel defaultSize={isNarrowLayout ? "40%" : "52%"} minSize={isNarrowLayout ? "28%" : "30%"}>
-        <FilePreviewPanel preview={preview} />
+        <FilePreviewPanel focusNode={focusNode} node={readerNode} preview={preview} />
       </ResizablePanel>
       <ResizableHandle className="presento-knowledge-resize-handle" withHandle />
       <ResizablePanel
@@ -1461,7 +1461,7 @@ function NodeDetailContent({
       </ScrollArea>
       <div className="presento-knowledge-pane-actions">
         <Button className="rounded-xl bg-[var(--presento-navy)] font-black text-white" onClick={onOpenReader} type="button">
-          {node.kind === "training" ? "开始讲练" : activation === "reader" ? "打开资料讲解" : activation === "scripts" ? "查看逐页讲稿" : "围绕此节点讲练"}
+          {node.kind === "training" ? "开始讲练" : activation === "reader" ? "进入证据阅读" : activation === "scripts" ? "查看逐页讲稿" : "围绕此节点讲练"}
         </Button>
         {evidenceRefs.length ? (
           <Button className="rounded-xl font-black" onClick={() => onOpenEvidence(evidenceRefs[0].nodeId)} type="button" variant="outline">
@@ -1490,7 +1490,15 @@ function ExpressionCardBlock({
   );
 }
 
-function FilePreviewPanel({ preview }: { preview: FilePreviewUi }) {
+function FilePreviewPanel({
+  focusNode,
+  node,
+  preview,
+}: {
+  focusNode: KnowledgeMapNodeUi | null;
+  node: KnowledgeMapNodeUi;
+  preview: FilePreviewUi;
+}) {
   const [previewZoom, setPreviewZoom] = useState(1);
   const pdfFallback = <PdfPreview preview={preview} />;
   const codeFallback = <CodePreview preview={preview} />;
@@ -1509,6 +1517,14 @@ function FilePreviewPanel({ preview }: { preview: FilePreviewUi }) {
 
   return (
     <section className="presento-knowledge-pane presento-knowledge-preview-panel">
+      <header className="presento-knowledge-reader-context">
+        <div className="min-w-0">
+          <div className="presento-knowledge-reader-context-label">证据阅读态</div>
+          <h2>正在查看证据：{node.title}</h2>
+          <p>{focusNode ? `用于支撑讲点：${focusNode.title}` : "请选择表达节点，AI 会围绕讲点解释证据价值。"}</p>
+        </div>
+        <Badge variant="secondary">{fileKindLabel(node)}</Badge>
+      </header>
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className="presento-knowledge-preview-scroll">
           <div
@@ -1609,7 +1625,7 @@ function ExplanationPanel({
           </div>
           <div className="min-w-0">
             <h2 className="text-xl font-black text-[var(--presento-ink)]">
-              知识导学
+              AI 证据讲解
             </h2>
           </div>
         </div>
@@ -1622,11 +1638,11 @@ function ExplanationPanel({
           </TabsList>
         </Tabs>
         <div className="presento-knowledge-summary">
-          <div className="text-xs font-black text-[var(--presento-muted)]">当前文件</div>
+          <div className="text-xs font-black text-[var(--presento-muted)]">正在查看证据</div>
           <div className="mt-1 text-sm font-black">{node.title}</div>
           {focusNode ? (
             <div className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black leading-5 text-emerald-800">
-              支撑讲点：{focusNode.title}
+              用于支撑讲点：{focusNode.title}
             </div>
           ) : null}
           {error ? (
@@ -1660,7 +1676,7 @@ function ExplanationPanel({
             />
           </PromptInputBody>
           <PromptInputFooter>
-            <span className="text-xs font-bold text-[var(--presento-muted)]">回答会优先引用当前文件</span>
+            <span className="text-xs font-bold text-[var(--presento-muted)]">回答会优先引用当前证据</span>
             <PromptInputSubmit disabled={!chatInput.trim() || !explanation} status={isSending ? "submitted" : "ready"} />
           </PromptInputFooter>
         </PromptInput>

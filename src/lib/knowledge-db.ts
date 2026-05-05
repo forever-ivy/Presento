@@ -34,15 +34,20 @@ export function createKnowledgeDatabase(
       slideId?: string;
     }) {
       if (retrievalClient) {
-        const response = await retrievalClient.retrieveChunks({
-          projectId,
-          query,
-          limit,
-          fileId,
-          sourceId,
-          slideId,
-        });
-        return response.chunks as KnowledgeChunkRecord[];
+        try {
+          const response = await retrievalClient.retrieveChunks({
+            projectId,
+            query,
+            limit,
+            fileId,
+            sourceId,
+            slideId,
+          });
+          return response.chunks as KnowledgeChunkRecord[];
+        } catch {
+          // Sidecar retrieval is an accelerator. Keep reader/explanation flows alive
+          // by falling back to the local pgvector retrieval path.
+        }
       }
       const output = (await runPsql(retrieveRelevantKnowledgeChunksSql(projectId, query, limit))).trim();
       if (!output) return [];
@@ -75,13 +80,17 @@ export function createKnowledgeDatabase(
       limit?: number;
     }) {
       if (retrievalClient) {
-        const response = await retrievalClient.retrieveChunks({
-          projectId,
-          fileId,
-          query,
-          limit,
-        });
-        return response.chunks as KnowledgeChunkRecord[];
+        try {
+          const response = await retrievalClient.retrieveChunks({
+            projectId,
+            fileId,
+            query,
+            limit,
+          });
+          return response.chunks as KnowledgeChunkRecord[];
+        } catch {
+          // Sidecar retrieval is allowed to fail without breaking evidence reading.
+        }
       }
       const output = (await runPsql(retrieveRelevantFileKnowledgeChunksSql(projectId, fileId, query, limit))).trim();
       if (!output) return [];

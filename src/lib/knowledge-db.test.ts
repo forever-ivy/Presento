@@ -194,6 +194,57 @@ test("retrieves relevant file chunks through the notebook rag sidecar with file 
   assert.deepEqual(results, chunks);
 });
 
+test("falls back to pgvector project retrieval when notebook rag sidecar fails", async () => {
+  let sql = "";
+  const database = createKnowledgeDatabase(
+    async (query) => {
+      sql = query;
+      return JSON.stringify(chunks);
+    },
+    {
+      retrieveChunks: async () => {
+        throw new Error("Notebook RAG sidecar /retrieve-chunks failed: 500 Internal Server Error");
+      },
+    } as never,
+  );
+
+  const results = await database.retrieveRelevantKnowledgeChunks({
+    projectId: "project-defense",
+    query: "排队问题",
+    limit: 3,
+  });
+
+  assert.deepEqual(results, chunks);
+  assert.match(sql, /WHERE "projectId" = 'project-defense'/);
+  assert.match(sql, /ORDER BY "embedding" <=> '\[/);
+});
+
+test("falls back to pgvector file retrieval when notebook rag sidecar fails", async () => {
+  let sql = "";
+  const database = createKnowledgeDatabase(
+    async (query) => {
+      sql = query;
+      return JSON.stringify(chunks);
+    },
+    {
+      retrieveChunks: async () => {
+        throw new Error("Notebook RAG sidecar /retrieve-chunks failed: 500 Internal Server Error");
+      },
+    } as never,
+  );
+
+  const results = await database.retrieveRelevantFileKnowledgeChunks({
+    projectId: "project-defense",
+    fileId: "file-readme",
+    query: "食堂排队优化怎么做",
+    limit: 4,
+  });
+
+  assert.deepEqual(results, chunks);
+  assert.match(sql, /AND "fileId" = 'file-readme'/);
+  assert.match(sql, /ORDER BY "embedding" <=> '\[/);
+});
+
 test("prepares retrieval chunks through the notebook rag sidecar and merges retrieval metadata", async () => {
   const database = createKnowledgeDatabase(
     async () => "",
