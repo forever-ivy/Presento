@@ -284,7 +284,7 @@ test("projectKnowledgeMapScene hides source buckets when semantic graph nodes ex
       kind: "source-category",
       title: "代码资料",
       summary: "",
-      tone: "slate",
+      tone: "cyan",
       metadata: {},
       createdAt,
     },
@@ -304,7 +304,7 @@ test("projectKnowledgeMapScene hides source buckets when semantic graph nodes ex
       kind: "file",
       title: "package-lock.json",
       summary: "",
-      tone: "slate",
+      tone: "cyan",
       metadata: { fileKind: "code" },
       createdAt,
     },
@@ -437,7 +437,7 @@ test("projectKnowledgeMapScene lays out dense expanded file branches as readable
   assert.ok(roundedY.size >= 5);
 });
 
-test("projectKnowledgeMapScene shows training nodes only when the parent chain is expanded and focused", () => {
+test("projectKnowledgeMapScene keeps training nodes out of the graph projection", () => {
   const map = createKnowledgeMapFixture("demo");
   const scene = buildKnowledgeMapScene(map);
 
@@ -449,13 +449,21 @@ test("projectKnowledgeMapScene shows training nodes only when the parent chain i
   });
   assert.ok(!unfocused.nodes.some((node) => node.id === "training-node"));
 
-  const focused = projectKnowledgeMapScene(scene, {
+  const focusedParent = projectKnowledgeMapScene(scene, {
     activeNodeId: "risk-viewer-coverage",
     expandedBranchIds: new Set(["risk-viewer-coverage"]),
     filter: "all",
     query: "",
   });
-  assert.ok(focused.nodes.some((node) => node.id === "training-node"));
+  assert.ok(!focusedParent.nodes.some((node) => node.id === "training-node"));
+
+  const focusedTraining = projectKnowledgeMapScene(scene, {
+    activeNodeId: "training-node",
+    expandedBranchIds: new Set(["risk-viewer-coverage"]),
+    filter: "all",
+    query: "",
+  });
+  assert.ok(!focusedTraining.nodes.some((node) => node.id === "training-node"));
 });
 
 test("projectKnowledgeMapScene auto-expands folded matches and keeps ancestor chains for filters", () => {

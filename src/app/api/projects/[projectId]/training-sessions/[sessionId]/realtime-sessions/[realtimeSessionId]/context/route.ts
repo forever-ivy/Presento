@@ -9,6 +9,7 @@ export const runtime = "nodejs";
 const updateContextSchema = z.object({
   currentSlideId: z.string().nullable().optional(),
   currentKnowledgeNodeId: z.string().nullable().optional(),
+  focusKnowledgeNodeIds: z.array(z.string().min(1)).optional(),
   slideTitle: z.string().optional(),
   slideIndex: z.number().int().positive().optional(),
   memberScope: z.string().optional(),
@@ -38,10 +39,12 @@ export async function PATCH(
     const currentSlideId = payload.currentSlideId ?? realtimeSession.currentSlideId ?? null;
     const currentKnowledgeNodeId =
       payload.currentKnowledgeNodeId ?? realtimeSession.currentKnowledgeNodeId ?? null;
+    const focusKnowledgeNodeIds = payload.focusKnowledgeNodeIds ?? sessionResult.session.focusKnowledgeNodeIds ?? [];
     const contextSnapshot = await buildRealtimeContextSnapshot({
       projectId,
       currentSlideId,
       currentKnowledgeNodeId,
+      focusKnowledgeNodeIds,
       slideTitle: payload.slideTitle ?? null,
       slideIndex: payload.slideIndex ?? null,
       memberScope: payload.memberScope ?? null,
@@ -51,6 +54,7 @@ export async function PATCH(
       trainingRepository.updateSession(sessionId, {
         currentSlideId,
         currentKnowledgeNodeId,
+        focusKnowledgeNodeIds,
       }),
       realtimeRepository.updateSession(realtimeSessionId, {
         currentSlideId,

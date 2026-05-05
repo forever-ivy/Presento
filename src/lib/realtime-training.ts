@@ -19,6 +19,7 @@ export type RealtimeContextInput = {
   projectId: string;
   currentSlideId?: string | null;
   currentKnowledgeNodeId?: string | null;
+  focusKnowledgeNodeIds?: string[];
   slideTitle?: string | null;
   slideIndex?: number | null;
   memberScope?: string | null;
@@ -53,10 +54,15 @@ export async function buildRealtimeContextSnapshot(input: RealtimeContextInput) 
   }
 
   const memberScope = input.memberScope?.trim() || project.ownerScope || "未提供";
+  const focusKnowledgeNodes = await readFocusKnowledgeNodes(input.projectId, input.focusKnowledgeNodeIds ?? []);
+  const focusKnowledgeSummary = focusKnowledgeNodes
+    .map((node) => `${node.title}：${node.summary}`)
+    .join("\n");
   const retrievalQuery = [
     input.slideTitle ?? "",
     memberScope,
     input.currentKnowledgeNodeId ?? "",
+    focusKnowledgeSummary,
   ]
     .join("\n")
     .trim();
@@ -85,6 +91,8 @@ export async function buildRealtimeContextSnapshot(input: RealtimeContextInput) 
     slideIndex: input.slideIndex ?? null,
     currentSlideId: input.currentSlideId ?? null,
     currentKnowledgeNodeId: input.currentKnowledgeNodeId ?? null,
+    focusKnowledgeNodeIds: focusKnowledgeNodes.map((node) => node.id),
+    focusKnowledgeNodes,
     knowledgeSummary: chunks
       .slice(0, 6)
       .map((chunk) => chunk.content.trim())
@@ -98,6 +106,22 @@ export async function buildRealtimeContextSnapshot(input: RealtimeContextInput) 
     ],
     generatedAt: new Date().toISOString(),
   };
+}
+
+async function readFocusKnowledgeNodes(projectId: string, focusKnowledgeNodeIds: string[]) {
+  const uniqueIds = Array.from(new Set(focusKnowledgeNodeIds.map((id) => id.trim()).filter(Boolean)));
+  if (!uniqueIds.length) return [];
+
+  const map = await createKnowledgeMapRepository().read(projectId);
+  const idSet = new Set(uniqueIds);
+  return map.nodes
+    .filter((node) => idSet.has(node.id))
+    .map((node) => ({
+      id: node.id,
+      kind: node.kind,
+      title: node.title,
+      summary: node.summary,
+    }));
 }
 
 export function createRealtimeSessionToken() {

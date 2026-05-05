@@ -586,31 +586,34 @@ export function ProjectUploadWorkspace({
                 )}
               />
             </div>
-            <input
-              className="sr-only"
-              id={inputId}
-              multiple
-              onChange={(event) => {
-                if (!event.target.files?.length) return;
-                addFiles(event.target.files);
-                event.target.value = "";
-              }}
-              ref={inputRef}
-              type="file"
-            />
-            <input
-              className="sr-only"
-              multiple
-              onChange={(event) => {
-                if (!event.target.files?.length) return;
-                addFiles(event.target.files);
-                event.target.value = "";
-              }}
-              ref={bindDirectoryInput}
-              tabIndex={-1}
-              type="file"
-            />
           </label>
+
+          <input
+            className="sr-only"
+            id={inputId}
+            multiple
+            onChange={(event) => {
+              if (!event.target.files?.length) return;
+              addFiles(event.target.files);
+              event.target.value = "";
+            }}
+            onClick={(event) => event.stopPropagation()}
+            ref={inputRef}
+            type="file"
+          />
+          <input
+            className="sr-only"
+            multiple
+            onChange={(event) => {
+              if (!event.target.files?.length) return;
+              addFiles(event.target.files);
+              event.target.value = "";
+            }}
+            onClick={(event) => event.stopPropagation()}
+            ref={bindDirectoryInput}
+            tabIndex={-1}
+            type="file"
+          />
 
           {variant === "workspace" ? (
             <section className="presento-upload-loop-band" aria-label="支持上传格式">

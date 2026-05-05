@@ -63,6 +63,7 @@ export function createTrainingSessionRecord({
   difficulty,
   currentSlideId = null,
   currentKnowledgeNodeId = null,
+  focusKnowledgeNodeIds = [],
   createdAt = new Date().toISOString(),
 }: {
   projectId: string;
@@ -71,8 +72,12 @@ export function createTrainingSessionRecord({
   difficulty: string;
   currentSlideId?: string | null;
   currentKnowledgeNodeId?: string | null;
+  focusKnowledgeNodeIds?: string[];
   createdAt?: string;
 }) {
+  const focusNodeIds = uniqueNonEmptyStrings(focusKnowledgeNodeIds);
+  const compatibleKnowledgeNodeId = currentKnowledgeNodeId ?? focusNodeIds[0] ?? null;
+
   return {
     id: `session-${crypto.randomUUID()}`,
     projectId,
@@ -80,7 +85,8 @@ export function createTrainingSessionRecord({
     teacherRole,
     difficulty,
     currentSlideId,
-    currentKnowledgeNodeId,
+    currentKnowledgeNodeId: compatibleKnowledgeNodeId,
+    focusKnowledgeNodeIds: focusNodeIds,
     status: "active",
     voiceState: "idle" as TrainingVoiceState,
     hintCount: 0,
@@ -93,6 +99,18 @@ export function createTrainingSessionRecord({
     createdAt,
     updatedAt: createdAt,
   };
+}
+
+function uniqueNonEmptyStrings(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
 }
 
 export function buildRetrievedSources(chunks: ChunkLike[]): RetrievedSourceRef[] {

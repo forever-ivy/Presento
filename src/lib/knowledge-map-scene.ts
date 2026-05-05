@@ -312,6 +312,7 @@ function collectBaseVisibleIds(
 
 function isDefaultHiddenNode(node: KnowledgeMapSceneNode, hasSemanticGraph: boolean) {
   if (node.kind === "file") return true;
+  if (node.kind === "training") return true;
   return hasSemanticGraph && node.kind === "source-category";
 }
 
@@ -320,7 +321,6 @@ function hasSemanticGraphNodes(nodes: ReadonlyArray<{ kind: KnowledgeMapSceneNod
     node.kind === "module"
     || node.kind === "risk"
     || node.kind === "weakness"
-    || node.kind === "training"
   ));
 }
 
@@ -650,7 +650,6 @@ function matchesFilter(node: KnowledgeMapSceneNode, filter: string) {
   if (filter === "risk") return node.kind === "risk" || node.riskLevel === "high";
   if (filter === "weakness") return node.kind === "weakness";
   if (filter === "file") return node.kind === "file";
-  if (filter === "training") return node.kind === "training";
   return true;
 }
 

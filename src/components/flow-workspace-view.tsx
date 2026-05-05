@@ -116,6 +116,7 @@ import {
   createProjectTrainingSession,
   fetchProjectContentExports,
   fetchProjectDeepDives,
+  fetchProjectTrainingFocuses,
   fetchProjectSkillInvocations,
   fetchProjectSkillPacks,
   fetchProjectSlides,
@@ -124,6 +125,7 @@ import {
   type ProjectSlide,
   type SkillInvocationItem,
   type SkillPackItem,
+  type TrainingFocusItem,
   type WeaknessItem,
 } from "@/lib/project-data-api";
 import { useProjectWorkspace } from "@/lib/use-workspace";
@@ -1712,6 +1714,8 @@ function DefenseRoom({ projectId }: { projectId: string }) {
   const [sessionMessage, setSessionMessage] = useState("");
   const [sessionError, setSessionError] = useState("");
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [trainingFocuses, setTrainingFocuses] = useState<TrainingFocusItem[]>([]);
+  const [trainingFocusError, setTrainingFocusError] = useState("");
   const galleryShellRef = useRef<HTMLElement | null>(null);
   const activeSlide = slides.find((slide) => slide.id === selectedSlideId) ?? slides[0] ?? null;
   const activeSlideIndex = activeSlide ? Math.max(0, slides.findIndex((slide) => slide.id === activeSlide.id)) : 0;
@@ -1738,7 +1742,11 @@ function DefenseRoom({ projectId }: { projectId: string }) {
     setSessionError("");
     setSessionMessage("");
     try {
-      const result = await createProjectTrainingSession(projectId, activeSlide?.id);
+      const result = await createProjectTrainingSession(
+        projectId,
+        activeSlide?.id,
+        trainingFocuses.map((focus) => focus.knowledgeNodeId),
+      );
       setSessionMessage(
         result.nextStep?.createRealtimeSessionPath
           ? `训练会话已创建：${result.session?.id ?? "已创建"}`
@@ -1750,6 +1758,26 @@ function DefenseRoom({ projectId }: { projectId: string }) {
       setIsCreatingSession(false);
     }
   }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void Promise.resolve()
+      .then(async () => fetchProjectTrainingFocuses(projectId))
+      .then((payload) => {
+        if (cancelled) return;
+        setTrainingFocuses(payload.focuses ?? []);
+        setTrainingFocusError("");
+      })
+      .catch((nextError) => {
+        if (cancelled) return;
+        setTrainingFocusError(nextError instanceof Error ? nextError.message : "讲练重点读取失败");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   const selectSlide = useCallback((slideId: string) => {
     startTransition(() => setSelectedSlideId(slideId));
@@ -1863,6 +1891,19 @@ function DefenseRoom({ projectId }: { projectId: string }) {
                   <p>回答时尽量绑定 PPT 页、项目目标、代码路径和你的个人负责范围。</p>
                 </section>
 
+                <section className="presento-defense-ai-question">
+                  <span>本轮训练重点</span>
+                  <strong>{trainingFocuses.length ? `${trainingFocuses.length} 个知识图谱重点` : "未设置重点"}</strong>
+                  <p>
+                    {trainingFocuses.length
+                      ? trainingFocuses
+                          .slice(0, 4)
+                          .map((focus) => focus.knowledgeNode?.title ?? focus.knowledgeNodeId)
+                          .join(" · ")
+                      : "可先在知识图谱中把关键讲点加入讲练重点。"}
+                  </p>
+                </section>
+
                 <ScrollArea className="presento-defense-ai-scroll">
                   <div className="presento-defense-message-list">
                     {coachTurns.map((turn) => (
@@ -1875,6 +1916,7 @@ function DefenseRoom({ projectId }: { projectId: string }) {
                 </ScrollArea>
 
                 {sessionError ? <p className="text-sm font-bold text-[#c56a09]">{sessionError}</p> : null}
+                {trainingFocusError ? <p className="text-sm font-bold text-[#c56a09]">{trainingFocusError}</p> : null}
                 {sessionMessage ? <p className="text-sm font-bold text-[var(--presento-blue-active)]">{sessionMessage}</p> : null}
                 <Button className="presento-defense-submit-button" disabled={isCreatingSession} onClick={startTraining}>
                   <Play data-icon="inline-start" aria-hidden="true" />

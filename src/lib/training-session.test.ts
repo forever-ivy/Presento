@@ -27,6 +27,20 @@ test("createTrainingSessionRecord initializes the planned MVP training state", (
   assert.equal(session.shouldFinish, false);
 });
 
+test("createTrainingSessionRecord snapshots focus nodes and keeps current node compatible", () => {
+  const session = createTrainingSessionRecord({
+    projectId: "project-1",
+    title: "课程项目答辩训练",
+    teacherRole: "strict",
+    difficulty: "normal",
+    focusKnowledgeNodeIds: ["node-a", "node-a", "node-b"],
+    createdAt: "2026-04-28T12:00:00.000Z",
+  });
+
+  assert.deepEqual(session.focusKnowledgeNodeIds, ["node-a", "node-b"]);
+  assert.equal(session.currentKnowledgeNodeId, "node-a");
+});
+
 test("buildRetrievedSources keeps a stable citation-oriented source summary", () => {
   const sources = buildRetrievedSources([
     {

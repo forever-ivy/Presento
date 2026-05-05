@@ -5,6 +5,7 @@ import {
   createFileExplanation,
   createWorkspaceKnowledgeMap,
   getKnowledgeNodeActivation,
+  getKnowledgeNodeOpenAction,
   loadFileNodePreview,
   loadKnowledgeMap,
   mergeWorkspaceKnowledgeMap,
@@ -425,4 +426,19 @@ test("classifies file node activation between reader, slide scripts, and detail 
     "reader",
   );
   assert.equal(getKnowledgeNodeActivation({ kind: "module" }), "details");
+});
+
+test("keeps non-file graph nodes in the detail panel when opened", () => {
+  assert.equal(getKnowledgeNodeOpenAction({ kind: "module" }), "details");
+  assert.equal(getKnowledgeNodeOpenAction({ kind: "risk" }), "details");
+  assert.equal(getKnowledgeNodeOpenAction({ kind: "weakness" }), "details");
+  assert.equal(getKnowledgeNodeOpenAction({ kind: "project" }), "details");
+  assert.equal(getKnowledgeNodeOpenAction({ kind: "source-category" }), "details");
+  assert.equal(getKnowledgeNodeOpenAction({ kind: "training", metadata: {} }), "details");
+  assert.equal(getKnowledgeNodeOpenAction({ kind: "training", metadata: { action: "explain-file" } }), "details");
+  assert.equal(getKnowledgeNodeOpenAction({
+    fileId: "file-1",
+    kind: "training",
+    metadata: { action: "explain-file" },
+  }), "reader");
 });

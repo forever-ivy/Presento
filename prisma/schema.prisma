@@ -25,6 +25,7 @@ model Project {
   knowledgeChunks  KnowledgeChunk[]
   knowledgeNodes   KnowledgeNode[]
   knowledgeEdges   KnowledgeEdge[]
+  trainingFocuses  KnowledgeTrainingFocus[]
   riskQuestions    RiskQuestion[]
   practiceTurns    DefensePracticeTurn[]
   trainingSessions TrainingSession[]
@@ -341,6 +342,7 @@ model KnowledgeNode {
   metadata  Json
   createdAt DateTime
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  trainingFocuses KnowledgeTrainingFocus[]
 
   @@index([projectId])
   @@index([kind])
@@ -378,6 +380,20 @@ model RiskQuestion {
   @@index([knowledgeNodeId])
 }
 
+model KnowledgeTrainingFocus {
+  id              String        @id
+  projectId       String
+  knowledgeNodeId String
+  createdAt       DateTime
+  updatedAt       DateTime      @updatedAt
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  knowledgeNode   KnowledgeNode @relation(fields: [knowledgeNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, knowledgeNodeId])
+  @@index([projectId, updatedAt])
+  @@index([knowledgeNodeId])
+}
+
 model TrainingSession {
   id                     String   @id
   projectId              String
@@ -386,6 +402,7 @@ model TrainingSession {
   difficulty             String
   currentSlideId         String?
   currentKnowledgeNodeId String?
+  focusKnowledgeNodeIds  Json     @default("[]")
   status                 String
   voiceState             String
   hintCount              Int      @default(0)

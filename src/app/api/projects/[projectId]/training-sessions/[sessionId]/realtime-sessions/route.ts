@@ -15,6 +15,7 @@ export const runtime = "nodejs";
 const createRealtimeSessionSchema = z.object({
   currentSlideId: z.string().nullable().optional(),
   currentKnowledgeNodeId: z.string().nullable().optional(),
+  focusKnowledgeNodeIds: z.array(z.string().min(1)).optional(),
   slideTitle: z.string().optional(),
   slideIndex: z.number().int().positive().optional(),
   memberScope: z.string().optional(),
@@ -39,10 +40,12 @@ export async function POST(
     const currentSlideId = payload.currentSlideId ?? sessionResult.session.currentSlideId ?? null;
     const currentKnowledgeNodeId =
       payload.currentKnowledgeNodeId ?? sessionResult.session.currentKnowledgeNodeId ?? null;
+    const focusKnowledgeNodeIds = payload.focusKnowledgeNodeIds ?? sessionResult.session.focusKnowledgeNodeIds ?? [];
     const contextSnapshot = await buildRealtimeContextSnapshot({
       projectId,
       currentSlideId,
       currentKnowledgeNodeId,
+      focusKnowledgeNodeIds,
       slideTitle: payload.slideTitle ?? null,
       slideIndex: payload.slideIndex ?? null,
       memberScope: payload.memberScope ?? null,
@@ -51,10 +54,12 @@ export async function POST(
     if (
       currentSlideId !== sessionResult.session.currentSlideId
       || currentKnowledgeNodeId !== sessionResult.session.currentKnowledgeNodeId
+      || !sameStringList(focusKnowledgeNodeIds, sessionResult.session.focusKnowledgeNodeIds ?? [])
     ) {
       await createTrainingSessionRepository().updateSession(sessionId, {
         currentSlideId,
         currentKnowledgeNodeId,
+        focusKnowledgeNodeIds,
       });
     }
 
@@ -65,6 +70,7 @@ export async function POST(
         ...sessionResult.session,
         currentSlideId,
         currentKnowledgeNodeId,
+        focusKnowledgeNodeIds,
       },
       tokenHash: hashRealtimeSessionToken(sessionToken),
       contextSnapshot,
@@ -97,4 +103,9 @@ export async function POST(
       error instanceof Error ? error.message : "Failed to create realtime session.",
     );
   }
+}
+
+function sameStringList(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => item === right[index]);
 }

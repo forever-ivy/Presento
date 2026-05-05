@@ -1,4 +1,5 @@
 import { createProjectRepository } from "@db/repositories/projects";
+import { createTrainingFocusRepository } from "@db/repositories/training-focuses";
 import { createTrainingSessionRepository } from "@db/repositories/training-sessions";
 import { z } from "zod";
 import { createTrainingSessionRecord } from "@/lib/training-session";
@@ -13,6 +14,7 @@ const createTrainingSessionSchema = z.object({
   difficulty: z.string().default("normal"),
   currentSlideId: z.string().optional(),
   currentKnowledgeNodeId: z.string().optional(),
+  focusKnowledgeNodeIds: z.array(z.string().min(1)).optional(),
 });
 
 export async function POST(
@@ -26,6 +28,8 @@ export async function POST(
     if (!project) {
       return apiError(404, "project_not_found", "Project not found.");
     }
+    const focusKnowledgeNodeIds = payload.focusKnowledgeNodeIds
+      ?? (await createTrainingFocusRepository().listByProject(projectId)).map((focus) => focus.knowledgeNodeId);
     const repository = createTrainingSessionRepository();
     const session = createTrainingSessionRecord({
       projectId,
@@ -34,6 +38,7 @@ export async function POST(
       difficulty: payload.difficulty,
       currentSlideId: payload.currentSlideId,
       currentKnowledgeNodeId: payload.currentKnowledgeNodeId,
+      focusKnowledgeNodeIds,
     });
 
     await repository.createSession(session);

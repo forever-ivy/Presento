@@ -78,6 +78,7 @@ import {
   createFileExplanation,
   createWorkspaceKnowledgeMap,
   getKnowledgeNodeActivation,
+  getKnowledgeNodeOpenAction,
   loadFileNodePreview,
   loadKnowledgeMap,
   mergeWorkspaceKnowledgeMap,
@@ -86,6 +87,12 @@ import {
   type KnowledgeMapNodeUi,
   type KnowledgeMapUi,
 } from "@/lib/knowledge-map-client";
+import {
+  addProjectTrainingFocus,
+  fetchProjectTrainingFocuses,
+  removeProjectTrainingFocus,
+  type TrainingFocusItem,
+} from "@/lib/project-data-api";
 import type { DefenseWorkspace } from "@/lib/project-workspace";
 import { fetchProjectWorkspace } from "@/lib/project-workspace-api";
 import { projectRoute } from "@/lib/project-routes";
@@ -151,10 +158,11 @@ const graphFilters = [
   { id: "risk", label: "高危" },
   { id: "weakness", label: "薄弱点" },
   { id: "file", label: "文件" },
-  { id: "training", label: "训练入口" },
 ] as const;
 
 type KnowledgeGraphFilter = (typeof graphFilters)[number]["id"];
+
+const trainingFocusEligibleKinds = new Set(["project", "module", "risk", "weakness"]);
 
 const overviewDetailMaxSize = "43%";
 const overviewDetailMinReadableSize = "24%";
@@ -253,6 +261,9 @@ export function KnowledgeMapRoom({
   const [chatInput, setChatInput] = useState("");
   const [isLoadingExplanation, setIsLoadingExplanation] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [trainingFocuses, setTrainingFocuses] = useState<TrainingFocusItem[]>([]);
+  const [trainingFocusError, setTrainingFocusError] = useState<string | null>(null);
+  const [updatingTrainingFocusNodeId, setUpdatingTrainingFocusNodeId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -280,6 +291,26 @@ export function KnowledgeMapRoom({
       })
       .finally(() => {
         if (!cancelled) setIsLoadingMap(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void Promise.resolve()
+      .then(async () => fetchProjectTrainingFocuses(projectId))
+      .then((payload) => {
+        if (cancelled) return;
+        setTrainingFocuses(payload.focuses ?? []);
+        setTrainingFocusError(null);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setTrainingFocusError(messageFromError(error, "讲练重点读取失败。"));
       });
 
     return () => {
@@ -364,6 +395,10 @@ export function KnowledgeMapRoom({
     [activeNode, readerNode, scene],
   );
   const readerFocusNodeId = readerFocusNode?.id;
+  const trainingFocusNodeIds = useMemo(
+    () => new Set(trainingFocuses.map((focus) => focus.knowledgeNodeId)),
+    [trainingFocuses],
+  );
   const queryStateKey = searchParams.toString();
 
   const replaceKnowledgeMapQuery = useCallback((next: {
@@ -548,11 +583,24 @@ export function KnowledgeMapRoom({
             setActiveNodeId(fileNode.id);
             setReaderNodeId(fileNode.id);
           });
+          replaceKnowledgeMapQuery({
+            evidenceNodeId: fileNode.id,
+            mode: "reader",
+            nodeId: activeNode?.id ?? scene.rootId,
+          });
           return;
         }
       }
+      if (action === "explain-file") {
+        startTransition(() => {
+          setActiveNodeId(node.id);
+          setReaderNodeId(null);
+        });
+        replaceKnowledgeMapQuery({ mode: "overview", nodeId: node.id });
+        return;
+      }
     }
-    const activation = getKnowledgeNodeActivation(node);
+    const activation = getKnowledgeNodeOpenAction({ ...node, metadata: node.raw.metadata });
     if (activation === "scripts") {
       router.push(projectRoute(projectId, "scripts"));
       return;
@@ -567,7 +615,28 @@ export function KnowledgeMapRoom({
       });
       return;
     }
-    router.push(projectRoute(projectId, "defense"));
+    startTransition(() => {
+      setActiveNodeId(node.id);
+      setReaderNodeId(null);
+    });
+    replaceKnowledgeMapQuery({ mode: "overview", nodeId: node.id });
+  }
+
+  async function handleTrainingFocusToggle(nodeId: string) {
+    const node = scene.nodesById[nodeId];
+    if (!node || !isTrainingFocusEligible(node)) return;
+    setUpdatingTrainingFocusNodeId(nodeId);
+    setTrainingFocusError(null);
+    try {
+      const result = trainingFocusNodeIds.has(nodeId)
+        ? await removeProjectTrainingFocus(projectId, nodeId)
+        : await addProjectTrainingFocus(projectId, nodeId);
+      setTrainingFocuses(result.focuses ?? []);
+    } catch (error) {
+      setTrainingFocusError(messageFromError(error, "讲练重点更新失败。"));
+    } finally {
+      setUpdatingTrainingFocusNodeId(null);
+    }
   }
 
   function handleEvidenceOpen(evidenceNodeId: string) {
@@ -704,7 +773,11 @@ export function KnowledgeMapRoom({
           onNodeOpen={() => handleNodeOpen(overviewActiveNode.id)}
           onQueryChange={setQuery}
           onSelect={handleNodeSelect}
+          onTrainingFocusToggle={handleTrainingFocusToggle}
           query={query}
+          trainingFocusError={trainingFocusError}
+          trainingFocusNodeIds={trainingFocusNodeIds}
+          updatingTrainingFocusNodeId={updatingTrainingFocusNodeId}
         />
       )}
     </KnowledgeResizableShell>
@@ -902,7 +975,11 @@ function KnowledgeOverviewPanels({
   onNodeOpen,
   onQueryChange,
   onSelect,
+  onTrainingFocusToggle,
   query,
+  trainingFocusError,
+  trainingFocusNodeIds,
+  updatingTrainingFocusNodeId,
 }: {
   activeNode: KnowledgeMapSceneNode;
   activeOverviewNode: KnowledgeMapSceneRenderNode | null;
@@ -917,7 +994,11 @@ function KnowledgeOverviewPanels({
   onNodeOpen: () => void;
   onQueryChange: (query: string) => void;
   onSelect: (nodeId: string) => void;
+  onTrainingFocusToggle: (nodeId: string) => void;
   query: string;
+  trainingFocusError: string | null;
+  trainingFocusNodeIds: Set<string>;
+  updatingTrainingFocusNodeId: string | null;
 }) {
   return (
     <div className="presento-knowledge-overview-shell">
@@ -951,6 +1032,10 @@ function KnowledgeOverviewPanels({
             overviewNode={activeOverviewNode}
             onOpenEvidence={onEvidenceOpen}
             onOpenReader={onNodeOpen}
+            onTrainingFocusToggle={onTrainingFocusToggle}
+            trainingFocusError={trainingFocusError}
+            trainingFocusNodeIds={trainingFocusNodeIds}
+            updatingTrainingFocusNodeId={updatingTrainingFocusNodeId}
           />
         </ResizablePanel>
       </ResizablePanelGroup>
@@ -1329,11 +1414,19 @@ function KnowledgeDetailPane({
   overviewNode,
   onOpenEvidence,
   onOpenReader,
+  onTrainingFocusToggle,
+  trainingFocusError,
+  trainingFocusNodeIds,
+  updatingTrainingFocusNodeId,
 }: {
   node: KnowledgeMapSceneNode;
   overviewNode: KnowledgeMapSceneRenderNode | null;
   onOpenEvidence: (nodeId: string) => void;
   onOpenReader: () => void;
+  onTrainingFocusToggle: (nodeId: string) => void;
+  trainingFocusError: string | null;
+  trainingFocusNodeIds: Set<string>;
+  updatingTrainingFocusNodeId: string | null;
 }) {
   const reduceMotion = useReducedMotion();
   const transition = reduceMotion
@@ -1357,6 +1450,10 @@ function KnowledgeDetailPane({
               overviewNode={overviewNode}
               onOpenEvidence={onOpenEvidence}
               onOpenReader={onOpenReader}
+              onTrainingFocusToggle={onTrainingFocusToggle}
+              trainingFocusError={trainingFocusError}
+              trainingFocusNodeIds={trainingFocusNodeIds}
+              updatingTrainingFocusNodeId={updatingTrainingFocusNodeId}
             />
           </motion.div>
         </AnimatePresence>
@@ -1368,17 +1465,29 @@ function KnowledgeDetailPane({
 function NodeDetailContent({
   node,
   onOpenEvidence,
+  onTrainingFocusToggle,
   overviewNode,
   onOpenReader,
+  trainingFocusError,
+  trainingFocusNodeIds,
+  updatingTrainingFocusNodeId,
 }: {
   node: KnowledgeMapSceneNode;
   onOpenEvidence: (nodeId: string) => void;
+  onTrainingFocusToggle: (nodeId: string) => void;
   overviewNode: KnowledgeMapSceneRenderNode | null;
   onOpenReader: () => void;
+  trainingFocusError: string | null;
+  trainingFocusNodeIds: Set<string>;
+  updatingTrainingFocusNodeId: string | null;
 }) {
   const activation = getKnowledgeNodeActivation(node);
+  const openAction = getKnowledgeNodeOpenAction({ ...node, metadata: node.raw.metadata });
   const expression = node.expression;
   const evidenceRefs = node.evidenceRefs.slice(0, 3);
+  const canToggleTrainingFocus = isTrainingFocusEligible(node);
+  const isTrainingFocus = trainingFocusNodeIds.has(node.id);
+  const isUpdatingTrainingFocus = updatingTrainingFocusNodeId === node.id;
   const oneSentence = expression?.oneSentence || node.summary || "这个节点需要结合证据讲清项目价值、实现方式和个人贡献。";
   const talkTrack = expression?.talkTrack || node.actions[0] || "先讲问题，再讲做法，最后落到证据和训练动作。";
   const topQuestion = expression?.topQuestion || node.riskQuestions[0] || "老师可能追问这个点的证据、边界和差异化。";
@@ -1460,14 +1569,28 @@ function NodeDetailContent({
         </div>
       </ScrollArea>
       <div className="presento-knowledge-pane-actions">
-        <Button className="rounded-xl bg-[var(--presento-navy)] font-black text-white" onClick={onOpenReader} type="button">
-          {node.kind === "training" ? "开始讲练" : activation === "reader" ? "进入证据阅读" : activation === "scripts" ? "查看逐页讲稿" : "围绕此节点讲练"}
-        </Button>
+        {canToggleTrainingFocus ? (
+          <Button
+            className={cn("rounded-xl font-black", isTrainingFocus ? "" : "bg-[var(--presento-navy)] text-white")}
+            disabled={isUpdatingTrainingFocus}
+            onClick={() => onTrainingFocusToggle(node.id)}
+            type="button"
+            variant={isTrainingFocus ? "outline" : "default"}
+          >
+            <Target data-icon="inline-start" aria-hidden="true" />
+            {isUpdatingTrainingFocus ? "正在更新..." : isTrainingFocus ? "已加入讲练重点" : "加入讲练重点"}
+          </Button>
+        ) : openAction === "reader" || openAction === "scripts" ? (
+          <Button className="rounded-xl bg-[var(--presento-navy)] font-black text-white" onClick={onOpenReader} type="button">
+            {activation === "reader" ? "进入证据阅读" : "查看逐页讲稿"}
+          </Button>
+        ) : null}
         {evidenceRefs.length ? (
           <Button className="rounded-xl font-black" onClick={() => onOpenEvidence(evidenceRefs[0].nodeId)} type="button" variant="outline">
             查看证据资料
           </Button>
         ) : null}
+        {trainingFocusError ? <p className="text-xs font-bold text-[#c56a09]">{trainingFocusError}</p> : null}
       </div>
     </>
   );
@@ -1795,6 +1918,10 @@ function NodeKindIcon({ node }: { node: KnowledgeMapNodeUi }) {
           ? <Layers3 aria-hidden="true" />
         : <BookOpen aria-hidden="true" />;
   return <div className={cn("presento-knowledge-node-icon", `presento-knowledge-node-icon-${node.tone}`)}>{icon}</div>;
+}
+
+function isTrainingFocusEligible(node: KnowledgeMapSceneNode) {
+  return trainingFocusEligibleKinds.has(node.kind);
 }
 
 function buildKnowledgeReaderFileGroups(scene: KnowledgeMapScene, projectName?: string): KnowledgeReaderFileGroup[] {

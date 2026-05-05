@@ -9,6 +9,7 @@ export type TrainingSessionRecord = {
   difficulty: string;
   currentSlideId?: string | null;
   currentKnowledgeNodeId?: string | null;
+  focusKnowledgeNodeIds: string[];
   status: string;
   voiceState: string;
   hintCount: number;
@@ -132,7 +133,7 @@ function writeSessionSql(session: TrainingSessionRecord) {
   return `
 INSERT INTO "TrainingSession" (
   "id", "projectId", "title", "teacherRole", "difficulty", "currentSlideId",
-  "currentKnowledgeNodeId", "status", "voiceState", "hintCount", "followUpCount",
+  "currentKnowledgeNodeId", "focusKnowledgeNodeIds", "status", "voiceState", "hintCount", "followUpCount",
   "detectedWeaknesses", "lastRetrievedSources", "shouldFinish", "startedAt", "finishedAt",
   "createdAt", "updatedAt"
 ) VALUES (
@@ -143,6 +144,7 @@ INSERT INTO "TrainingSession" (
   ${sqlText(session.difficulty)},
   ${sqlText(session.currentSlideId)},
   ${sqlText(session.currentKnowledgeNodeId)},
+  ${sqlJson(session.focusKnowledgeNodeIds)},
   ${sqlText(session.status)},
   ${sqlText(session.voiceState)},
   ${sqlNumber(session.hintCount)},
@@ -161,6 +163,7 @@ ON CONFLICT ("id") DO UPDATE SET
   "difficulty" = EXCLUDED."difficulty",
   "currentSlideId" = EXCLUDED."currentSlideId",
   "currentKnowledgeNodeId" = EXCLUDED."currentKnowledgeNodeId",
+  "focusKnowledgeNodeIds" = EXCLUDED."focusKnowledgeNodeIds",
   "status" = EXCLUDED."status",
   "voiceState" = EXCLUDED."voiceState",
   "hintCount" = EXCLUDED."hintCount",
@@ -326,6 +329,7 @@ function updateSessionSql(sessionId: string, patch: Partial<TrainingSessionRecor
   const sets = [
     patch.currentSlideId !== undefined ? `"currentSlideId" = ${sqlText(patch.currentSlideId ?? null)}` : null,
     patch.currentKnowledgeNodeId !== undefined ? `"currentKnowledgeNodeId" = ${sqlText(patch.currentKnowledgeNodeId ?? null)}` : null,
+    patch.focusKnowledgeNodeIds !== undefined ? `"focusKnowledgeNodeIds" = ${sqlJson(patch.focusKnowledgeNodeIds)}` : null,
     patch.status !== undefined ? `"status" = ${sqlText(patch.status)}` : null,
     patch.voiceState !== undefined ? `"voiceState" = ${sqlText(patch.voiceState)}` : null,
     patch.hintCount !== undefined ? `"hintCount" = ${sqlNumber(patch.hintCount)}` : null,

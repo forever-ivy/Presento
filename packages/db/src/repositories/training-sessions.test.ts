@@ -17,6 +17,7 @@ test("writes planned MVP training session state fields", async () => {
     difficulty: "normal",
     currentSlideId: "slide-1",
     currentKnowledgeNodeId: "node-1",
+    focusKnowledgeNodeIds: ["node-1", "node-2"],
     status: "active",
     voiceState: "idle",
     hintCount: 0,
@@ -35,6 +36,7 @@ test("writes planned MVP training session state fields", async () => {
   assert.match(executed[0] ?? "", /"detectedWeaknesses"/u);
   assert.match(executed[0] ?? "", /"lastRetrievedSources"/u);
   assert.match(executed[0] ?? "", /"shouldFinish"/u);
+  assert.match(executed[0] ?? "", /"focusKnowledgeNodeIds"/u);
 });
 
 test("writes training turn context fields including retrieved sources and speech", async () => {

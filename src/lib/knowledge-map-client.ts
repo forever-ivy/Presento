@@ -18,6 +18,7 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 export type KnowledgeMapSource = "api";
 export type KnowledgeMapViewer = "details" | "pdf" | "docx" | "code" | "table" | "sql" | "presentation";
 export type KnowledgeNodeActivation = "details" | "reader" | "scripts";
+export type KnowledgeNodeOpenAction = KnowledgeNodeActivation;
 export type KnowledgeNodeRole = "mainline" | "expression" | "evidence" | "risk";
 export type KnowledgeNodeLayer = 0 | 1 | 2 | 3 | "risk";
 
@@ -502,6 +503,21 @@ export function getKnowledgeNodeActivation(node: Pick<KnowledgeMapNodeUi, "kind"
   return "reader";
 }
 
+export function getKnowledgeNodeOpenAction(
+  node: (Pick<KnowledgeMapNodeUi, "kind" | "fileKind"> | { kind?: string; fileKind?: string }) & {
+    fileId?: string;
+    metadata?: Record<string, unknown>;
+  },
+): KnowledgeNodeOpenAction {
+  if (node.kind === "training") {
+    const action = typeof node.metadata?.action === "string" ? node.metadata.action : undefined;
+    if (action === "open-slide-script") return "scripts";
+    if (action === "explain-file" && node.fileId) return "reader";
+    return "details";
+  }
+  return getKnowledgeNodeActivation(node);
+}
+
 export function filterKnowledgeMapNodes({
   nodes,
   edges,
@@ -846,11 +862,11 @@ function evidenceRefsFromMetadata(value: unknown): KnowledgeExpressionEvidenceRe
 }
 
 function defaultActionsForKind(kind: KnowledgeNodeKind) {
-  if (kind === "risk") return ["进入模拟讲练", "生成回答框架"];
+  if (kind === "risk") return ["加入讲练重点", "生成回答框架"];
   if (kind === "weakness") return ["加入薄弱点钻研", "补强讲稿"];
   if (kind === "file") return ["速通讲解", "精通拆解"];
-  if (kind === "training") return ["开始讲练"];
-  return ["查看证据链", "进入讲练"];
+  if (kind === "training") return ["查看关联资料"];
+  return ["查看证据链", "加入讲练重点"];
 }
 
 function stringFromMetadata(metadata: Record<string, unknown>, key: string) {

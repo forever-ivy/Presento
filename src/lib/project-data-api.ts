@@ -74,6 +74,20 @@ export type ContentExportItem = {
   createdAt: string;
 };
 
+export type TrainingFocusItem = {
+  id: string;
+  projectId: string;
+  knowledgeNodeId: string;
+  knowledgeNode?: {
+    id: string;
+    kind: string;
+    title: string;
+    summary: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+};
+
 export async function fetchProjectSlides(projectId: string) {
   return fetchProjectJson<{
     slideDecks?: ProjectSlideDeck[];
@@ -103,7 +117,38 @@ export async function fetchProjectContentExports(projectId: string) {
   return fetchProjectJson<{ exports?: ContentExportItem[] }>(projectId, "content-exports");
 }
 
-export async function createProjectTrainingSession(projectId: string, currentSlideId?: string) {
+export async function fetchProjectTrainingFocuses(projectId: string) {
+  return fetchProjectJson<{ focuses?: TrainingFocusItem[] }>(projectId, "training-focuses");
+}
+
+export async function addProjectTrainingFocus(projectId: string, knowledgeNodeId: string) {
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/training-focuses`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ knowledgeNodeId }),
+  });
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<{ focus?: TrainingFocusItem; focuses?: TrainingFocusItem[] }>;
+}
+
+export async function removeProjectTrainingFocus(projectId: string, knowledgeNodeId: string) {
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/training-focuses/${encodeURIComponent(knowledgeNodeId)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<{ focuses?: TrainingFocusItem[] }>;
+}
+
+export async function createProjectTrainingSession(
+  projectId: string,
+  currentSlideId?: string,
+  focusKnowledgeNodeIds?: string[],
+) {
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/training-sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -112,6 +157,7 @@ export async function createProjectTrainingSession(projectId: string, currentSli
       teacherRole: "strict",
       difficulty: "normal",
       currentSlideId,
+      focusKnowledgeNodeIds,
     }),
   });
   if (!response.ok) {
