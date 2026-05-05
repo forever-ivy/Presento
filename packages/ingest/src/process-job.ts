@@ -295,40 +295,31 @@ export async function enhanceIngestKnowledgeMap({
   provider: LlmProvider | null;
   createdAt: string;
 }): Promise<KnowledgeMapIngestMetadata> {
-  try {
-    const graphOutput = await runKnowledgeMapGraph({
-      provider,
-      projectName: projectId,
-      fileName: file.name,
-      fileKind: file.kind,
-      parsedSummary,
-      chunks,
-      generatedAt: createdAt,
-    });
-    const merged = mergeAiKnowledgeGraph({
-      projectId,
-      source,
-      file,
-      starterNodes: ingestResult.knowledgeNodes,
-      starterEdges: ingestResult.knowledgeEdges,
-      output: graphOutput,
-      createdAt,
-    });
-    ingestResult.knowledgeNodes = merged.knowledgeNodes;
-    ingestResult.knowledgeEdges = merged.knowledgeEdges;
-    return {
-      knowledgeMapMode: "ai",
-      knowledgeNodeCount: ingestResult.knowledgeNodes.length,
-      knowledgeEdgeCount: ingestResult.knowledgeEdges.length,
-    };
-  } catch (error) {
-    return {
-      knowledgeMapMode: "starter",
-      knowledgeMapError: error instanceof Error ? error.message : "AI knowledge map generation failed.",
-      knowledgeNodeCount: ingestResult.knowledgeNodes.length,
-      knowledgeEdgeCount: ingestResult.knowledgeEdges.length,
-    };
-  }
+  const graphOutput = await runKnowledgeMapGraph({
+    provider,
+    projectName: projectId,
+    fileName: file.name,
+    fileKind: file.kind,
+    parsedSummary,
+    chunks,
+    generatedAt: createdAt,
+  });
+  const merged = mergeAiKnowledgeGraph({
+    projectId,
+    source,
+    file,
+    starterNodes: ingestResult.knowledgeNodes,
+    starterEdges: ingestResult.knowledgeEdges,
+    output: graphOutput,
+    createdAt,
+  });
+  ingestResult.knowledgeNodes = merged.knowledgeNodes;
+  ingestResult.knowledgeEdges = merged.knowledgeEdges;
+  return {
+    knowledgeMapMode: "ai",
+    knowledgeNodeCount: ingestResult.knowledgeNodes.length,
+    knowledgeEdgeCount: ingestResult.knowledgeEdges.length,
+  };
 }
 
 async function parseWithSidecar(file: DefenseFileRecord, buffer: Buffer) {
@@ -461,7 +452,7 @@ async function parseRepositoryWithSidecar(file: DefenseFileRecord, repositoryUrl
   });
 }
 
-function contentFromParsedFile(parsed: Awaited<ReturnType<NonNullable<ReturnType<typeof createNotebookRagClient>>["parseFile"]>>) {
+function contentFromParsedFile(parsed: ParsedFileResult) {
   const chunkContent = parsed.chunks.map((chunk) => chunk.content.trim()).filter(Boolean);
   if (chunkContent.length) return chunkContent.join("\n\n");
 

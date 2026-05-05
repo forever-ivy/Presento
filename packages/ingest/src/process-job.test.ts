@@ -87,23 +87,59 @@ test("enhanceIngestKnowledgeMap stores ai graph metadata when model succeeds", a
   assert.equal(metadata.knowledgeEdgeCount, ingestResult.knowledgeEdges.length);
 });
 
-test("enhanceIngestKnowledgeMap keeps starter graph when model is unavailable", async () => {
+test("enhanceIngestKnowledgeMap surfaces model errors instead of using starter fallback", async () => {
   const ingestResult = createTestIngestResult();
-  const starterNodeIds = ingestResult.knowledgeNodes.map((node) => node.id);
-  const metadata = await enhanceIngestKnowledgeMap({
-    projectId: "project-demo",
-    file: testFile,
-    source: ingestResult.source,
-    parsedSummary: "项目说明",
-    chunks: ingestResult.chunks,
-    ingestResult,
-    provider: null,
-    createdAt: "2026-05-01T00:00:00.000Z",
-  });
 
-  assert.equal(metadata.knowledgeMapMode, "starter");
-  assert.match(metadata.knowledgeMapError ?? "", /模型未配置/u);
-  assert.deepEqual(ingestResult.knowledgeNodes.map((node) => node.id), starterNodeIds);
+  await assert.rejects(
+    () => enhanceIngestKnowledgeMap({
+      projectId: "project-demo",
+      file: testFile,
+      source: ingestResult.source,
+      parsedSummary: "项目说明",
+      chunks: ingestResult.chunks,
+      ingestResult,
+      provider: null,
+      createdAt: "2026-05-01T00:00:00.000Z",
+    }),
+    /模型未配置/u,
+  );
+});
+
+test("enhanceIngestKnowledgeMap surfaces model request errors", async () => {
+  const ingestResult = createTestIngestResult();
+
+  await assert.rejects(
+    () => enhanceIngestKnowledgeMap({
+      projectId: "project-demo",
+      file: testFile,
+      source: ingestResult.source,
+      parsedSummary: "项目说明",
+      chunks: ingestResult.chunks,
+      ingestResult,
+      provider: {
+        async generateJson() {
+          throw new Error("DeepSeek request failed: 401 invalid api key");
+        },
+      },
+      createdAt: "2026-05-01T00:00:00.000Z",
+    }),
+    /DeepSeek request failed/u,
+  );
+});
+
+test("local parsed result is reserved for code-like files", () => {
+  const parsed = createLocalParsedFileResult(
+    {
+      ...testFile,
+      name: "src/index.ts",
+      kind: "code",
+      type: "text/typescript",
+    },
+    Buffer.from("export const ok = true;"),
+  );
+
+  assert.equal(parsed.metadata?.parser, "local-code-fallback");
+  assert.equal(parsed.codeTree?.[0]?.path, "src/index.ts");
 });
 
 const testFile = {

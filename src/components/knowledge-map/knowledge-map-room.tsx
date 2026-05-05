@@ -76,12 +76,10 @@ import {
 import {
   appendFileExplanationTurn,
   createFileExplanation,
-  createWorkspaceKnowledgeMap,
   getKnowledgeNodeActivation,
   getKnowledgeNodeOpenAction,
   loadFileNodePreview,
   loadKnowledgeMap,
-  mergeWorkspaceKnowledgeMap,
   type FileExplanationUi,
   type FilePreviewUi,
   type KnowledgeMapNodeUi,
@@ -346,18 +344,7 @@ export function KnowledgeMapRoom({
     };
   }, [projectId]);
 
-  const effectiveKnowledgeMap = useMemo(
-    () => {
-      if (!workspace?.files.length) return knowledgeMap;
-      if (!knowledgeMap.nodes.length) {
-        return knowledgeMap.generation.status === "failed"
-          ? knowledgeMap
-          : createWorkspaceKnowledgeMap(workspace);
-      }
-      return mergeWorkspaceKnowledgeMap(knowledgeMap, workspace);
-    },
-    [knowledgeMap, workspace],
-  );
+  const effectiveKnowledgeMap = knowledgeMap;
   const scene = useMemo(() => buildKnowledgeMapScene(effectiveKnowledgeMap), [effectiveKnowledgeMap]);
   const sanitizedExpandedBranchIds = useMemo(
     () => new Set(
@@ -911,6 +898,7 @@ function KnowledgeMapStatePanel({
   title: string;
 }) {
   const stateImage = detailStateImages[loading ? "loading" : "empty"];
+  const shouldShowDescription = !loading && /失败|错误/u.test(title) && description.trim().length > 0;
 
   return (
     <section className="presento-detail-state presento-detail-state-knowledge">
@@ -925,7 +913,7 @@ function KnowledgeMapStatePanel({
       />
       <div className="presento-detail-state-copy">
         <h2>{title}</h2>
-        <p>{description}</p>
+        {shouldShowDescription ? <p>{description}</p> : null}
       </div>
     </section>
   );

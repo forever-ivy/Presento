@@ -92,7 +92,7 @@ export default function ProjectManagementPage() {
   return (
     <AppFrame ambient={false}>
       <TopNav />
-      <PageWrap className="gap-7 pt-28" width="max-w-6xl">
+      <PageWrap className="presento-projects-workspace gap-7" width="max-w-none">
         <section className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-4xl font-black tracking-normal text-[var(--presento-ink)]">
@@ -109,7 +109,7 @@ export default function ProjectManagementPage() {
           </button>
         </section>
 
-        <section className="overflow-hidden rounded-[28px] border border-[var(--presento-border)] bg-white/86 shadow-[0_28px_80px_rgba(15,23,42,0.06)] backdrop-blur-xl">
+        <section className="min-h-[68vh] overflow-hidden rounded-[28px] border border-[var(--presento-border)] bg-white/86 shadow-[0_28px_80px_rgba(15,23,42,0.06)] backdrop-blur-xl">
           <div className="grid grid-cols-[minmax(0,1.4fr)_160px_120px_180px_120px_110px] gap-4 border-b border-[var(--presento-border)] px-6 py-4 text-xs font-black uppercase tracking-wider text-[var(--presento-faint)] max-lg:hidden">
             <span>项目</span>
             <span>类型</span>
@@ -244,7 +244,7 @@ function ProjectListState({
   return (
     <div
       className={cn(
-        "flex min-h-52 items-center justify-center px-6 text-center text-base font-black",
+        "flex min-h-[calc(68vh-3.5rem)] items-center justify-center px-6 text-center text-base font-black",
         tone === "error" ? "text-[#c56a09]" : "text-[var(--presento-muted)]",
       )}
     >

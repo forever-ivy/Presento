@@ -50,10 +50,10 @@ import {
   type DefenseFileInput,
 } from "@/lib/project-workspace";
 import {
-  configureDirectoryUploadInput,
   getUploadDisplayName,
   getUploadableFiles,
   getUploadableFilesFromDataTransfer,
+  pickUploadDirectory,
 } from "@/lib/upload-files";
 import {
   buildUploadWorkspaceCopy,
@@ -68,7 +68,6 @@ import {
   ScrollVelocityContainer,
   ScrollVelocityRow,
 } from "./ui/scroll-based-velocity";
-import { UploadDirectoryDialog } from "./upload-directory-dialog";
 
 type UploadResponseBody = {
   uploadedFiles?: DefenseFileInput[];
@@ -193,7 +192,6 @@ export function ProjectUploadWorkspace({
     : "/api/uploads";
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const directoryInputRef = useRef<HTMLInputElement | null>(null);
   const destroyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbacksRef = useRef({
     onUploadComplete,
@@ -397,14 +395,10 @@ export function ProjectUploadWorkspace({
     inputRef.current?.click();
   }
 
-  function bindDirectoryInput(input: HTMLInputElement | null) {
-    directoryInputRef.current = input;
-    if (input) configureDirectoryUploadInput(input);
-  }
-
-  function openDirectoryPicker() {
+  async function openDirectoryPicker() {
     try {
-      directoryInputRef.current?.click();
+      const files = await pickUploadDirectory();
+      if (files.length) addFiles(files);
     } catch (error) {
       notifyUploadError(
         callbacksRef,
@@ -561,6 +555,7 @@ export function ProjectUploadWorkspace({
                 className="presento-upload-action-button rounded-full bg-[var(--presento-blue)] font-black text-white hover:bg-[var(--presento-blue-active)]"
                 onClick={(event) => {
                   event.preventDefault();
+                  event.stopPropagation();
                   openPicker();
                 }}
                 size="lg"
@@ -569,22 +564,21 @@ export function ProjectUploadWorkspace({
               >
                 选择文件
               </Button>
-              <UploadDirectoryDialog
-                isUploading={trayItems.some((item) => item.status === "queued" || item.status === "uploading")}
-                onSelectDirectory={openDirectoryPicker}
-                trigger={(
-                  <Button
-                    className="presento-upload-action-button rounded-full font-black"
-                    onClick={(event) => event.preventDefault()}
-                    size="lg"
-                    style={secondaryUploadActionButtonStyle}
-                    type="button"
-                    variant="outline"
-                  >
-                    选择文件夹
-                  </Button>
-                )}
-              />
+              <Button
+                className="presento-upload-action-button rounded-full font-black"
+                disabled={trayItems.some((item) => item.status === "queued" || item.status === "uploading")}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void openDirectoryPicker();
+                }}
+                size="lg"
+                style={secondaryUploadActionButtonStyle}
+                type="button"
+                variant="outline"
+              >
+                选择文件夹
+              </Button>
             </div>
           </label>
 
@@ -601,20 +595,6 @@ export function ProjectUploadWorkspace({
             ref={inputRef}
             type="file"
           />
-          <input
-            className="sr-only"
-            multiple
-            onChange={(event) => {
-              if (!event.target.files?.length) return;
-              addFiles(event.target.files);
-              event.target.value = "";
-            }}
-            onClick={(event) => event.stopPropagation()}
-            ref={bindDirectoryInput}
-            tabIndex={-1}
-            type="file"
-          />
-
           {variant === "workspace" ? (
             <section className="presento-upload-loop-band" aria-label="支持上传格式">
               <ScrollVelocityContainer className="presento-upload-loop">

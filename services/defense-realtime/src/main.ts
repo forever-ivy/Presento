@@ -1,8 +1,11 @@
 import WebSocket from "ws";
+import { loadPresentoEnv } from "../../../workers/shared/src/load-env.ts";
 import { ensureLangfuseNodeSdkStarted } from "@ai/langfuse";
 import { createRealtimeSessionRepository } from "@db/repositories/realtime-sessions";
 import { finalizeRealtimeTurnAndAnalyze, hashRealtimeSessionToken } from "@/lib/realtime-training";
 import { createDefenseRealtimeServer } from "./server.ts";
+
+loadPresentoEnv();
 
 const port = Number(process.env.DEFENSE_REALTIME_PORT ?? 3021);
 const providerUrl = process.env.GLM_REALTIME_WS_URL ?? "wss://open.bigmodel.cn/api/paas/v4/realtime";

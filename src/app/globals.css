@@ -243,6 +243,10 @@ svg {
   width: calc(100% - 128px);
 }
 
+.presento-projects-workspace {
+  padding: calc(var(--presento-topbar-height) + 2rem) clamp(1.5rem, 3vw, 3rem) 2.5rem;
+}
+
 .presento-map-page {
   height: 100vh;
   min-height: 0;

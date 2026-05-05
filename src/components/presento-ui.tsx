@@ -198,7 +198,7 @@ export function PageWrap({
         width,
         className,
       )}
-      initial={animateEntrance ? { opacity: 0, y: 8 } : false}
+      initial={animateEntrance ? { y: 8 } : false}
       transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
     >
       {children}
