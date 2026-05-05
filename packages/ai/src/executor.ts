@@ -11,7 +11,13 @@ import { traceSkillExecution } from "./langfuse.ts";
 import { getBuiltInSkill } from "./skills/registry.ts";
 import { getSkillSchema } from "./skills/schemas.ts";
 import { createSkillToolLayer } from "./tools.ts";
-import { runDefenseChatGraph, runDefenseReviewGraph, runProjectBriefGraph } from "../../../src/lib/skill-graph.ts";
+import {
+  runDefenseChatGraph,
+  runDefenseReviewGraph,
+  runProjectBriefGraph,
+  runSlideScriptGraph,
+  type SlideAssistantAction,
+} from "../../../src/lib/skill-graph.ts";
 import { createConfiguredLlmProvider } from "../../../src/lib/llm-provider.ts";
 import { generateDefenseCoachTurn, type DefenseCoachTurn, type DefenseTeacherRole } from "../../../src/lib/defense-chat-skill.ts";
 import { generateDefenseReview, type DefensePracticeTurn } from "../../../src/lib/defense-review.ts";
@@ -226,10 +232,76 @@ async function invokeProjectBrief(context: SkillHandlerContext): Promise<SkillEx
 }
 
 async function invokeSlideScript(context: SkillHandlerContext): Promise<SkillExecutionResult> {
+  const provider = createConfiguredLlmProvider();
   const chunks = await ensureSlideChunks(context);
-  const slideTitle = String(context.parsedPayload.slideTitle ?? "当前页");
+  const parsed = context.parsedPayload;
+  const slideTitle = String(parsed.slideTitle ?? "当前页");
+  const slideIndex = readOptionalNumber(parsed.slideIndex) ?? 1;
+  const action = readSlideAssistantAction(parsed.action);
+
+  try {
+    const script = await runSlideScriptGraph({
+      provider,
+      projectName: context.projectName,
+      slideTitle,
+      slideIndex,
+      fileId: readOptionalString(parsed.fileId),
+      slideId: readOptionalString(parsed.slideId),
+      extractedText: readOptionalString(parsed.extractedText),
+      instruction: readOptionalString(parsed.instruction),
+      action,
+      chunks,
+    });
+
+    return buildSkillResult("success", script, {
+      toolCalls: [],
+      retrievalSummary: createChunkSummary(chunks, "slide", {
+        query: slideTitle,
+        fileId: readOptionalString(parsed.fileId) ?? undefined,
+      }),
+    });
+  } catch (error) {
+    return buildSkillResult("fallback", generateSlideScriptFallback({
+      projectName: context.projectName,
+      slideTitle,
+      slideIndex,
+      extractedText: readOptionalString(parsed.extractedText),
+      instruction: readOptionalString(parsed.instruction),
+      action,
+      chunks,
+    }), {
+      toolCalls: [],
+      retrievalSummary: createChunkSummary(chunks, "slide", {
+        query: slideTitle,
+        fileId: readOptionalString(parsed.fileId) ?? undefined,
+      }),
+      error,
+    });
+  }
+}
+
+function generateSlideScriptFallback({
+  projectName,
+  slideTitle,
+  slideIndex,
+  extractedText,
+  instruction,
+  action,
+  chunks,
+}: {
+  projectName: string;
+  slideTitle: string;
+  slideIndex: number;
+  extractedText?: string | null;
+  instruction?: string | null;
+  action: SlideAssistantAction;
+  chunks: KnowledgeChunkRecord[];
+}) {
   const lines = flattenLines(chunks);
-  const keyLines = lines.slice(0, 3);
+  const extractedLines = extractedText
+    ? extractedText.split(/\r?\n|。|；/u).map((line) => line.trim()).filter(Boolean)
+    : [];
+  const keyLines = [...extractedLines, ...lines].slice(0, 4);
   const normal = keyLines.length
     ? `这一页主要讲 ${slideTitle}。先说 ${keyLines[0]}。接着补充 ${keyLines[1] ?? "实现路径和证据"}。最后落到 ${keyLines[2] ?? "效果、边界和个人负责范围"}。`
     : `这一页主要讲 ${slideTitle}。建议按“问题背景、实现方式、结果与个人贡献”三步来讲。`;
@@ -244,19 +316,45 @@ async function invokeSlideScript(context: SkillHandlerContext): Promise<SkillExe
     .filter(Boolean)
     .slice(0, 6);
 
-  return buildSkillResult("success", {
-    projectName: context.projectName,
+  const risks = Array.from(new Set([
+    `老师可能追问「${slideTitle}」这页的材料依据、边界和差异化。`,
+    keyLines.find((line) => /数据|字段|Excel|文件|导入|导出/u.test(line))
+      ? "如果继续追问数据结构或文件处理流程，要能说清输入、处理和输出。"
+      : null,
+    "如果追问个人贡献，请准备一句能落到你负责模块的话。",
+  ].filter((item): item is string => Boolean(item)))).slice(0, 4);
+
+  const basisTopics = Array.from(new Set([
     slideTitle,
+    ...keywords.slice(0, 4),
+  ])).slice(0, 5);
+  const basisMaterials = Array.from(new Set([
+    `Slide ${String(slideIndex).padStart(2, "0")} · ${slideTitle}`,
+    ...chunks.map((chunk) => chunk.source).filter(Boolean),
+  ])).slice(0, 5);
+  const rewrite = action === "rewrite"
+    ? `${instruction ? `${instruction}：` : ""}${short}`
+    : undefined;
+
+  return {
+    projectName,
+    slideTitle,
+    task: `讲清「${slideTitle}」这一页的核心意思，并把内容落到项目背景、实现依据和个人负责范围。`,
     normal,
     short,
+    conversational: `这页我会先用一句话讲结论：${short} 然后再补两点依据，避免只是在念 PPT。`,
+    contribution: `我负责讲清这页里和自己工作相关的部分：先说明我参与的功能或材料，再说明我怎么验证它是可用的。`,
+    transition: `讲完 ${slideTitle} 之后，下一页我会顺着这个结论继续展开具体实现或任务分工。`,
+    answerCard: `答辩卡：本页先讲结论，再补一个资料依据，最后补一句个人负责范围。`,
     keywords,
-  }, {
-    toolCalls: [],
-    retrievalSummary: createChunkSummary(chunks, "slide", {
-      query: slideTitle,
-      fileId: readOptionalString(context.parsedPayload.fileId) ?? undefined,
-    }),
-  });
+    risks,
+    basis: {
+      topics: basisTopics,
+      materials: basisMaterials,
+    },
+    rewrite,
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 async function invokeRiskQuestions(context: SkillHandlerContext): Promise<SkillExecutionResult> {
@@ -776,6 +874,24 @@ function readOptionalString(value: unknown) {
 
 function readOptionalNumber(value: unknown) {
   return typeof value === "number" ? value : null;
+}
+
+function readSlideAssistantAction(value: unknown): SlideAssistantAction {
+  const action = typeof value === "string" ? value : "overview";
+  if (
+    action === "overview"
+    || action === "short"
+    || action === "conversational"
+    || action === "contribution"
+    || action === "transition"
+    || action === "teacher_question"
+    || action === "answer_card"
+    || action === "keywords"
+    || action === "rewrite"
+  ) {
+    return action;
+  }
+  return "overview";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

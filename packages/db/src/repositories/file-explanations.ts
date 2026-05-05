@@ -22,6 +22,25 @@ export function createFileExplanationRepository(runSql: PsqlRunner = runDockerCo
       );
     },
 
+    async readReusableSession({
+      fileId,
+      focusNodeId,
+      mode,
+      nodeId,
+      projectId,
+    }: {
+      fileId: string;
+      focusNodeId?: string;
+      mode: string;
+      nodeId: string;
+      projectId: string;
+    }) {
+      return helpers.readJson<FileExplanationSessionWithTurns | null>(
+        readReusableSessionSql({ fileId, focusNodeId, mode, nodeId, projectId }),
+        null,
+      );
+    },
+
     async addTurn(turn: FileExplanationTurnRecord) {
       await helpers.run([
         "BEGIN;",
@@ -99,6 +118,57 @@ WITH target_session AS (
   FROM "FileExplanationSession"
   WHERE "projectId" = ${sqlText(projectId)}
     AND "id" = ${sqlText(sessionId)}
+  LIMIT 1
+)
+SELECT COALESCE((
+  SELECT json_build_object(
+    'id', target_session."id",
+    'projectId', target_session."projectId",
+    'nodeId', target_session."nodeId",
+    'fileId', target_session."fileId",
+    'sourceId', target_session."sourceId",
+    'mode', target_session."mode",
+    'status', target_session."status",
+    'summary', target_session."summary",
+    'outline', target_session."outline",
+    'citations', target_session."citations",
+    'metadata', target_session."metadata",
+    'createdAt', target_session."createdAt",
+    'updatedAt', target_session."updatedAt",
+    'turns', COALESCE((
+      SELECT json_agg(row_to_json(turn_rows) ORDER BY turn_rows."createdAt")
+      FROM "FileExplanationTurn" turn_rows
+      WHERE turn_rows."sessionId" = target_session."id"
+    ), '[]'::json)
+  )
+  FROM target_session
+), 'null'::json)::text;`;
+}
+
+function readReusableSessionSql({
+  fileId,
+  focusNodeId,
+  mode,
+  nodeId,
+  projectId,
+}: {
+  fileId: string;
+  focusNodeId?: string;
+  mode: string;
+  nodeId: string;
+  projectId: string;
+}) {
+  return `
+WITH target_session AS (
+  SELECT *
+  FROM "FileExplanationSession"
+  WHERE "projectId" = ${sqlText(projectId)}
+    AND "nodeId" = ${sqlText(nodeId)}
+    AND "fileId" = ${sqlText(fileId)}
+    AND "mode" = ${sqlText(mode)}
+    AND COALESCE("metadata"->>'focusNodeId', '') = ${sqlText(focusNodeId ?? "")}
+    AND "status" IN ('ready', 'completed', 'fallback')
+  ORDER BY "updatedAt" DESC
   LIMIT 1
 )
 SELECT COALESCE((

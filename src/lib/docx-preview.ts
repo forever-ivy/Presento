@@ -131,7 +131,7 @@ function parseDocxBlocks(documentXml: string, styles: DocxStyleMap): DocxPreview
     if (paragraph) blocks.push(paragraph);
   }
 
-  return blocks.slice(0, 240);
+  return blocks;
 }
 
 function parseParagraph(xml: string, styles: DocxStyleMap): DocxPreviewParagraph | null {
@@ -206,7 +206,7 @@ function parseTable(xml: string): DocxPreviewTable {
 
   return {
     kind: "table",
-    rows: rows.slice(0, 80).map((row) => row.slice(0, 12)),
+    rows,
   };
 }
 

@@ -38,6 +38,7 @@ WHERE job_rows."projectId" = ${sqlText(projectId)};`,
       kinds?: JobRunKind[];
       fileKinds?: string[];
       excludeFileKinds?: string[];
+      payloadReasons?: string[];
     }) {
       return helpers.readJson<JobRunRecord | null>(claimNextSql(options), null);
     },
@@ -109,6 +110,7 @@ function claimNextSql(options?: {
   kinds?: JobRunKind[];
   fileKinds?: string[];
   excludeFileKinds?: string[];
+  payloadReasons?: string[];
 }) {
   const filters = [
     `"status" IN ('queued', 'retryable')`,
@@ -118,6 +120,9 @@ function claimNextSql(options?: {
       : null,
     options?.excludeFileKinds?.length
       ? `COALESCE("payload"->>'kind', '') NOT IN (${options.excludeFileKinds.map((kind) => sqlText(kind)).join(", ")})`
+      : null,
+    options?.payloadReasons?.length
+      ? `COALESCE("payload"->>'reason', '') IN (${options.payloadReasons.map((reason) => sqlText(reason)).join(", ")})`
       : null,
   ].filter(Boolean);
 

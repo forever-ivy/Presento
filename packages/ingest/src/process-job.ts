@@ -1,21 +1,19 @@
-import type { PsqlRunner } from "../../db/src/runner.ts";
+import { createJsonRepositoryHelpers, type PsqlRunner } from "../../db/src/runner.ts";
 import { createCodeRepositoryRepository } from "../../db/src/repositories/code-repositories.ts";
 import { createFileRepository } from "../../db/src/repositories/files.ts";
 import { createJobRunRepository } from "../../db/src/repositories/job-runs.ts";
+import { sqlText } from "../../db/src/sql.ts";
 import type { FileRecord, ProcessingTaskRecord } from "../../db/src/repositories/files.ts";
 import type { JobRunRecord } from "../../shared/src/domain.ts";
-import type { ParsedFileResult, ProjectSourceRecord } from "../../shared/src/domain.ts";
+import type { ParsedFileResult } from "../../shared/src/domain.ts";
 import type { DefenseFileRecord, DefenseProcessingTask } from "../../../src/lib/project-workspace.ts";
 import { prepareRetrievalChunks } from "../../../src/lib/knowledge-db.ts";
 import {
   generateExpressionKnowledgeMapForProject,
 } from "../../../src/lib/expression-knowledge-map.ts";
-import type { KnowledgeChunkRecord } from "../../../src/lib/knowledge-chunks.ts";
-import { createConfiguredLlmProvider } from "../../../src/lib/llm-provider.ts";
 import type { LlmProvider } from "../../../src/lib/llm-provider.ts";
-import { runKnowledgeMapGraph } from "../../../src/lib/skill-graph.ts";
 import { readStoredFileBuffer, resolveSidecarFileSource } from "../../../src/lib/stored-file-access.ts";
-import { ingestLocalFile, mergeAiKnowledgeGraph } from "./pipeline.ts";
+import { ingestLocalFile } from "./pipeline.ts";
 import { persistIngestedFile } from "./persist.ts";
 import { renderPresentationSlides } from "./presentation-render.ts";
 import { buildPresentationSlideRecords } from "./slides.ts";
@@ -71,18 +69,9 @@ export async function processFileIngestJob({
       content: extracted.content,
       parsed: parsed ?? undefined,
       createdAt: startedAt,
+      createStarterGraph: false,
     });
     ingestResult.chunks = await prepareRetrievalChunks(ingestResult.chunks);
-    const knowledgeMapMetadata = await enhanceIngestKnowledgeMap({
-      projectId,
-      file,
-      source: ingestResult.source,
-      parsedSummary: parsed?.source.summary,
-      chunks: ingestResult.chunks,
-      ingestResult,
-      provider: createConfiguredLlmProvider(),
-      createdAt: startedAt,
-    });
     const renderedSlides = await renderPresentationSlides({
       buffer,
       file,
@@ -112,7 +101,6 @@ export async function processFileIngestJob({
       slideCount: slideArtifacts.slides.length,
       contentType: extracted.contentType,
       parser: readParserName(parsed),
-      ...knowledgeMapMetadata,
     }).catch(() => undefined);
     await triggerKnowledgeMapGenerationAfterIngest({
       fileId: file.id,
@@ -129,7 +117,6 @@ export async function processFileIngestJob({
       contentType: extracted.contentType,
       synthetic: extracted.synthetic,
       parser: readParserName(parsed),
-      ...knowledgeMapMetadata,
     };
   } catch (error) {
     const failedAt = new Date().toISOString();
@@ -141,6 +128,13 @@ export async function processFileIngestJob({
       completedAt: failedAt,
     }).catch(() => undefined);
     await jobRepository.markFailed(jobId, failedAt, message).catch(() => undefined);
+    await triggerKnowledgeMapGenerationAfterIngest({
+      fileId: file.id,
+      projectId,
+      runSql,
+      sourceJobId: jobId,
+      taskId: task.id,
+    }).catch(() => undefined);
     throw error;
   }
 }
@@ -189,18 +183,9 @@ export async function processRepositoryIngestJob({
       content: contentFromParsedFile(parsed),
       parsed,
       createdAt: startedAt,
+      createStarterGraph: false,
     });
     ingestResult.chunks = await prepareRetrievalChunks(ingestResult.chunks);
-    const knowledgeMapMetadata = await enhanceIngestKnowledgeMap({
-      projectId,
-      file,
-      source: ingestResult.source,
-      parsedSummary: parsed.source.summary,
-      chunks: ingestResult.chunks,
-      ingestResult,
-      provider: createConfiguredLlmProvider(),
-      createdAt: startedAt,
-    });
 
     await persistIngestedFile({
       projectId,
@@ -227,7 +212,6 @@ export async function processRepositoryIngestJob({
       slideCount: 0,
       contentType: "sidecar",
       parser: readParserName(parsed),
-      ...knowledgeMapMetadata,
     }).catch(() => undefined);
     await triggerKnowledgeMapGenerationAfterIngest({
       fileId: file.id,
@@ -244,7 +228,6 @@ export async function processRepositoryIngestJob({
       contentType: "sidecar",
       synthetic: false,
       parser: readParserName(parsed),
-      ...knowledgeMapMetadata,
     };
   } catch (error) {
     const failedAt = new Date().toISOString();
@@ -263,63 +246,15 @@ export async function processRepositoryIngestJob({
       },
     }).catch(() => undefined);
     await jobRepository.markFailed(jobId, failedAt, message).catch(() => undefined);
+    await triggerKnowledgeMapGenerationAfterIngest({
+      fileId: file.id,
+      projectId,
+      runSql,
+      sourceJobId: jobId,
+      taskId: task.id,
+    }).catch(() => undefined);
     throw error;
   }
-}
-
-type IngestLocalFileResult = ReturnType<typeof ingestLocalFile>;
-
-export type KnowledgeMapIngestMetadata = {
-  knowledgeMapMode: "ai" | "starter";
-  knowledgeMapError?: string;
-  knowledgeNodeCount: number;
-  knowledgeEdgeCount: number;
-};
-
-export async function enhanceIngestKnowledgeMap({
-  projectId,
-  file,
-  source,
-  parsedSummary,
-  chunks,
-  ingestResult,
-  provider,
-  createdAt,
-}: {
-  projectId: string;
-  file: DefenseFileRecord;
-  source: ProjectSourceRecord;
-  parsedSummary?: string;
-  chunks: KnowledgeChunkRecord[];
-  ingestResult: IngestLocalFileResult;
-  provider: LlmProvider | null;
-  createdAt: string;
-}): Promise<KnowledgeMapIngestMetadata> {
-  const graphOutput = await runKnowledgeMapGraph({
-    provider,
-    projectName: projectId,
-    fileName: file.name,
-    fileKind: file.kind,
-    parsedSummary,
-    chunks,
-    generatedAt: createdAt,
-  });
-  const merged = mergeAiKnowledgeGraph({
-    projectId,
-    source,
-    file,
-    starterNodes: ingestResult.knowledgeNodes,
-    starterEdges: ingestResult.knowledgeEdges,
-    output: graphOutput,
-    createdAt,
-  });
-  ingestResult.knowledgeNodes = merged.knowledgeNodes;
-  ingestResult.knowledgeEdges = merged.knowledgeEdges;
-  return {
-    knowledgeMapMode: "ai",
-    knowledgeNodeCount: ingestResult.knowledgeNodes.length,
-    knowledgeEdgeCount: ingestResult.knowledgeEdges.length,
-  };
 }
 
 async function parseWithSidecar(file: DefenseFileRecord, buffer: Buffer) {
@@ -466,13 +401,31 @@ function contentFromParsedFile(parsed: ParsedFileResult) {
   ].filter(Boolean).join("\n");
 }
 
+export type KnowledgeMapJobReason = "project_ready" | "waiting_for_files" | "blocked_by_failed_files";
+
+export type ProjectProcessingTaskSummary = {
+  totalTaskCount: number;
+  completedTaskCount: number;
+  failedTaskCount: number;
+  pendingTaskCount: number;
+  processingTaskCount: number;
+};
+
 export function createKnowledgeMapJobRecord({
   createdAt = new Date().toISOString(),
+  error,
   projectId,
+  reason = "project_ready",
+  result,
+  status = reason === "blocked_by_failed_files" ? "failed" : "queued",
   trigger,
 }: {
   createdAt?: string;
+  error?: string;
   projectId: string;
+  reason?: KnowledgeMapJobReason;
+  result?: Record<string, unknown>;
+  status?: JobRunRecord["status"];
   trigger?: {
     fileId?: string;
     sourceJobId?: string;
@@ -483,15 +436,18 @@ export function createKnowledgeMapJobRecord({
     id: `job-knowledge-map-${projectId}`,
     projectId,
     kind: "knowledge_map",
-    status: "queued",
+    status,
     payload: {
-      reason: "file_ingest_succeeded",
+      reason,
       ...(trigger?.fileId ? { fileId: trigger.fileId } : {}),
       ...(trigger?.sourceJobId ? { sourceJobId: trigger.sourceJobId } : {}),
       ...(trigger?.taskId ? { taskId: trigger.taskId } : {}),
     },
+    error,
+    result,
     createdAt,
     updatedAt: createdAt,
+    ...(status === "failed" ? { completedAt: createdAt } : {}),
   };
 }
 
@@ -511,6 +467,14 @@ export async function processKnowledgeMapJob({
   await jobRepository.markRunning(jobId, startedAt).catch(() => undefined);
 
   try {
+    const summary = await readProjectProcessingTaskSummary(projectId, runSql);
+    if (summary.failedTaskCount > 0) {
+      throw new Error("存在解析失败文件，知识图谱未生成。");
+    }
+    if (summary.pendingTaskCount > 0 || summary.processingTaskCount > 0) {
+      throw new Error("还有文件正在解析，知识图谱暂未生成。");
+    }
+
     const result = await generateExpressionKnowledgeMapForProject({
       llmProvider,
       projectId,
@@ -519,8 +483,10 @@ export async function processKnowledgeMapJob({
     const completedAt = new Date().toISOString();
     await jobRepository.markSucceeded(jobId, completedAt, {
       edgeCount: result.edges.length,
+      failedTaskCount: summary.failedTaskCount,
       nodeCount: result.nodes.length,
       nodeRole: "expression_map",
+      completedTaskCount: summary.completedTaskCount,
     }).catch(() => undefined);
     return {
       edgeCount: result.edges.length,
@@ -547,8 +513,17 @@ export async function triggerKnowledgeMapGenerationAfterIngest({
   sourceJobId: string;
   taskId: string;
 }) {
+  const summary = await readProjectProcessingTaskSummary(projectId, runSql);
+  const reason = knowledgeMapReasonForTaskSummary(summary);
+  const isBlocked = reason === "blocked_by_failed_files";
+  const isReady = reason === "project_ready";
+  const error = isBlocked ? "存在解析失败文件，知识图谱未生成。" : undefined;
   const job = createKnowledgeMapJobRecord({
+    error,
     projectId,
+    reason,
+    result: summary,
+    status: isBlocked ? "failed" : "queued",
     trigger: {
       fileId,
       sourceJobId,
@@ -557,11 +532,46 @@ export async function triggerKnowledgeMapGenerationAfterIngest({
   });
   const jobRepository = createJobRunRepository(runSql);
   await jobRepository.create(job);
-  return processKnowledgeMapJob({
+  return {
+    ...summary,
     jobId: job.id,
-    projectId,
-    runSql,
-  });
+    queued: isReady,
+    reason,
+  };
+}
+
+export function knowledgeMapReasonForTaskSummary(
+  summary: ProjectProcessingTaskSummary,
+): KnowledgeMapJobReason {
+  if (summary.failedTaskCount > 0) return "blocked_by_failed_files";
+  if (summary.pendingTaskCount > 0 || summary.processingTaskCount > 0) return "waiting_for_files";
+  return "project_ready";
+}
+
+export async function readProjectProcessingTaskSummary(
+  projectId: string,
+  runSql?: PsqlRunner,
+): Promise<ProjectProcessingTaskSummary> {
+  const helpers = createJsonRepositoryHelpers(runSql);
+  return helpers.readJson<ProjectProcessingTaskSummary>(
+    `
+SELECT json_build_object(
+  'totalTaskCount', COUNT(*)::int,
+  'completedTaskCount', COUNT(*) FILTER (WHERE "status" = 'completed')::int,
+  'failedTaskCount', COUNT(*) FILTER (WHERE "status" = 'failed')::int,
+  'pendingTaskCount', COUNT(*) FILTER (WHERE "status" = 'pending')::int,
+  'processingTaskCount', COUNT(*) FILTER (WHERE "status" = 'processing')::int
+)::text
+FROM "ProcessingTask"
+WHERE "projectId" = ${sqlText(projectId)};`,
+    {
+      completedTaskCount: 0,
+      failedTaskCount: 0,
+      pendingTaskCount: 0,
+      processingTaskCount: 0,
+      totalTaskCount: 0,
+    },
+  );
 }
 
 export async function processClaimedIngestJob(

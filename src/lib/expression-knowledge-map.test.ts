@@ -4,8 +4,11 @@ import test from "node:test";
 import type { KnowledgeChunkRecord } from "./knowledge-chunks.ts";
 import {
   buildExpressionKnowledgeMapRecords,
+  generateExpressionKnowledgeMapDraft,
   normalizeExpressionKnowledgeMapDraft,
+  selectExpressionKnowledgeMapChunks,
 } from "./expression-knowledge-map.ts";
+import type { LlmMessage, LlmProvider } from "./llm-provider.ts";
 import type { ProjectWorkspaceDto } from "../../packages/shared/src/domain.ts";
 
 const createdAt = "2026-05-03T08:00:00.000Z";
@@ -90,6 +93,49 @@ const chunks: KnowledgeChunkRecord[] = [
     createdAt,
   },
 ];
+
+test("expression map prompt separates positioning from defense talk track", async () => {
+  let userPrompt = "";
+  const provider: LlmProvider = {
+    async generateJson<T>(params: { schemaName: string; messages: LlmMessage[] }) {
+      userPrompt = params.messages.find((message: LlmMessage) => message.role === "user")?.content ?? "";
+      return {
+        projectCenter: {
+          title: "Presento",
+          oneSentence: "AI 公共表达增强工具。",
+          talkTrack: "先讲校园答辩，再讲表达训练闭环。",
+        },
+        mainlines: [
+          {
+            title: "产品功能主线",
+            expressionNodes: [
+              {
+                title: "项目知识地图",
+                oneSentence: "这是把项目材料组织成答辩讲点的表达模块。",
+                talkTrack: "先讲资料分散的场景，再讲地图如何串联材料、追问和训练。",
+                topQuestion: "和普通文件目录有什么区别？",
+                riskLevel: "high",
+                evidenceRefs: [{ fileId: "file-ppt", label: "PPT 第 3 页", reason: "展示产品路径。" }],
+              },
+            ],
+          },
+        ],
+      } as T;
+    },
+  };
+
+  await generateExpressionKnowledgeMapDraft({
+    chunks,
+    llmProvider: provider,
+    workspace,
+  });
+
+  assert.match(userPrompt, /一句话定位/u);
+  assert.match(userPrompt, /定义句|定位句/u);
+  assert.match(userPrompt, /不展开实现过程/u);
+  assert.match(userPrompt, /答辩讲法/u);
+  assert.match(userPrompt, /上台讲述顺序/u);
+});
 
 test("normalizes LLM expression map output before writing graph records", () => {
   const draft = normalizeExpressionKnowledgeMapDraft({
@@ -220,4 +266,42 @@ test("builds a defense expression graph where files are evidence leaves, not mai
   assert.ok(map.edges.some((edge) => edge.fromNodeId === mainlineNode?.id && edge.toNodeId === expressionNode?.id && edge.kind === "contains"));
   assert.ok(map.edges.some((edge) => edge.fromNodeId === expressionNode?.id && edge.toNodeId === evidenceNode?.id && edge.kind === "evidence"));
   assert.ok(map.edges.some((edge) => edge.fromNodeId === expressionNode?.id && edge.toNodeId === riskNode?.id && edge.kind === "risk"));
+});
+
+test("selects project graph context with documents first and grouped code directories", () => {
+  const manyChunks: KnowledgeChunkRecord[] = [
+    ...Array.from({ length: 6 }, (_, index) => ({
+      ...chunks[1]!,
+      id: `chunk-code-components-${index}`,
+      fileId: `file-code-components-${index}`,
+      content: `components file ${index}`,
+      metadata: {
+        ...chunks[1]!.metadata,
+        codePath: `src/components/component-${index}.tsx`,
+        fileName: `src/components/component-${index}.tsx`,
+        kind: "code" as const,
+      },
+    })),
+    ...Array.from({ length: 6 }, (_, index) => ({
+      ...chunks[1]!,
+      id: `chunk-code-ingest-${index}`,
+      fileId: `file-code-ingest-${index}`,
+      content: `ingest file ${index}`,
+      metadata: {
+        ...chunks[1]!.metadata,
+        codePath: `packages/ingest/src/file-${index}.ts`,
+        fileName: `packages/ingest/src/file-${index}.ts`,
+        kind: "code" as const,
+      },
+    })),
+    chunks[1]!,
+    chunks[0]!,
+  ];
+
+  const selected = selectExpressionKnowledgeMapChunks(manyChunks, { maxChunks: 6 });
+
+  assert.equal(selected[0]?.fileId, "file-ppt");
+  assert.ok(selected.some((chunk) => chunk.metadata.codePath === "src/components"));
+  assert.ok(selected.some((chunk) => chunk.metadata.codePath === "packages/ingest/src"));
+  assert.equal(selected.some((chunk) => chunk.id === "chunk-code-components-5"), false);
 });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { canHandleDocumentJob, runDocumentWorkerJob } from "./index.ts";
 
-test("document worker handles file ingest and knowledge map jobs", async () => {
+test("document worker handles only non-code file ingest jobs", async () => {
   const calls: string[] = [];
   const handled = await runDocumentWorkerJob(
     {
@@ -28,7 +28,7 @@ test("document worker handles file ingest and knowledge map jobs", async () => {
     payload: {},
     createdAt: "2026-04-27T00:00:00.000Z",
     updatedAt: "2026-04-27T00:00:00.000Z",
-  }), true);
+  }), false);
   assert.deepEqual(calls, ["job-1"]);
   assert.equal(handled.skipped, false);
 });

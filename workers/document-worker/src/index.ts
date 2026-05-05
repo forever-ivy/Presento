@@ -5,8 +5,7 @@ import { runWorkerLoop } from "../../shared/src/worker-loop.ts";
 
 export function canHandleDocumentJob(job: JobRunRecord) {
   return (
-    job.kind === "knowledge_map"
-    || (job.kind === "file_ingest" && String(job.payload?.kind ?? "") !== "code")
+    job.kind === "file_ingest" && String(job.payload?.kind ?? "") !== "code"
   );
 }
 
@@ -21,7 +20,7 @@ export async function runDocumentWorkerJob(job: JobRunRecord, runner: (job: JobR
 
 export async function claimNextDocumentJob(runSql?: JobRunSqlRunner) {
   return createJobRunRepository(runSql).claimNext({
-    kinds: ["file_ingest", "knowledge_map"],
+    kinds: ["file_ingest"],
     excludeFileKinds: ["code"],
   });
 }

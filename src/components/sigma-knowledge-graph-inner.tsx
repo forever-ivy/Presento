@@ -122,7 +122,7 @@ function GraphLoader({
 
       graph.addEdgeWithKey(edgeKey, edge.fromNodeId, edge.toNodeId, {
         label: edge.label,
-        size: edge.emphasis === "active" ? 2.8 : edge.emphasis === "branch" ? 1.45 : 0.9,
+        size: edge.emphasis === "active" ? 2.8 : edge.emphasis === "branch" ? 1.55 : 1.2,
         color: edgeColor(edge),
         zIndex: edge.emphasis === "active" ? 2 : 1,
       });
@@ -258,8 +258,8 @@ function museumNodeColor(
 
 function edgeColor(edge: SigmaKnowledgeEdge) {
   if (edge.emphasis === "active") return "rgba(3, 105, 161, 1)";
-  if (edge.emphasis === "branch") return "rgba(71, 85, 105, 0.42)";
-  return "rgba(100, 116, 139, 0.26)";
+  if (edge.emphasis === "branch") return "rgba(71, 85, 105, 0.5)";
+  return "rgba(100, 116, 139, 0.38)";
 }
 
 function compactNodeTitle(node: SigmaKnowledgeNode) {

@@ -61,6 +61,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -81,6 +82,7 @@ import { KnowledgeMapRoom } from "@/components/knowledge-map/knowledge-map-room"
 import { ProjectUploadWorkspace } from "@/components/project-upload-workspace";
 import {
   RichScriptEditor,
+  type RichScriptEditorHandle,
 } from "@/components/rich-script-editor";
 import {
   FLOW_MAP_OVERVIEW_MAX_ZOOM,
@@ -120,9 +122,14 @@ import {
   fetchProjectSkillInvocations,
   fetchProjectSkillPacks,
   fetchProjectSlides,
+  runSlideAssistantAction,
   type ContentExportItem,
   type DeepDiveItem,
   type ProjectSlide,
+  type ProjectSlideDeck,
+  type SlideAssistantAction,
+  type SlideAssistantInsertResult,
+  type SlideAssistantOverview,
   type SkillInvocationItem,
   type SkillPackItem,
   type TrainingFocusItem,
@@ -1547,9 +1554,9 @@ function KnowledgeRoom({
 type ScriptVersion = "normal" | "short" | "keywords";
 
 const scriptVersions: { id: ScriptVersion; label: string }[] = [
-  { id: "normal", label: "完整版" },
-  { id: "short", label: "简练版" },
-  { id: "keywords", label: "关键词版" },
+  { id: "normal", label: "完整稿" },
+  { id: "short", label: "30 秒稿" },
+  { id: "keywords", label: "提词稿" },
 ];
 
 function escapeHtml(value: string) {
@@ -1571,6 +1578,7 @@ function ScriptsRoom({ projectId }: { projectId: string }) {
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [scriptVersion, setScriptVersion] = useState<ScriptVersion>("normal");
   const [isScriptsGalleryCollapsed, setIsScriptsGalleryCollapsed] = useState(false);
+  const scriptEditorRef = useRef<RichScriptEditorHandle | null>(null);
   const filmstripRef = useRef<HTMLElement | null>(null);
   const activeSlide = slides.find((slide) => slide.id === selectedSlideId) ?? slides[0] ?? null;
   const editorContent = useMemo(
@@ -1599,6 +1607,9 @@ function ScriptsRoom({ projectId }: { projectId: string }) {
     const shouldCollapse = panelSize.inPixels <= DEFENSE_GALLERY_COLLAPSED_THRESHOLD;
     setIsScriptsGalleryCollapsed((current) => current === shouldCollapse ? current : shouldCollapse);
   }, []);
+  const insertAssistantToken = useCallback((label: string, content: string, tone: "pause" | "question" | "card" = "card") => {
+    scriptEditorRef.current?.appendContent(`<p><mark data-presento-token="${tone}">${escapeHtml(label)}：${escapeHtml(content)}</mark></p>`);
+  }, []);
 
   useLayoutEffect(() => {
     if (activeSlide && !isScriptsGalleryCollapsed) resetFilmstripScroll();
@@ -1623,30 +1634,46 @@ function ScriptsRoom({ projectId }: { projectId: string }) {
         orientation="vertical"
       >
         <ResizablePanel defaultSize="78%" minSize="56%">
-          <main className="presento-scripts-main">
-            <Tabs
-              className="presento-scripts-version-tabs"
-              onValueChange={(value) => setScriptVersion(value as ScriptVersion)}
-              value={scriptVersion}
-            >
-              <TabsList aria-label="讲稿版本" className="presento-scripts-version-tabs-list">
-                {scriptVersions.map((version) => (
-                  <TabsTrigger className="presento-scripts-version-tab" key={version.id} value={version.id}>
-                    <strong>{version.label}</strong>
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-            <RichScriptEditor
-              className="presento-scripts-editor"
-              initialContent={editorContent}
-              key={`${activeSlide.id}-${scriptVersion}`}
-              minHeight={390}
-              showFooterMeta={false}
-              statusLabel={`${scriptVersions.find((version) => version.id === scriptVersion)?.label ?? "完整版"} · 当前项目`}
-              variant="script"
-            />
-          </main>
+          <ResizablePanelGroup
+            className="presento-scripts-upper-resizable"
+            orientation="horizontal"
+          >
+            <ResizablePanel defaultSize="74%" minSize="48%">
+              <main className="presento-scripts-main">
+                <Tabs
+                  className="presento-scripts-version-tabs"
+                  onValueChange={(value) => setScriptVersion(value as ScriptVersion)}
+                  value={scriptVersion}
+                >
+                  <TabsList aria-label="讲稿版本" className="presento-scripts-version-tabs-list">
+                    {scriptVersions.map((version) => (
+                      <TabsTrigger className="presento-scripts-version-tab" key={version.id} value={version.id}>
+                        <strong>{version.label}</strong>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+                <RichScriptEditor
+                  className="presento-scripts-editor"
+                  initialContent={editorContent}
+                  key={`${activeSlide.id}-${scriptVersion}`}
+                  minHeight={390}
+                  ref={scriptEditorRef}
+                  showFooterMeta={false}
+                  statusLabel={`${scriptVersions.find((version) => version.id === scriptVersion)?.label ?? "完整稿"} · 当前项目`}
+                  variant="script"
+                />
+              </main>
+            </ResizablePanel>
+            <ResizableHandle className="presento-defense-resize-handle presento-scripts-side-resize-handle" withHandle />
+            <ResizablePanel defaultSize="26%" minSize="260px">
+              <ScriptAssistantPanel
+                onInsertToken={insertAssistantToken}
+                projectId={projectId}
+                slide={activeSlide}
+              />
+            </ResizablePanel>
+          </ResizablePanelGroup>
         </ResizablePanel>
         <ResizableHandle className="presento-defense-resize-handle presento-scripts-resize-handle" withHandle />
         <ResizablePanel
@@ -1702,6 +1729,202 @@ function ScriptsRoom({ projectId }: { projectId: string }) {
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
+  );
+}
+
+function ScriptAssistantPanel({
+  onInsertToken,
+  projectId,
+  slide,
+}: {
+  onInsertToken: (label: string, content: string, tone?: "pause" | "question" | "card") => void;
+  projectId: string;
+  slide: ProjectSlide;
+}) {
+  const [overview, setOverview] = useState<SlideAssistantOverview | null>(null);
+  const [assistantError, setAssistantError] = useState("");
+  const [isOverviewLoading, setIsOverviewLoading] = useState(false);
+  const [runningAction, setRunningAction] = useState<SlideAssistantAction | null>(null);
+  const [rewriteInstruction, setRewriteInstruction] = useState("");
+  const isAssistantBusy = isOverviewLoading || Boolean(runningAction);
+  const keywords = overview?.keywords ?? [];
+  const risks = overview?.risks ?? [];
+  const basis = overview?.basis ?? { topics: [], materials: [] };
+  const pageTask = overview?.task ?? "正在生成本页任务...";
+  const fallbackNotice = overview && assistantError === "fallback"
+    ? "当前使用本地兜底文案，模型配置恢复后会自动使用真实 AI。"
+    : "";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void Promise.resolve()
+      .then(() => {
+        if (cancelled) return null;
+        setOverview(null);
+        setAssistantError("");
+        setIsOverviewLoading(true);
+        return runSlideAssistantAction(projectId, slide.id, { action: "overview" });
+      })
+      .then((response) => {
+        if (cancelled || !response) return;
+        setOverview(response.result as SlideAssistantOverview);
+        setAssistantError(response.usedFallback ? "fallback" : "");
+      })
+      .catch((nextError) => {
+        if (cancelled) return;
+        setAssistantError(nextError instanceof Error ? nextError.message : "逐页讲稿助手生成失败");
+      })
+      .finally(() => {
+        if (!cancelled) setIsOverviewLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, slide.id]);
+
+  const runInsertAction = useCallback(async (action: SlideAssistantAction) => {
+    setRunningAction(action);
+    setAssistantError("");
+    try {
+      const response = await runSlideAssistantAction(projectId, slide.id, { action });
+      const result = response.result as SlideAssistantInsertResult;
+      if (response.usedFallback) setAssistantError("fallback");
+      if (result.content.trim()) {
+        onInsertToken(result.label, result.content, result.tone);
+      }
+    } catch (nextError) {
+      setAssistantError(nextError instanceof Error ? nextError.message : "AI 动作执行失败");
+    } finally {
+      setRunningAction(null);
+    }
+  }, [onInsertToken, projectId, slide.id]);
+
+  const submitRewrite = useCallback(async () => {
+    const instruction = rewriteInstruction.trim();
+    if (!instruction) return;
+    setRunningAction("rewrite");
+    setAssistantError("");
+    try {
+      const response = await runSlideAssistantAction(projectId, slide.id, {
+        action: "rewrite",
+        instruction,
+      });
+      const result = response.result as SlideAssistantInsertResult;
+      if (response.usedFallback) setAssistantError("fallback");
+      if (result.content.trim()) {
+        onInsertToken(result.label, result.content, result.tone);
+      }
+    } catch (nextError) {
+      setAssistantError(nextError instanceof Error ? nextError.message : "AI 改稿失败");
+    } finally {
+      setRunningAction(null);
+    }
+  }, [onInsertToken, projectId, rewriteInstruction, slide.id]);
+
+  return (
+    <aside className="presento-scripts-ai-shell">
+      <ScrollArea className="presento-scripts-ai">
+        <div className="presento-scripts-ai-inner">
+          {assistantError && assistantError !== "fallback" ? (
+            <p className="presento-scripts-ai-error">{assistantError}</p>
+          ) : null}
+          {fallbackNotice ? (
+            <p className="presento-scripts-ai-fallback">{fallbackNotice}</p>
+          ) : null}
+
+          <section className="presento-scripts-ai-block presento-scripts-ai-task">
+            <span>本页任务</span>
+            <p>{pageTask}</p>
+          </section>
+
+          <section className="presento-scripts-ai-block presento-scripts-ai-actions">
+            <span>改稿动作</span>
+            <div className="presento-scripts-ai-action-grid">
+              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("short")} type="button" variant="outline">
+                <Sparkles data-icon="inline-start" aria-hidden="true" />
+                {runningAction === "short" ? "生成中..." : "压缩成 30 秒"}
+              </Button>
+              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("conversational")} type="button" variant="outline">
+                {runningAction === "conversational" ? "生成中..." : "改得更口语"}
+              </Button>
+              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("contribution")} type="button" variant="outline">
+                {runningAction === "contribution" ? "生成中..." : "突出个人贡献"}
+              </Button>
+              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("transition")} type="button" variant="outline">
+                {runningAction === "transition" ? "生成中..." : "补转场句"}
+              </Button>
+              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("teacher_question")} type="button" variant="outline">
+                <MessageSquareText data-icon="inline-start" aria-hidden="true" />
+                {runningAction === "teacher_question" ? "生成中..." : "生成本页追问"}
+              </Button>
+              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("answer_card")} type="button" variant="outline">
+                <Target data-icon="inline-start" aria-hidden="true" />
+                {runningAction === "answer_card" ? "生成中..." : "插入答辩卡"}
+              </Button>
+              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("keywords")} type="button" variant="outline">
+                {runningAction === "keywords" ? "生成中..." : "提炼关键词"}
+              </Button>
+            </div>
+            <div className="presento-scripts-ai-request">
+              <span>AI改稿</span>
+              <Textarea
+                aria-label="逐页讲稿改写要求"
+                disabled={isAssistantBusy}
+                onChange={(event) => setRewriteInstruction(event.target.value)}
+                placeholder="例如：把这一页改成 30 秒答辩开场，突出我负责的部分。"
+                value={rewriteInstruction}
+              />
+              <Button
+                disabled={isAssistantBusy || !rewriteInstruction.trim()}
+                onClick={submitRewrite}
+                type="button"
+                variant="outline"
+              >
+                {runningAction === "rewrite" ? "改稿中..." : "生成改稿"}
+              </Button>
+            </div>
+          </section>
+
+          <details className="presento-scripts-ai-block presento-scripts-ai-disclosure presento-scripts-ai-risk">
+            <summary>
+              <span>本页风险</span>
+            </summary>
+            <div className="presento-scripts-ai-risk-list">
+              {risks.length ? risks.map((risk) => (
+                <p key={risk}>{risk}</p>
+              )) : <p>{isOverviewLoading ? "正在生成本页风险..." : "暂无本页风险。"}</p>}
+            </div>
+          </details>
+
+          <details className="presento-scripts-ai-block presento-scripts-ai-disclosure presento-scripts-ai-basis">
+            <summary>
+              <span>本页依据</span>
+            </summary>
+            <dl>
+              <div>
+                <dt>关联讲点</dt>
+                <dd>{basis.topics.length ? basis.topics.join(" / ") : "暂无关联讲点"}</dd>
+              </div>
+              <div>
+                <dt>关联资料</dt>
+                <dd>{basis.materials.length ? basis.materials.join(" / ") : "暂无关联资料"}</dd>
+              </div>
+              <div>
+                <dt>关键词</dt>
+                <dd className="presento-scripts-ai-chip-list">
+                  {keywords.length ? keywords.map((keyword) => (
+                    <Badge key={keyword} variant="secondary">{keyword}</Badge>
+                  )) : <Badge variant="secondary">暂无关键词</Badge>}
+                </dd>
+              </div>
+            </dl>
+          </details>
+
+        </div>
+      </ScrollArea>
+    </aside>
   );
 }
 
@@ -2170,7 +2393,7 @@ function SkillsRoom({ projectId }: { projectId: string }) {
 
 function useProjectSlides(projectId: string) {
   const [data, setData] = useState<{
-    slideDecks?: unknown[];
+    slideDecks?: ProjectSlideDeck[];
     slides?: ProjectSlide[];
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -2316,7 +2539,7 @@ function buildProjectScriptEditorContent(slide: ProjectSlide, version: ScriptVer
   return `
     <h2>${escapeHtml(formatSlidePage(slide))} ${escapeHtml(slide.title)}</h2>
     <p>${escapeHtml(firstParagraph)}</p>
-    ${keywords.length ? `<h3>关键词</h3><ul>${listHtml(keywords)}</ul>` : ""}
+    ${keywords.length ? `<h2>关键词</h2><ul>${listHtml(keywords)}</ul>` : ""}
   `;
 }
 
@@ -2362,9 +2585,9 @@ function buildSlideRisks(slide: ProjectSlide) {
   const keywords = extractKeywords(slide).slice(0, 3);
   const title = slide.title || formatSlidePage(slide);
   return [
-    `请用 30 秒讲清「${title}」和项目目标的关系。`,
-    keywords[0] ? `这里提到的「${keywords[0]}」具体对应哪一段实现或资料证据？` : `这一页最关键的证据来源是什么？`,
-    keywords[1] ? `如果老师追问「${keywords[1]}」，你准备怎么展开？` : `这一页和你的个人负责范围有什么关系？`,
+    `只念「${title}」页面内容，没有讲清它对项目价值的作用。`,
+    keywords[0] ? `「${keywords[0]}」没有解释清楚，容易被问具体场景或技术取舍。` : "没有说明这一页对应的项目材料和实现边界。",
+    keywords[1] ? `如果老师追问「${keywords[1]}」，需要补充个人负责范围。` : "没有提前交代个人负责范围，容易显得参与度不清楚。",
   ];
 }
 

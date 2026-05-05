@@ -40,17 +40,47 @@ export const projectBriefOutputSchema = z.object({
   generatedAt: z.string(),
 });
 
+export const slideAssistantActionSchema = z.enum([
+  "overview",
+  "short",
+  "conversational",
+  "contribution",
+  "transition",
+  "teacher_question",
+  "answer_card",
+  "keywords",
+  "rewrite",
+]);
+
 export const slideScriptInputSchema = z.object({
+  slideId: z.string().optional(),
   slideTitle: z.string().default("当前页"),
+  slideIndex: z.number().default(1),
+  fileId: z.string().optional(),
+  extractedText: z.string().optional(),
+  instruction: z.string().optional(),
+  action: slideAssistantActionSchema.default("overview"),
   chunks: z.array(skillChunkSchema).default([]),
 });
 
 export const slideScriptOutputSchema = z.object({
   projectName: z.string(),
   slideTitle: z.string(),
+  task: z.string(),
   normal: z.string(),
   short: z.string(),
+  conversational: z.string(),
+  contribution: z.string(),
+  transition: z.string(),
+  answerCard: z.string(),
   keywords: z.array(z.string()),
+  risks: z.array(z.string()),
+  basis: z.object({
+    topics: z.array(z.string()),
+    materials: z.array(z.string()),
+  }),
+  rewrite: z.string().optional(),
+  generatedAt: z.string().optional(),
 });
 
 export const riskQuestionsInputSchema = z.object({

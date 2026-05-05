@@ -49,7 +49,10 @@ test("ignores dependency folders and local secrets from folder uploads", () => {
   assert.equal(isIgnoredUploadPath("backend/node_modules/zod/index.js"), true);
   assert.equal(isIgnoredUploadPath("backend/.env.local"), true);
   assert.equal(isIgnoredUploadPath("frontend/.next/server/app.js"), true);
+  assert.equal(isIgnoredUploadPath("frontend/package-lock.json"), true);
+  assert.equal(isIgnoredUploadPath("backend/Cargo.lock"), true);
   assert.equal(isIgnoredUploadPath("backend/src/routes/orders.ts"), false);
+  assert.equal(isIgnoredUploadPath("backend/src/domain/package-lock-notes.md"), false);
 });
 
 test("builds object storage metadata when object storage is enabled", () => {

@@ -65,31 +65,70 @@ type RichScriptEditorProps = {
   variant?: "script" | "answer" | "review";
 };
 
-const toolbarGroups = [
+type ToolbarCommand =
+  | "paragraph"
+  | "h1"
+  | "h2"
+  | "h3"
+  | "bold"
+  | "italic"
+  | "bulletList"
+  | "orderedList"
+  | "blockquote"
+  | "codeBlock"
+  | "link"
+  | "undo"
+  | "redo";
+
+type ToolbarItem = {
+  icon?: typeof Bold;
+  label: string;
+  type: ToolbarCommand;
+};
+
+const toolbarGroups: ToolbarItem[][] = [
   [
-    { label: "段落", type: "paragraph" as const },
-    { icon: Heading1, label: "H1", type: "h1" as const },
-    { icon: Heading2, label: "H2", type: "h2" as const },
-    { icon: Heading3, label: "H3", type: "h3" as const },
+    { label: "段落", type: "paragraph" },
+    { icon: Heading1, label: "H1", type: "h1" },
+    { icon: Heading2, label: "H2", type: "h2" },
+    { icon: Heading3, label: "H3", type: "h3" },
   ],
   [
-    { icon: Bold, label: "加粗", type: "bold" as const },
-    { icon: Italic, label: "斜体", type: "italic" as const },
+    { icon: Bold, label: "加粗", type: "bold" },
+    { icon: Italic, label: "斜体", type: "italic" },
   ],
   [
-    { icon: List, label: "无序列表", type: "bulletList" as const },
-    { icon: ListOrdered, label: "有序列表", type: "orderedList" as const },
+    { icon: List, label: "无序列表", type: "bulletList" },
+    { icon: ListOrdered, label: "有序列表", type: "orderedList" },
   ],
   [
-    { icon: Quote, label: "引用", type: "blockquote" as const },
-    { icon: Code2, label: "代码", type: "codeBlock" as const },
-    { icon: Link2, label: "链接", type: "link" as const },
+    { icon: Quote, label: "引用", type: "blockquote" },
+    { icon: Code2, label: "代码", type: "codeBlock" },
+    { icon: Link2, label: "链接", type: "link" },
   ],
   [
-    { icon: Undo2, label: "撤销", type: "undo" as const },
-    { icon: Redo2, label: "重做", type: "redo" as const },
+    { icon: Undo2, label: "撤销", type: "undo" },
+    { icon: Redo2, label: "重做", type: "redo" },
   ],
 ] as const;
+
+const scriptToolbarGroups: ToolbarItem[][] = [
+  [
+    { label: "段落", type: "paragraph" },
+    { label: "小标题", type: "h2" },
+  ],
+  [
+    { icon: Bold, label: "加粗", type: "bold" },
+  ],
+  [
+    { icon: List, label: "列表", type: "bulletList" },
+    { icon: ListOrdered, label: "编号", type: "orderedList" },
+  ],
+  [
+    { icon: Undo2, label: "撤销", type: "undo" },
+    { icon: Redo2, label: "重做", type: "redo" },
+  ],
+];
 
 function formatSavedTime(date: Date) {
   return date.toLocaleTimeString("zh-CN", {
@@ -101,7 +140,7 @@ function formatSavedTime(date: Date) {
 
 function runToolbarCommand(
   editor: Editor,
-  type: (typeof toolbarGroups)[number][number]["type"],
+  type: ToolbarCommand,
   openLinkDialog?: () => void,
 ) {
   if (type === "link") {
@@ -125,7 +164,7 @@ function runToolbarCommand(
   if (type === "redo") chain.redo().run();
 }
 
-function isToolbarActive(editor: Editor, type: (typeof toolbarGroups)[number][number]["type"]) {
+function isToolbarActive(editor: Editor, type: ToolbarCommand) {
   if (type === "paragraph") return editor.isActive("paragraph");
   if (type === "h1") return editor.isActive("heading", { level: 1 });
   if (type === "h2") return editor.isActive("heading", { level: 2 });
@@ -169,6 +208,7 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
     const [lastSavedAt, setLastSavedAt] = useState("刚刚");
     const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
     const [linkUrl, setLinkUrl] = useState("https://");
+    const toolbarConfig = variant === "script" ? scriptToolbarGroups : toolbarGroups;
     const editor = useEditor({
       content: initialContent,
       editorProps: {
@@ -179,7 +219,7 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
       extensions: [
         StarterKit.configure({
           heading: {
-            levels: [1, 2, 3],
+            levels: variant === "script" ? [2] : [1, 2, 3],
           },
           link: false,
         }),
@@ -269,10 +309,10 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
         ) : null}
 
         <div className="presento-rich-toolbar" aria-label="讲稿编辑工具栏">
-          {toolbarGroups.map((group, groupIndex) => (
+          {toolbarConfig.map((group, groupIndex) => (
             <div className="presento-rich-toolbar-group" key={`group-${groupIndex}`}>
               {group.map((item) => {
-                const Icon = "icon" in item ? item.icon : null;
+                const Icon = item.icon ?? null;
                 const active = editor ? isToolbarActive(editor, item.type) : false;
 
                 return (
@@ -293,6 +333,7 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
           ))}
           {showScriptTools ? (
             <div className="presento-rich-toolbar-group presento-rich-toolbar-group-script">
+              {variant === "script" ? <span className="presento-rich-toolbar-group-label">讲稿标记</span> : null}
               <button
                 className="presento-rich-tool presento-rich-tool-labeled"
                 disabled={!editor}

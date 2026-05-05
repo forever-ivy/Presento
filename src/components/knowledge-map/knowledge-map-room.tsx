@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  BookOpen,
   CheckCircle2,
   Code2,
   ChevronRight,
@@ -11,8 +10,6 @@ import {
   FileSpreadsheet,
   FileText,
   FolderIcon,
-  Gauge,
-  Layers3,
   Presentation,
   Search,
   Table2,
@@ -76,6 +73,7 @@ import {
 import {
   appendFileExplanationTurn,
   createFileExplanation,
+  createWorkspaceKnowledgeMap,
   getKnowledgeNodeActivation,
   getKnowledgeNodeOpenAction,
   loadFileNodePreview,
@@ -99,7 +97,6 @@ import {
   projectKnowledgeMapScene,
   type KnowledgeMapScene,
   type KnowledgeMapSceneNode,
-  type KnowledgeMapSceneRenderNode,
 } from "@/lib/knowledge-map-scene";
 import { cn } from "@/lib/utils";
 import type { NotebookCitation, NotebookExplanationMode } from "@shared/domain";
@@ -194,9 +191,13 @@ type KnowledgeSigmaEdge = {
 type KnowledgeReaderFileGroup = {
   id: string;
   label: string;
-  nodes: KnowledgeMapSceneNode[];
+  count: number;
   children: KnowledgeReaderFileTreeNode[];
 };
+
+type KnowledgeReaderFileRelation = "active" | "evidence" | "related" | "normal";
+type KnowledgeReaderFileOpenAction = "reader" | "scripts" | "disabled";
+type KnowledgeReaderFileStatus = "ready" | "processing" | "failed" | "pending";
 
 type KnowledgeReaderFileTreeNode =
   | {
@@ -210,7 +211,12 @@ type KnowledgeReaderFileTreeNode =
       id: string;
       kind: "file";
       label: string;
-      node: KnowledgeMapSceneNode;
+      node: KnowledgeMapNodeUi;
+      relation: KnowledgeReaderFileRelation;
+      openAction: KnowledgeReaderFileOpenAction;
+      status: KnowledgeReaderFileStatus;
+      statusText?: string;
+      pathParts: string[];
     };
 
 function createEmptyKnowledgeMap(projectId: string): KnowledgeMapUi {
@@ -365,23 +371,40 @@ export function KnowledgeMapRoom({
     }),
     [activeNodeId, filter, query, sanitizedExpandedBranchIds, scene],
   );
-  const readerFileGroups = useMemo(
-    () => buildKnowledgeReaderFileGroups(scene, workspace?.project.name),
-    [scene, workspace?.project.name],
+  const workspaceKnowledgeMap = useMemo(
+    () => workspace?.files.length ? createWorkspaceKnowledgeMap(workspace) : null,
+    [workspace],
   );
-  const activeOverviewNode = useMemo(
-    () => activeNode ? overviewProjection.nodes.find((node) => node.id === activeNode.id) ?? null : null,
-    [activeNode, overviewProjection.nodes],
-  );
-  const readerNode = useMemo(
+  const readerNodesById = useMemo(() => {
+    const nodesById = new Map<string, KnowledgeMapNodeUi>();
+    for (const node of scene.nodes) nodesById.set(node.id, node);
+    for (const node of workspaceKnowledgeMap?.nodes ?? []) {
+      if (node.kind === "file" && !nodesById.has(node.id)) nodesById.set(node.id, node);
+    }
+    return nodesById;
+  }, [scene.nodes, workspaceKnowledgeMap]);
+  const readerSceneNode = useMemo(
     () => readerNodeId ? scene.nodesById[readerNodeId] ?? null : null,
     [readerNodeId, scene],
   );
+  const readerNode = useMemo(
+    () => readerNodeId ? readerNodesById.get(readerNodeId) ?? null : null,
+    [readerNodeId, readerNodesById],
+  );
   const readerFocusNode = useMemo(
-    () => resolveReaderFocusNode(scene, activeNode, readerNode),
-    [activeNode, readerNode, scene],
+    () => resolveReaderFocusNode(scene, activeNode, readerSceneNode),
+    [activeNode, readerSceneNode, scene],
   );
   const readerFocusNodeId = readerFocusNode?.id;
+  const readerFileGroups = useMemo(
+    () => buildKnowledgeReaderFileGroups({
+      activeFileNodeId: readerNodeId,
+      focusNode: readerFocusNode ?? activeNode,
+      scene,
+      workspace,
+    }),
+    [activeNode, readerFocusNode, readerNodeId, scene, workspace],
+  );
   const trainingFocusNodeIds = useMemo(
     () => new Set(trainingFocuses.map((focus) => focus.knowledgeNodeId)),
     [trainingFocuses],
@@ -415,10 +438,11 @@ export function KnowledgeMapRoom({
     const nodeIdParam = params.get("nodeId");
     const evidenceNodeIdParam = params.get("evidenceNodeId");
 
-    if (modeParam === "reader" && evidenceNodeIdParam && scene.nodesById[evidenceNodeIdParam]) {
+    if (modeParam === "reader" && evidenceNodeIdParam && readerNodesById.has(evidenceNodeIdParam)) {
+      const evidenceSceneNode = scene.nodesById[evidenceNodeIdParam] ?? null;
       const focusNodeId = nodeIdParam && scene.nodesById[nodeIdParam]
         ? nodeIdParam
-        : resolveReaderFocusNode(scene, null, scene.nodesById[evidenceNodeIdParam])?.id;
+        : resolveReaderFocusNode(scene, null, evidenceSceneNode)?.id;
       startTransition(() => {
         if (focusNodeId) setActiveNodeId(focusNodeId);
         setReaderNodeId(evidenceNodeIdParam);
@@ -433,7 +457,7 @@ export function KnowledgeMapRoom({
     if (nodeIdParam && scene.nodesById[nodeIdParam] && !readerNodeId) {
       startTransition(() => setActiveNodeId(nodeIdParam));
     }
-  }, [queryStateKey, readerNodeId, scene]);
+  }, [queryStateKey, readerNodeId, readerNodesById, scene]);
 
   useEffect(() => {
     onReaderModeChange?.(Boolean(readerNode));
@@ -504,26 +528,54 @@ export function KnowledgeMapRoom({
     void Promise.resolve()
       .then(async () => {
         if (cancelled) return;
+        setReaderError(null);
+        setPreview(null);
+        const nextPreview = await loadFileNodePreview(projectId, readerNode, undefined, { focusNodeId: readerFocusNodeId });
+        if (cancelled) return;
+        setPreview(nextPreview);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setReaderError(messageFromError(error, "资料预览读取失败。"));
+        setPreview(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, readerFocusNodeId, readerNode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!readerNode) {
+      void Promise.resolve().then(() => {
+        if (cancelled) return;
+        setExplanation(null);
+        setReaderError(null);
+        setIsLoadingExplanation(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void Promise.resolve()
+      .then(async () => {
+        if (cancelled) return;
         setIsLoadingExplanation(true);
         setReaderError(null);
-        setPreview(readerNode.preview);
         setExplanation(null);
-        const [nextPreview, nextExplanation] = await Promise.all([
-          loadFileNodePreview(projectId, readerNode, undefined, { focusNodeId: readerFocusNodeId }),
-          createFileExplanation(projectId, readerNode, mode, undefined, { focusNodeId: readerFocusNodeId }),
-        ]);
+        const nextExplanation = await createFileExplanation(projectId, readerNode, mode, undefined, { focusNodeId: readerFocusNodeId });
         if (cancelled) return;
-        return { nextPreview, nextExplanation };
+        return nextExplanation;
       })
       .then((result) => {
         if (!result || cancelled) return;
-        setPreview(result.nextPreview);
-        setExplanation(result.nextExplanation);
+        setExplanation(result);
       })
       .catch((error) => {
         if (cancelled) return;
         setReaderError(messageFromError(error, "资料讲解读取失败。"));
-        setPreview(readerNode.preview);
         setExplanation(null);
       })
       .finally(() => {
@@ -647,7 +699,7 @@ export function KnowledgeMapRoom({
   }
 
   function handleReaderFileSelect(nodeId: string) {
-    const node = scene.nodesById[nodeId];
+    const node = readerNodesById.get(nodeId);
     if (!node) return;
     const activation = getKnowledgeNodeActivation(node);
 
@@ -717,7 +769,7 @@ export function KnowledgeMapRoom({
   if (isLoadingMap && scene.nodes.length === 0) {
     return (
       <KnowledgeResizableShell mode="overview">
-        <KnowledgeMapStatePanel description="正在读取项目资料、文件节点和证据链。" loading title="正在加载知识地图" />
+        <KnowledgeMapStatePanel description="正在读取项目资料、文件节点和材料关系。" loading title="正在加载知识地图" />
       </KnowledgeResizableShell>
     );
   }
@@ -741,14 +793,13 @@ export function KnowledgeMapRoom({
           onInputChange={setChatInput}
           onModeChange={setMode}
           onSubmit={handleSubmit}
-          preview={preview ?? readerNode.preview}
+          preview={preview}
           readerNode={readerNode}
           readerError={readerError}
         />
       ) : (
         <KnowledgeOverviewPanels
           activeNode={overviewActiveNode}
-          activeOverviewNode={activeOverviewNode}
           activeNodeId={activeNodeId}
           edges={sigmaEdges}
           filter={filter}
@@ -951,7 +1002,6 @@ function KnowledgeResizableShell({
 
 function KnowledgeOverviewPanels({
   activeNode,
-  activeOverviewNode,
   activeNodeId,
   edges,
   filter,
@@ -970,7 +1020,6 @@ function KnowledgeOverviewPanels({
   updatingTrainingFocusNodeId,
 }: {
   activeNode: KnowledgeMapSceneNode;
-  activeOverviewNode: KnowledgeMapSceneRenderNode | null;
   activeNodeId: string;
   edges: KnowledgeSigmaEdge[];
   filter: KnowledgeGraphFilter;
@@ -1015,19 +1064,34 @@ function KnowledgeOverviewPanels({
           maxSize={overviewDetailMaxSize}
           minSize={overviewDetailMinReadableSize}
         >
-          <KnowledgeDetailPane
-            node={activeNode}
-            overviewNode={activeOverviewNode}
-            onOpenEvidence={onEvidenceOpen}
-            onOpenReader={onNodeOpen}
-            onTrainingFocusToggle={onTrainingFocusToggle}
-            trainingFocusError={trainingFocusError}
-            trainingFocusNodeIds={trainingFocusNodeIds}
-            updatingTrainingFocusNodeId={updatingTrainingFocusNodeId}
-          />
+          {nodes.length ? (
+            <KnowledgeDetailPane
+              node={activeNode}
+              onOpenEvidence={onEvidenceOpen}
+              onOpenReader={onNodeOpen}
+              onTrainingFocusToggle={onTrainingFocusToggle}
+              trainingFocusError={trainingFocusError}
+              trainingFocusNodeIds={trainingFocusNodeIds}
+              updatingTrainingFocusNodeId={updatingTrainingFocusNodeId}
+            />
+          ) : (
+            <KnowledgeFilterDetailEmpty filter={filter} />
+          )}
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
+  );
+}
+
+function KnowledgeFilterDetailEmpty({ filter }: { filter: KnowledgeGraphFilter }) {
+  const copy = filterEmptyCopy(filter);
+  return (
+    <section className="presento-knowledge-pane presento-knowledge-detail-panel">
+      <div className="presento-knowledge-detail-empty">
+        <h2>{copy.title}</h2>
+        <p>{copy.description}</p>
+      </div>
+    </section>
   );
 }
 
@@ -1121,29 +1185,61 @@ function KnowledgeGraphPane({
           </div>
         </div>
         <div className="presento-knowledge-graph-stage">
-          <AnimatePresence custom={filterSlideDirection} initial={false} mode="wait">
-            <motion.div
-              animate="center"
-              className="presento-knowledge-graph-motion"
-              custom={filterSlideDirection}
-              exit="exit"
-              initial="enter"
-              key={filter}
-              transition={graphTransition}
-              variants={graphSlideVariants}
-            >
-              <SigmaKnowledgeGraph
-                activeId={activeNodeId}
-                edges={edges}
-                nodes={nodes}
-                onSelect={onSelect}
-              />
-            </motion.div>
-          </AnimatePresence>
+          {nodes.length ? (
+            <AnimatePresence custom={filterSlideDirection} initial={false} mode="wait">
+              <motion.div
+                animate="center"
+                className="presento-knowledge-graph-motion"
+                custom={filterSlideDirection}
+                exit="exit"
+                initial="enter"
+                key={filter}
+                transition={graphTransition}
+                variants={graphSlideVariants}
+              >
+                <SigmaKnowledgeGraph
+                  activeId={activeNodeId}
+                  edges={edges}
+                  nodes={nodes}
+                  onSelect={onSelect}
+                />
+              </motion.div>
+            </AnimatePresence>
+          ) : (
+            <div className="presento-knowledge-filter-empty">
+              <h3>{filterEmptyCopy(filter).title}</h3>
+              <p>{filterEmptyCopy(filter).description}</p>
+            </div>
+          )}
         </div>
       </div>
     </section>
   );
+}
+
+function filterEmptyCopy(filter: KnowledgeGraphFilter) {
+  if (filter === "weakness") {
+    return {
+      title: "还没有薄弱点",
+      description: "薄弱点会在模拟讲练和复盘后生成；当前知识地图还没有这类节点。",
+    };
+  }
+  if (filter === "risk") {
+    return {
+      title: "还没有风险节点",
+      description: "当前知识地图暂时没有识别出高危追问或风险讲点。",
+    };
+  }
+  if (filter === "file") {
+    return {
+      title: "还没有文件节点",
+      description: "当前筛选下没有可展示的项目材料节点。",
+    };
+  }
+  return {
+    title: "没有匹配节点",
+    description: "换一个筛选条件，或清空搜索后再查看。",
+  };
 }
 
 function KnowledgeReaderPanels({
@@ -1177,7 +1273,7 @@ function KnowledgeReaderPanels({
   onInputChange: (value: string) => void;
   onModeChange: (mode: NotebookExplanationMode) => void;
   onSubmit: (message: PromptInputMessage) => void | Promise<void>;
-  preview: FilePreviewUi;
+  preview: FilePreviewUi | null;
   readerNode: KnowledgeMapNodeUi;
   readerError: string | null;
 }) {
@@ -1221,7 +1317,13 @@ function KnowledgeReaderPanels({
       </ResizablePanel>
       <ResizableHandle className="presento-knowledge-resize-handle" withHandle />
       <ResizablePanel defaultSize={isNarrowLayout ? "40%" : "52%"} minSize={isNarrowLayout ? "28%" : "30%"}>
-        <FilePreviewPanel focusNode={focusNode} node={readerNode} preview={preview} />
+        {preview ? (
+          <FilePreviewPanel preview={preview} />
+        ) : (
+          <section className="presento-knowledge-pane presento-knowledge-preview-panel">
+            <PreviewSkeleton variant={previewSkeletonVariant(readerNode)} />
+          </section>
+        )}
       </ResizablePanel>
       <ResizableHandle className="presento-knowledge-resize-handle" withHandle />
       <ResizablePanel
@@ -1281,7 +1383,7 @@ function KnowledgeFileLibraryPanel({
                     <ChevronRight className="presento-knowledge-file-group-chevron" aria-hidden="true" />
                     <FolderIcon aria-hidden="true" />
                     <span>{group.label}</span>
-                    <small>{group.nodes.length}</small>
+                    <small>{group.count}</small>
                   </Button>
                 </CollapsibleTrigger>
                 <CollapsibleContent className="presento-knowledge-file-group-content">
@@ -1318,11 +1420,15 @@ function KnowledgeFileTreeNodeRow({
   if (node.kind === "file") {
     return (
       <KnowledgeFileTreeItem
-        active={node.node.id === activeNodeId}
         label={node.label}
         level={level}
         node={node.node}
+        openAction={node.openAction}
         onSelect={onFileSelect}
+        relation={node.relation}
+        selected={node.node.id === activeNodeId}
+        status={node.status}
+        statusText={node.statusText}
       />
     );
   }
@@ -1358,22 +1464,41 @@ function KnowledgeFileTreeNodeRow({
 }
 
 function KnowledgeFileTreeItem({
-  active,
   label,
   level,
   node,
+  openAction,
   onSelect,
+  relation,
+  selected,
+  status,
+  statusText,
 }: {
-  active: boolean;
   label: string;
   level: number;
-  node: KnowledgeMapSceneNode;
+  node: KnowledgeMapNodeUi;
+  openAction: KnowledgeReaderFileOpenAction;
   onSelect: (nodeId: string) => void;
+  relation: KnowledgeReaderFileRelation;
+  selected: boolean;
+  status: KnowledgeReaderFileStatus;
+  statusText?: string;
 }) {
+  const disabled = openAction === "disabled";
+  const relationLabel = fileRelationLabel(relation);
+  const statusLabel = status === "ready" ? null : fileStatusLabel(status, statusText);
   return (
     <Button
-      className={cn("presento-knowledge-file-tree-item", active && "presento-knowledge-file-tree-item-active")}
-      onClick={() => onSelect(node.id)}
+      className={cn(
+        "presento-knowledge-file-tree-item",
+        selected && "presento-knowledge-file-tree-item-active",
+        disabled && "presento-knowledge-file-tree-item-disabled",
+        relation !== "normal" && `presento-knowledge-file-tree-item-${relation}`,
+      )}
+      disabled={disabled}
+      onClick={() => {
+        if (!disabled) onSelect(node.id);
+      }}
       size="sm"
       style={{ "--tree-level": level } as CSSProperties}
       type="button"
@@ -1382,7 +1507,11 @@ function KnowledgeFileTreeItem({
       <KnowledgeFileIcon node={node} />
       <span className="presento-knowledge-file-tree-copy">
         <strong>{label}</strong>
-        <small>{fileKindLabel(node)}</small>
+        <small>
+          <span>{fileKindLabel(node)}</span>
+          {relationLabel ? <em>{relationLabel}</em> : null}
+          {statusLabel ? <em>{statusLabel}</em> : null}
+        </small>
       </span>
     </Button>
   );
@@ -1399,7 +1528,6 @@ function KnowledgeFileIcon({ node }: { node: KnowledgeMapNodeUi }) {
 
 function KnowledgeDetailPane({
   node,
-  overviewNode,
   onOpenEvidence,
   onOpenReader,
   onTrainingFocusToggle,
@@ -1408,7 +1536,6 @@ function KnowledgeDetailPane({
   updatingTrainingFocusNodeId,
 }: {
   node: KnowledgeMapSceneNode;
-  overviewNode: KnowledgeMapSceneRenderNode | null;
   onOpenEvidence: (nodeId: string) => void;
   onOpenReader: () => void;
   onTrainingFocusToggle: (nodeId: string) => void;
@@ -1435,7 +1562,6 @@ function KnowledgeDetailPane({
           >
             <NodeDetailContent
               node={node}
-              overviewNode={overviewNode}
               onOpenEvidence={onOpenEvidence}
               onOpenReader={onOpenReader}
               onTrainingFocusToggle={onTrainingFocusToggle}
@@ -1454,7 +1580,6 @@ function NodeDetailContent({
   node,
   onOpenEvidence,
   onTrainingFocusToggle,
-  overviewNode,
   onOpenReader,
   trainingFocusError,
   trainingFocusNodeIds,
@@ -1463,7 +1588,6 @@ function NodeDetailContent({
   node: KnowledgeMapSceneNode;
   onOpenEvidence: (nodeId: string) => void;
   onTrainingFocusToggle: (nodeId: string) => void;
-  overviewNode: KnowledgeMapSceneRenderNode | null;
   onOpenReader: () => void;
   trainingFocusError: string | null;
   trainingFocusNodeIds: Set<string>;
@@ -1476,9 +1600,10 @@ function NodeDetailContent({
   const canToggleTrainingFocus = isTrainingFocusEligible(node);
   const isTrainingFocus = trainingFocusNodeIds.has(node.id);
   const isUpdatingTrainingFocus = updatingTrainingFocusNodeId === node.id;
-  const oneSentence = expression?.oneSentence || node.summary || "这个节点需要结合证据讲清项目价值、实现方式和个人贡献。";
-  const talkTrack = expression?.talkTrack || node.actions[0] || "先讲问题，再讲做法，最后落到证据和训练动作。";
-  const topQuestion = expression?.topQuestion || node.riskQuestions[0] || "老师可能追问这个点的证据、边界和差异化。";
+  const oneSentence = expression?.oneSentence || node.summary || "这是一个需要定位清楚项目价值、实现方式和个人贡献的答辩讲点。";
+  const talkTrack = expression?.talkTrack || node.actions[0] || "上台时先讲问题场景，再讲做法和取舍，最后落到项目材料与训练动作。";
+  const topQuestion = expression?.topQuestion || node.riskQuestions[0] || "老师可能追问这个点的材料依据、边界和差异化。";
+  const roleLabel = node.nodeRole === "mainline" ? "答辩主线" : node.nodeRole === "expression" ? "核心表达节点" : node.nodeRole === "evidence" ? "证据资料" : "答辩风险";
   return (
     <>
       <header className="presento-knowledge-pane-header">
@@ -1486,43 +1611,29 @@ function NodeDetailContent({
           <div className="presento-knowledge-panel-eyebrow">
             <span>节点表达卡</span>
           </div>
-          <h2 className="mt-2 text-lg font-black">{node.title}</h2>
-          <p className="mt-1 text-xs font-black text-[var(--presento-muted)]">
-            {node.nodeRole === "mainline" ? "答辩主线" : node.nodeRole === "expression" ? "核心表达节点" : node.nodeRole === "evidence" ? "证据资料" : "答辩风险"}
-            {node.riskLevel === "high" ? " · 高风险" : ""}
-            {node.evidenceRefs.length ? ` · ${node.evidenceRefs.length} 个证据` : ""}
+          <h2 className="presento-knowledge-detail-title">{node.title}</h2>
+          <p className="presento-knowledge-detail-meta">
+            {roleLabel}
+            {node.evidenceRefs.length ? ` · ${node.evidenceRefs.length} 份项目材料` : ""}
           </p>
         </div>
-        <NodeKindIcon node={node} />
+        <div className={cn("presento-knowledge-detail-mark", `presento-knowledge-detail-mark-${node.riskLevel}`)}>
+          <Target aria-hidden="true" />
+        </div>
       </header>
       <ScrollArea className="min-h-0 flex-1 pr-3">
         <div className="flex flex-col gap-4">
-          {overviewNode?.path.length ? (
-            <section className="presento-knowledge-detail-block presento-knowledge-detail-block-muted">
-              <div className="flex items-center gap-2 text-sm font-black">
-                <Layers3 aria-hidden="true" />
-                策展路径
-              </div>
-              <div className="presento-knowledge-path-chips">
-                {overviewNode.path.map((segment) => (
-                  <span className="presento-knowledge-path-chip" key={segment}>
-                    {segment}
-                  </span>
-                ))}
-              </div>
-            </section>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
+          <div className="presento-knowledge-detail-badges">
             <RiskBadge risk={node.riskLevel} />
             {node.nodeRole ? <Badge variant="outline">{node.nodeRole}</Badge> : <Badge variant="outline">{node.kind}</Badge>}
             {node.semanticType ? <Badge variant="secondary">{semanticTypeLabel(node.semanticType)}</Badge> : null}
             {node.fileKind ? <Badge variant="secondary">{node.fileKind}</Badge> : null}
             {node.expandable && node.childCount ? <Badge className="presento-knowledge-badge-soft">可展开 {node.childCount}</Badge> : null}
           </div>
-          <ExpressionCardBlock title="一句话讲清楚">
+          <ExpressionCardBlock title="一句话定位">
             {oneSentence}
           </ExpressionCardBlock>
-          <ExpressionCardBlock title="建议这样讲">
+          <ExpressionCardBlock title="答辩讲法">
             {talkTrack}
           </ExpressionCardBlock>
           <ExpressionCardBlock title="最可能被问" tone="risk">
@@ -1531,7 +1642,7 @@ function NodeDetailContent({
           <section className="presento-knowledge-detail-block">
             <div className="flex items-center gap-2 text-sm font-black">
               <FileText aria-hidden="true" />
-              证据
+              项目材料
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {evidenceRefs.length ? evidenceRefs.map((ref) => (
@@ -1559,7 +1670,7 @@ function NodeDetailContent({
       <div className="presento-knowledge-pane-actions">
         {canToggleTrainingFocus ? (
           <Button
-            className={cn("rounded-xl font-black", isTrainingFocus ? "" : "bg-[var(--presento-navy)] text-white")}
+            className={cn("presento-knowledge-primary-action", isTrainingFocus ? "presento-knowledge-primary-action-added" : "")}
             disabled={isUpdatingTrainingFocus}
             onClick={() => onTrainingFocusToggle(node.id)}
             type="button"
@@ -1569,13 +1680,13 @@ function NodeDetailContent({
             {isUpdatingTrainingFocus ? "正在更新..." : isTrainingFocus ? "已加入讲练重点" : "加入讲练重点"}
           </Button>
         ) : openAction === "reader" || openAction === "scripts" ? (
-          <Button className="rounded-xl bg-[var(--presento-navy)] font-black text-white" onClick={onOpenReader} type="button">
-            {activation === "reader" ? "进入证据阅读" : "查看逐页讲稿"}
+          <Button className="presento-knowledge-primary-action" onClick={onOpenReader} type="button">
+            {activation === "reader" ? "查看项目材料" : "查看逐页讲稿"}
           </Button>
         ) : null}
         {evidenceRefs.length ? (
-          <Button className="rounded-xl font-black" onClick={() => onOpenEvidence(evidenceRefs[0].nodeId)} type="button" variant="outline">
-            查看证据资料
+          <Button className="presento-knowledge-secondary-action" onClick={() => onOpenEvidence(evidenceRefs[0].nodeId)} type="button" variant="outline">
+            查看材料
           </Button>
         ) : null}
         {trainingFocusError ? <p className="text-xs font-bold text-[#c56a09]">{trainingFocusError}</p> : null}
@@ -1595,19 +1706,15 @@ function ExpressionCardBlock({
 }) {
   return (
     <section className={cn("presento-knowledge-expression-block", tone === "risk" && "presento-knowledge-expression-block-risk")}>
-      <div className="text-xs font-black text-[var(--presento-muted)]">{title}</div>
+      <div className="presento-knowledge-expression-label">{title}</div>
       <p>{children}</p>
     </section>
   );
 }
 
 function FilePreviewPanel({
-  focusNode,
-  node,
   preview,
 }: {
-  focusNode: KnowledgeMapNodeUi | null;
-  node: KnowledgeMapNodeUi;
   preview: FilePreviewUi;
 }) {
   const [previewZoom, setPreviewZoom] = useState(1);
@@ -1628,14 +1735,6 @@ function FilePreviewPanel({
 
   return (
     <section className="presento-knowledge-pane presento-knowledge-preview-panel">
-      <header className="presento-knowledge-reader-context">
-        <div className="min-w-0">
-          <div className="presento-knowledge-reader-context-label">证据阅读态</div>
-          <h2>正在查看证据：{node.title}</h2>
-          <p>{focusNode ? `用于支撑讲点：${focusNode.title}` : "请选择表达节点，AI 会围绕讲点解释证据价值。"}</p>
-        </div>
-        <Badge variant="secondary">{fileKindLabel(node)}</Badge>
-      </header>
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className="presento-knowledge-preview-scroll">
           <div
@@ -1652,7 +1751,7 @@ function FilePreviewPanel({
               )}
             >
               {preview.viewer === "pdf" ? <PdfFileViewer fallback={pdfFallback} preview={preview} /> : null}
-              {preview.viewer === "docx" ? <DocumentFileViewer preview={preview} /> : null}
+              {preview.viewer === "docx" ? <DocumentFileViewer key={preview.fileId ?? preview.assetUrl ?? preview.fileName ?? preview.title} preview={preview} /> : null}
               {preview.viewer === "code" || preview.viewer === "sql" ? <CodeFileViewer fallback={codeFallback} preview={preview} /> : null}
               {preview.viewer === "table" ? <TableFileViewer fallback={tableFallback} preview={preview} /> : null}
               {preview.viewer === "details" || preview.viewer === "presentation" ? docFallback : null}
@@ -1692,6 +1791,13 @@ function PreviewSkeleton({ variant = "document" }: { variant?: "code" | "documen
       </div>
     </div>
   );
+}
+
+function previewSkeletonVariant(node: KnowledgeMapNodeUi): "code" | "document" | "pdf" | "table" {
+  if (node.viewer === "code" || node.viewer === "sql") return "code";
+  if (node.viewer === "table") return "table";
+  if (node.viewer === "pdf" || node.viewer === "presentation") return "pdf";
+  return "document";
 }
 
 function ExplanationPanel({
@@ -1736,7 +1842,7 @@ function ExplanationPanel({
           </div>
           <div className="min-w-0">
             <h2 className="text-xl font-black text-[var(--presento-ink)]">
-              AI 证据讲解
+              AI 项目材料讲解
             </h2>
           </div>
         </div>
@@ -1749,7 +1855,7 @@ function ExplanationPanel({
           </TabsList>
         </Tabs>
         <div className="presento-knowledge-summary">
-          <div className="text-xs font-black text-[var(--presento-muted)]">正在查看证据</div>
+          <div className="text-xs font-black text-[var(--presento-muted)]">正在查看项目材料</div>
           <div className="mt-1 text-sm font-black">{node.title}</div>
           {focusNode ? (
             <div className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black leading-5 text-emerald-800">
@@ -1787,7 +1893,7 @@ function ExplanationPanel({
             />
           </PromptInputBody>
           <PromptInputFooter>
-            <span className="text-xs font-bold text-[var(--presento-muted)]">回答会优先引用当前证据</span>
+            <span className="text-xs font-bold text-[var(--presento-muted)]">回答会优先参考当前项目材料</span>
             <PromptInputSubmit disabled={!chatInput.trim() || !explanation} status={isSending ? "submitted" : "ready"} />
           </PromptInputFooter>
         </PromptInput>
@@ -1882,9 +1988,9 @@ function TablePreview({ preview }: { preview: FilePreviewUi }) {
 }
 
 function RiskBadge({ risk }: { risk: KnowledgeMapNodeUi["riskLevel"] }) {
-  if (risk === "high") return <Badge className="bg-red-50 text-red-700">高风险</Badge>;
-  if (risk === "low") return <Badge className="bg-emerald-50 text-emerald-700">低风险</Badge>;
-  return <Badge className="bg-amber-50 text-amber-700">中风险</Badge>;
+  if (risk === "high") return <Badge className="presento-risk-badge presento-risk-badge-high">高风险</Badge>;
+  if (risk === "low") return <Badge className="presento-risk-badge presento-risk-badge-low">低风险</Badge>;
+  return <Badge className="presento-risk-badge presento-risk-badge-medium">中风险</Badge>;
 }
 
 function semanticTypeLabel(value: string) {
@@ -1895,37 +2001,169 @@ function semanticTypeLabel(value: string) {
   return "功能模块";
 }
 
-function NodeKindIcon({ node }: { node: KnowledgeMapNodeUi }) {
-  const icon = node.kind === "file"
-    ? <FileText aria-hidden="true" />
-    : node.kind === "risk"
-      ? <Gauge aria-hidden="true" />
-      : node.kind === "weakness"
-        ? <Target aria-hidden="true" />
-        : node.kind === "module"
-          ? <Layers3 aria-hidden="true" />
-        : <BookOpen aria-hidden="true" />;
-  return <div className={cn("presento-knowledge-node-icon", `presento-knowledge-node-icon-${node.tone}`)}>{icon}</div>;
-}
-
 function isTrainingFocusEligible(node: KnowledgeMapSceneNode) {
   return trainingFocusEligibleKinds.has(node.kind);
 }
 
-function buildKnowledgeReaderFileGroups(scene: KnowledgeMapScene, projectName?: string): KnowledgeReaderFileGroup[] {
-  const nodes = scene.nodes
-    .filter((node) => node.kind === "file" && getKnowledgeNodeActivation(node) === "reader")
+function buildKnowledgeReaderFileGroups({
+  activeFileNodeId,
+  focusNode,
+  scene,
+  workspace,
+}: {
+  activeFileNodeId?: string | null;
+  focusNode: KnowledgeMapSceneNode | null;
+  scene: KnowledgeMapScene;
+  workspace: DefenseWorkspace | null;
+}): KnowledgeReaderFileGroup[] {
+  const sceneFileNodes = scene.nodes
+    .filter((node) => node.kind === "file")
     .toSorted((left, right) => left.order - right.order);
-  if (!nodes.length) return [];
+  const sceneFileNodesByFileId = new Map(sceneFileNodes.map((node) => [node.fileId, node]).filter((entry): entry is [string, KnowledgeMapSceneNode] => Boolean(entry[0])));
+  const workspaceMap = workspace?.files.length ? createWorkspaceKnowledgeMap(workspace) : null;
+  const workspaceFileNodes = workspaceMap?.nodes.filter((node) => node.kind === "file") ?? [];
+  const fileItemsByFileId = new Map<string, Extract<KnowledgeReaderFileTreeNode, { kind: "file" }>>();
+  const relationContext = createReaderRelationContext(scene, focusNode, activeFileNodeId);
+
+  for (const workspaceNode of workspaceFileNodes) {
+    if (!workspaceNode.fileId) continue;
+    const sceneNode = sceneFileNodesByFileId.get(workspaceNode.fileId);
+    const displayNode = sceneNode ?? workspaceNode;
+    fileItemsByFileId.set(workspaceNode.fileId, createReaderFileItem({
+      displayNode,
+      pathNode: workspaceNode,
+      relationContext,
+      sceneNode,
+      workspace,
+    }));
+  }
+
+  for (const sceneNode of sceneFileNodes) {
+    if (sceneNode.fileId && fileItemsByFileId.has(sceneNode.fileId)) continue;
+    const key = sceneNode.fileId ?? sceneNode.id;
+    fileItemsByFileId.set(key, createReaderFileItem({
+      displayNode: sceneNode,
+      relationContext,
+      sceneNode,
+      workspace,
+    }));
+  }
+
+  const fileItems = [...fileItemsByFileId.values()]
+    .toSorted(compareReaderFileItems);
+  if (!fileItems.length) return [];
 
   const projectNode = scene.nodesById[scene.rootId];
-  const label = projectName?.trim() || projectNode?.title?.trim() || "项目资料";
+  const label = workspace?.project.name?.trim() || projectNode?.title?.trim() || "项目资料";
   return [{
     id: `file-group-${scene.projectId}`,
     label,
-    nodes,
-    children: buildKnowledgeFilePathTree(nodes),
+    count: fileItems.length,
+    children: buildKnowledgeFilePathTree(fileItems),
   }];
+}
+
+function createReaderRelationContext(
+  scene: KnowledgeMapScene,
+  focusNode: KnowledgeMapSceneNode | null,
+  activeFileNodeId?: string | null,
+) {
+  const activeNode = activeFileNodeId ? scene.nodesById[activeFileNodeId] : null;
+  const evidenceNodeIds = new Set<string>();
+  const evidenceFileIds = new Set<string>();
+  const relatedFileIds = new Set<string>();
+  const focusMainlineIds = new Set<string>();
+
+  if (focusNode) {
+    for (const ref of focusNode.evidenceRefs) {
+      evidenceNodeIds.add(ref.nodeId);
+      const evidenceNode = scene.nodesById[ref.nodeId];
+      if (evidenceNode?.fileId) evidenceFileIds.add(evidenceNode.fileId);
+    }
+    for (const parentId of [...focusNode.parentIds, ...focusNode.sceneParentIds]) {
+      const parent = scene.nodesById[parentId];
+      if (parent?.nodeRole === "mainline" || parent?.layer === 1) focusMainlineIds.add(parent.id);
+    }
+  }
+
+  if (focusMainlineIds.size) {
+    for (const node of scene.nodes) {
+      if (node.kind !== "file" || !node.fileId) continue;
+      const parentIds = new Set([...node.parentIds, ...node.sceneParentIds]);
+      if ([...focusMainlineIds].some((mainlineId) => parentIds.has(mainlineId))) {
+        relatedFileIds.add(node.fileId);
+      }
+    }
+  }
+
+  return {
+    activeFileId: activeNode?.fileId,
+    activeNodeId: activeNode?.id ?? activeFileNodeId ?? undefined,
+    evidenceFileIds,
+    evidenceNodeIds,
+    relatedFileIds,
+  };
+}
+
+function createReaderFileItem({
+  displayNode,
+  pathNode,
+  relationContext,
+  sceneNode,
+  workspace,
+}: {
+  displayNode: KnowledgeMapNodeUi;
+  pathNode?: KnowledgeMapNodeUi;
+  relationContext: ReturnType<typeof createReaderRelationContext>;
+  sceneNode?: KnowledgeMapSceneNode;
+  workspace: DefenseWorkspace | null;
+}): Extract<KnowledgeReaderFileTreeNode, { kind: "file" }> {
+  const task = displayNode.fileId
+    ? workspace?.processingTasks.find((item) => item.fileId === displayNode.fileId)
+    : undefined;
+  const status = readerFileStatus(task, Boolean(sceneNode));
+  const relation = readerFileRelation(displayNode, relationContext);
+  const activation = getKnowledgeNodeActivation(sceneNode ?? displayNode);
+  const openAction = status === "ready" && (activation === "reader" || activation === "scripts")
+    ? activation
+    : "disabled";
+  return {
+    id: `file-${displayNode.id}`,
+    kind: "file",
+    label: knowledgeFilePathParts(pathNode ?? displayNode).at(-1) ?? displayNode.title ?? "未命名资料",
+    node: displayNode,
+    openAction,
+    pathParts: knowledgeFilePathParts(pathNode ?? displayNode),
+    relation,
+    status,
+    statusText: task?.error,
+  };
+}
+
+function readerFileRelation(
+  node: KnowledgeMapNodeUi,
+  context: ReturnType<typeof createReaderRelationContext>,
+): KnowledgeReaderFileRelation {
+  if (node.id === context.activeNodeId || (node.fileId && node.fileId === context.activeFileId)) return "active";
+  if (context.evidenceNodeIds.has(node.id) || (node.fileId && context.evidenceFileIds.has(node.fileId))) return "evidence";
+  if (node.fileId && context.relatedFileIds.has(node.fileId)) return "related";
+  return "normal";
+}
+
+function readerFileStatus(task: DefenseWorkspace["processingTasks"][number] | undefined, hasSceneNode: boolean): KnowledgeReaderFileStatus {
+  if (task?.status === "completed") return "ready";
+  if (task?.status === "failed") return "failed";
+  if (task?.status === "processing") return "processing";
+  if (task?.status === "pending") return "pending";
+  if (!task && !hasSceneNode) return "ready";
+  return "ready";
+}
+
+function compareReaderFileItems(
+  left: Extract<KnowledgeReaderFileTreeNode, { kind: "file" }>,
+  right: Extract<KnowledgeReaderFileTreeNode, { kind: "file" }>,
+) {
+  return left.pathParts.join("/").localeCompare(right.pathParts.join("/"), "zh-Hans-CN");
 }
 
 function resolveReaderFocusNode(
@@ -1950,7 +2188,7 @@ function resolveReaderFocusNode(
   return sceneParentId ? scene.nodesById[sceneParentId] ?? null : activeNode;
 }
 
-function buildKnowledgeFilePathTree(nodes: KnowledgeMapSceneNode[]): KnowledgeReaderFileTreeNode[] {
+function buildKnowledgeFilePathTree(nodes: Extract<KnowledgeReaderFileTreeNode, { kind: "file" }>[]): KnowledgeReaderFileTreeNode[] {
   const root: KnowledgeReaderMutableFolder = {
     children: new Map(),
     files: [],
@@ -1958,8 +2196,8 @@ function buildKnowledgeFilePathTree(nodes: KnowledgeMapSceneNode[]): KnowledgeRe
     label: "root",
   };
 
-  for (const node of nodes) {
-    const path = knowledgeFilePathParts(node);
+  for (const item of nodes) {
+    const path = item.pathParts;
     let folder = root;
     for (const segment of path.slice(0, -1)) {
       const existing = folder.children.get(segment);
@@ -1976,12 +2214,7 @@ function buildKnowledgeFilePathTree(nodes: KnowledgeMapSceneNode[]): KnowledgeRe
       folder.children.set(segment, nextFolder);
       folder = nextFolder;
     }
-    folder.files.push({
-      id: `file-${node.id}`,
-      kind: "file",
-      label: path.at(-1) ?? node.title,
-      node,
-    });
+    folder.files.push(item);
   }
 
   return materializeKnowledgeFileTree(root);
@@ -2008,9 +2241,7 @@ function materializeKnowledgeFileTree(folder: KnowledgeReaderMutableFolder): Kno
       };
     });
   const files = folder.files.toSorted((left, right) => {
-    const orderDiff = left.node.order - right.node.order;
-    if (orderDiff !== 0) return orderDiff;
-    return left.label.localeCompare(right.label, "zh-Hans-CN");
+    return compareReaderFileItems(left, right);
   });
   return [...childFolders, ...files];
 }
@@ -2019,7 +2250,7 @@ function countKnowledgeFileTreeItems(nodes: KnowledgeReaderFileTreeNode[]): numb
   return nodes.reduce((count, node) => count + (node.kind === "file" ? 1 : node.count), 0);
 }
 
-function knowledgeFilePathParts(node: KnowledgeMapSceneNode) {
+function knowledgeFilePathParts(node: KnowledgeMapNodeUi) {
   const fallbackName = node.title || node.preview.fileName || "未命名资料";
   const path = node.preview.fileName || node.title || fallbackName;
   const parts = path
@@ -2030,14 +2261,30 @@ function knowledgeFilePathParts(node: KnowledgeMapSceneNode) {
   return parts.length ? parts : [fallbackName];
 }
 
+function fileRelationLabel(relation: KnowledgeReaderFileRelation) {
+  if (relation === "active") return "当前";
+  if (relation === "evidence") return "材料";
+  if (relation === "related") return "相关";
+  return "";
+}
+
+function fileStatusLabel(status: KnowledgeReaderFileStatus, statusText?: string) {
+  if (status === "processing") return "解析中";
+  if (status === "failed") return statusText ? "解析失败" : "失败";
+  if (status === "pending") return "待解析";
+  return "";
+}
+
 function fileKindLabel(node: KnowledgeMapNodeUi) {
   if (node.fileKind === "presentation-pdf") return "PPT 讲稿";
   if (node.fileKind === "presentation" || node.fileKind === "ppt" || node.fileKind === "pptx") return "PPT 原稿";
   if (node.fileKind === "pdf") return "PDF 文档";
-  if (node.fileKind === "docx") return "项目文档";
+  if (node.fileKind === "document" || node.fileKind === "docx") return "项目文档";
   if (node.fileKind === "code") return "代码文件";
-  if (node.fileKind === "sql") return "数据库脚本";
-  if (node.fileKind === "xlsx" || node.fileKind === "csv") return "数据表";
+  if (node.fileKind === "database" || node.fileKind === "sql") return "数据库脚本";
+  if (node.fileKind === "dataset" || node.fileKind === "xlsx" || node.fileKind === "csv") return "数据表";
+  if (node.fileKind === "asset") return "图片素材";
+  if (node.fileKind === "other") return "其他资料";
   return node.fileKind?.toUpperCase() ?? "资料";
 }
 

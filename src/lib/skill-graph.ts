@@ -74,6 +74,37 @@ export type KnowledgeMapGraphOutput = {
   generatedAt?: string;
 };
 
+export type SlideAssistantAction =
+  | "overview"
+  | "short"
+  | "conversational"
+  | "contribution"
+  | "transition"
+  | "teacher_question"
+  | "answer_card"
+  | "keywords"
+  | "rewrite";
+
+export type SlideScriptGraphOutput = {
+  projectName: string;
+  slideTitle: string;
+  task: string;
+  normal: string;
+  short: string;
+  conversational: string;
+  contribution: string;
+  transition: string;
+  answerCard: string;
+  keywords: string[];
+  risks: string[];
+  basis: {
+    topics: string[];
+    materials: string[];
+  };
+  rewrite?: string;
+  generatedAt?: string;
+};
+
 const ModelOutputGraphState = Annotation.Root({
   prompt: Annotation<string>,
   schemaName: Annotation<string>,
@@ -116,6 +147,61 @@ export async function runProjectBriefGraph({
     normalize: (brief, timestamp) => ({
       ...brief,
       generatedAt: brief.generatedAt ?? timestamp,
+    }),
+  });
+}
+
+export async function runSlideScriptGraph({
+  provider,
+  projectName,
+  slideTitle,
+  slideIndex,
+  fileId,
+  slideId,
+  extractedText,
+  instruction,
+  action = "overview",
+  chunks,
+  generatedAt = new Date().toISOString(),
+}: {
+  provider: LlmProvider | null;
+  projectName: string;
+  slideTitle: string;
+  slideIndex: number;
+  fileId?: string | null;
+  slideId?: string | null;
+  extractedText?: string | null;
+  instruction?: string | null;
+  action?: SlideAssistantAction;
+  chunks: KnowledgeChunkRecord[];
+  generatedAt?: string;
+}) {
+  return runStructuredSkillGraph<SlideScriptGraphOutput>({
+    provider,
+    schemaName: "SlideScript",
+    generatedAt,
+    systemPrompt:
+      "你是课程项目答辩逐页讲稿助手。只能基于当前 PPT 页、提取文本和资料片段生成中文 JSON，禁止编造，不要输出 Markdown。",
+    userPrompt: [
+      `项目名称：${projectName}`,
+      `当前页：第 ${slideIndex} 页「${slideTitle}」`,
+      `当前页 ID：${slideId ?? "未提供"}`,
+      `文件 ID：${fileId ?? "未提供"}`,
+      `本次动作：${action}`,
+      `用户改稿要求：${instruction || "未提供"}`,
+      "当前页提取文本：",
+      extractedText || "未提供",
+      "请输出 JSON，字段必须包含 projectName、slideTitle、task、normal、short、conversational、contribution、transition、answerCard、keywords、risks、basis。",
+      "normal 是完整讲稿；short 是 30 秒稿；conversational 更口语；contribution 突出个人贡献；transition 是承上启下的一句话；answerCard 是可插入编辑器的答辩卡建议。",
+      "risks 是老师最可能追问的本页问题；basis.topics 是本页依据主题；basis.materials 是可引用的资料或页名。",
+      "如果 action 是 rewrite，请根据用户改稿要求输出 rewrite；否则 rewrite 可以省略。",
+      "资料片段：",
+      formatKnowledgeChunks(chunks),
+    ].join("\n"),
+    normalize: (script, timestamp) => normalizeSlideScriptGraphOutput(script, {
+      projectName,
+      slideTitle,
+      generatedAt: timestamp,
     }),
   });
 }
@@ -305,6 +391,41 @@ function normalizeKnowledgeMapGraphOutput(
     citations: Array.isArray(record.citations) ? record.citations : [],
     generatedAt: record.generatedAt ?? generatedAt,
   };
+}
+
+function normalizeSlideScriptGraphOutput(
+  output: Partial<SlideScriptGraphOutput> | null | undefined,
+  fallback: { projectName: string; slideTitle: string; generatedAt: string },
+): SlideScriptGraphOutput {
+  const record = output ?? {};
+  return {
+    projectName: normalizeString(record.projectName, fallback.projectName),
+    slideTitle: normalizeString(record.slideTitle, fallback.slideTitle),
+    task: normalizeString(record.task, ""),
+    normal: normalizeString(record.normal, ""),
+    short: normalizeString(record.short, ""),
+    conversational: normalizeString(record.conversational, ""),
+    contribution: normalizeString(record.contribution, ""),
+    transition: normalizeString(record.transition, ""),
+    answerCard: normalizeString(record.answerCard, ""),
+    keywords: normalizeStringArray(record.keywords),
+    risks: normalizeStringArray(record.risks),
+    basis: {
+      topics: normalizeStringArray(record.basis?.topics),
+      materials: normalizeStringArray(record.basis?.materials),
+    },
+    rewrite: typeof record.rewrite === "string" && record.rewrite.trim() ? record.rewrite.trim() : undefined,
+    generatedAt: record.generatedAt ?? fallback.generatedAt,
+  };
+}
+
+function normalizeString(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function normalizeStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.map((item) => normalizeString(item, "")).filter(Boolean)));
 }
 
 function normalizeSemanticNodes(

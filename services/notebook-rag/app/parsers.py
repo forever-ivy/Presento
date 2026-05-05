@@ -31,6 +31,16 @@ def extract_text(
 
 def extract_document_with_docling(file_name: str, data: bytes) -> tuple[str, dict[str, Any]]:
     suffix = Path(file_name).suffix.lower() or ".txt"
+    if suffix == ".pptx":
+        try:
+            return extract_document_with_lightweight_parser(
+                file_name,
+                data,
+                "pptx parsed directly with lightweight slide text parser",
+            )
+        except ValueError:
+            pass
+
     with tempfile.TemporaryDirectory(prefix="presento-docling-") as temp_dir:
         temp_path = Path(temp_dir)
         input_path = temp_path / sanitize_filename(file_name, fallback=f"source{suffix}")
@@ -53,7 +63,13 @@ def extract_document_with_docling(file_name: str, data: bytes) -> tuple[str, dic
                 })
 
             conversion = run_docling_conversion(source_path)
-        except (FileNotFoundError, ValueError, subprocess.SubprocessError) as exc:
+        except (
+            FileNotFoundError,
+            ValueError,
+            subprocess.SubprocessError,
+            RuntimeError,
+            NotImplementedError,
+        ) as exc:
             return extract_document_with_lightweight_parser(file_name, data, str(exc))
 
         document = read_docling_document(conversion)

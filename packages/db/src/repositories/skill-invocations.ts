@@ -37,6 +37,13 @@ export function createSkillInvocationRepository(runSql: PsqlRunner = runDockerCo
       );
     },
 
+    async readReusable(projectId: string, skillName: string, trigger: string, input: Record<string, unknown>) {
+      return helpers.readJson<SkillInvocationRecord | null>(
+        readReusableInvocationSql(projectId, skillName, trigger, input),
+        null,
+      );
+    },
+
     async writeFeedback(feedback: SkillFeedbackRecord) {
       await helpers.run(writeFeedbackSql(feedback));
       return feedback;
@@ -137,6 +144,29 @@ SELECT json_build_object(
     ) feedback_rows
   ), '[]'::json)
 )::text;`;
+}
+
+function readReusableInvocationSql(
+  projectId: string,
+  skillName: string,
+  trigger: string,
+  input: Record<string, unknown>,
+) {
+  return `
+SELECT COALESCE((
+  SELECT row_to_json(invocation_row)
+  FROM (
+    SELECT *
+    FROM "SkillInvocation"
+    WHERE "projectId" = ${sqlText(projectId)}
+      AND "skillName" = ${sqlText(skillName)}
+      AND "trigger" = ${sqlText(trigger)}
+      AND "input" = ${sqlJson(input)}
+      AND "status" = 'success'
+    ORDER BY "startedAt" DESC
+    LIMIT 1
+  ) invocation_row
+), 'null'::json)::text;`;
 }
 
 function writeFeedbackSql(feedback: SkillFeedbackRecord) {

@@ -217,6 +217,91 @@ test("projectKnowledgeMapScene handles real empty maps", () => {
   assert.deepEqual(projected.edges, []);
 });
 
+test("projectKnowledgeMapScene keeps sibling mainline spokes visible while focusing a child node", () => {
+  const createdAt = "2026-05-06T00:00:00.000Z";
+  const nodes: KnowledgeNodeRecord[] = [
+    {
+      id: "project",
+      projectId: "demo",
+      kind: "project",
+      title: "项目中心",
+      summary: "",
+      tone: "blue",
+      metadata: { layer: 0, nodeRole: "mainline" },
+      createdAt,
+    },
+    {
+      id: "mainline-tech",
+      projectId: "demo",
+      kind: "module",
+      title: "技术实现主线",
+      summary: "",
+      tone: "green",
+      metadata: { layer: 1, nodeRole: "mainline" },
+      createdAt,
+    },
+    {
+      id: "mainline-product",
+      projectId: "demo",
+      kind: "module",
+      title: "产品功能主线",
+      summary: "",
+      tone: "green",
+      metadata: { layer: 1, nodeRole: "mainline" },
+      createdAt,
+    },
+    {
+      id: "expression-storage",
+      projectId: "demo",
+      kind: "module",
+      title: "稀疏存储与坐标解析",
+      summary: "",
+      tone: "purple",
+      metadata: { layer: 2, nodeRole: "expression" },
+      createdAt,
+    },
+  ];
+  const edges: KnowledgeEdgeRecord[] = [
+    {
+      id: "edge-project-tech",
+      projectId: "demo",
+      fromNodeId: "project",
+      toNodeId: "mainline-tech",
+      kind: "contains",
+      createdAt,
+    },
+    {
+      id: "edge-project-product",
+      projectId: "demo",
+      fromNodeId: "project",
+      toNodeId: "mainline-product",
+      kind: "contains",
+      createdAt,
+    },
+    {
+      id: "edge-tech-storage",
+      projectId: "demo",
+      fromNodeId: "mainline-tech",
+      toNodeId: "expression-storage",
+      kind: "contains",
+      createdAt,
+    },
+  ];
+  const scene = buildKnowledgeMapScene(normalizeKnowledgeMapPayload("demo", { edges, nodes }));
+
+  const projected = projectKnowledgeMapScene(scene, {
+    activeNodeId: "expression-storage",
+    expandedBranchIds: new Set(["mainline-tech"]),
+    filter: "all",
+    query: "",
+  });
+
+  assert.equal(
+    projected.edges.find((edge) => edge.id === "edge-project-product")?.emphasis,
+    "branch",
+  );
+});
+
 test("projectKnowledgeMapScene hides file leaves from the default graph and keeps explicit file discovery", () => {
   const map = createKnowledgeMapFixture("demo");
   const scene = buildKnowledgeMapScene(map);
@@ -490,4 +575,19 @@ test("projectKnowledgeMapScene auto-expands folded matches and keeps ancestor ch
 
   assert.ok(filtered.nodes.some((node) => node.id === "risk-viewer-coverage"));
   assert.ok(filtered.nodes.some((node) => node.id === "project"));
+});
+
+test("projectKnowledgeMapScene does not keep an orphan root when scoped filters have no matches", () => {
+  const map = createKnowledgeMapFixture("demo");
+  const scene = buildKnowledgeMapScene(map);
+
+  const filtered = projectKnowledgeMapScene(scene, {
+    activeNodeId: "project",
+    expandedBranchIds: new Set(),
+    filter: "weakness",
+    query: "",
+  });
+
+  assert.deepEqual(filtered.nodes, []);
+  assert.deepEqual(filtered.edges, []);
 });

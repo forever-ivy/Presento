@@ -13,10 +13,13 @@
     "db:check": "node scripts/check-db.mjs",
     "realtime:dev": "tsx services/defense-realtime/src/main.ts",
     "realtime:start": "tsx services/defense-realtime/src/main.ts",
-    "worker:document": "tsx workers/document-worker/src/main.ts --loop",
+    "worker:document": "node scripts/run-workers.mjs document",
     "worker:document:once": "tsx workers/document-worker/src/main.ts",
-    "worker:code": "tsx workers/code-worker/src/main.ts --loop",
+    "worker:code": "node scripts/run-workers.mjs code",
     "worker:code:once": "tsx workers/code-worker/src/main.ts",
+    "worker:graph": "node scripts/run-workers.mjs graph",
+    "worker:graph:once": "tsx workers/graph-worker/src/main.ts",
+    "worker:all": "node scripts/run-workers.mjs",
     "test:unit": "node --test \"src/lib/*.test.ts\" \"packages/*/src/**/*.test.ts\" \"services/*/src/**/*.test.ts\" \"workers/*/src/**/*.test.ts\""
   },
   "dependencies": {

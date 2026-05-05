@@ -1,20 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { LlmProvider } from "../../../src/lib/llm-provider.ts";
 import { ingestLocalFile } from "./pipeline.ts";
 
 import {
   createKnowledgeMapJobRecord,
   createLocalParsedFileResult,
-  enhanceIngestKnowledgeMap,
   processClaimedIngestJob,
+  triggerKnowledgeMapGenerationAfterIngest,
 } from "./process-job.ts";
 import type { JobRunRecord } from "../../shared/src/domain.ts";
 
-test("creates a dedicated knowledge map job after an ingest succeeds", () => {
+test("creates a project-ready knowledge map job record", () => {
   const job = createKnowledgeMapJobRecord({
     createdAt: "2026-05-03T08:00:00.000Z",
     projectId: "project-presento",
+    reason: "project_ready",
     trigger: {
       fileId: "file-readme",
       sourceJobId: "job-file-readme",
@@ -27,7 +27,7 @@ test("creates a dedicated knowledge map job after an ingest succeeds", () => {
   assert.equal(job.status, "queued");
   assert.deepEqual(job.payload, {
     fileId: "file-readme",
-    reason: "file_ingest_succeeded",
+    reason: "project_ready",
     sourceJobId: "job-file-readme",
     taskId: "task-readme",
   });
@@ -59,72 +59,73 @@ test("knowledge map jobs do not require file ingest payload fields and fail clea
   assert.ok(calls.some((sql) => sql.includes('"status" = \'failed\'')));
 });
 
-test("enhanceIngestKnowledgeMap stores ai graph metadata when model succeeds", async () => {
-  const ingestResult = createTestIngestResult();
-  const metadata = await enhanceIngestKnowledgeMap({
-    projectId: "project-demo",
-    file: testFile,
-    source: ingestResult.source,
-    parsedSummary: "项目说明",
-    chunks: ingestResult.chunks,
-    ingestResult,
-    provider: fakeProvider({
-      projectSummary: "订单系统。",
-      modules: [{ title: "订单中心", summary: "处理订单。", citations: [{ fileId: "file-1" }] }],
-      apis: [],
-      tables: [],
-      risks: [{ title: "如何避免重复提交", summary: "需要说明幂等。", citations: [{ fileId: "file-1" }] }],
-      weaknesses: [],
-      trainingPaths: [{ title: "订单讲练", summary: "练习订单链路。", citations: [{ fileId: "file-1" }] }],
-      citations: [{ fileName: "README.md", fileId: "file-1" }],
+test("queues a waiting knowledge map job while project files are still parsing", async () => {
+  const calls: string[] = [];
+
+  const result = await triggerKnowledgeMapGenerationAfterIngest({
+    fileId: "file-readme",
+    projectId: "project-presento",
+    runSql: createTaskSummaryRunner(calls, {
+      completedTaskCount: 1,
+      failedTaskCount: 0,
+      pendingTaskCount: 2,
+      processingTaskCount: 1,
+      totalTaskCount: 4,
     }),
-    createdAt: "2026-05-01T00:00:00.000Z",
+    sourceJobId: "job-file-readme",
+    taskId: "task-readme",
   });
 
-  assert.equal(metadata.knowledgeMapMode, "ai");
-  assert.ok(ingestResult.knowledgeNodes.some((node) => node.title === "订单中心"));
-  assert.equal(metadata.knowledgeNodeCount, ingestResult.knowledgeNodes.length);
-  assert.equal(metadata.knowledgeEdgeCount, ingestResult.knowledgeEdges.length);
+  assert.equal(result.reason, "waiting_for_files");
+  assert.equal(result.queued, false);
+  assert.ok(calls.some((sql) => sql.includes('"reason":"waiting_for_files"')));
+  assert.equal(calls.some((sql) => sql.includes('FROM "Project"')), false);
 });
 
-test("enhanceIngestKnowledgeMap surfaces model errors instead of using starter fallback", async () => {
-  const ingestResult = createTestIngestResult();
+test("queues one project-ready knowledge map job only after all project files complete", async () => {
+  const calls: string[] = [];
 
-  await assert.rejects(
-    () => enhanceIngestKnowledgeMap({
-      projectId: "project-demo",
-      file: testFile,
-      source: ingestResult.source,
-      parsedSummary: "项目说明",
-      chunks: ingestResult.chunks,
-      ingestResult,
-      provider: null,
-      createdAt: "2026-05-01T00:00:00.000Z",
+  const result = await triggerKnowledgeMapGenerationAfterIngest({
+    fileId: "file-readme",
+    projectId: "project-presento",
+    runSql: createTaskSummaryRunner(calls, {
+      completedTaskCount: 4,
+      failedTaskCount: 0,
+      pendingTaskCount: 0,
+      processingTaskCount: 0,
+      totalTaskCount: 4,
     }),
-    /模型未配置/u,
-  );
+    sourceJobId: "job-file-readme",
+    taskId: "task-readme",
+  });
+
+  assert.equal(result.reason, "project_ready");
+  assert.equal(result.queued, true);
+  assert.ok(calls.some((sql) => sql.includes('"reason":"project_ready"')));
+  assert.equal(calls.some((sql) => sql.includes('DELETE FROM "KnowledgeNode"')), false);
 });
 
-test("enhanceIngestKnowledgeMap surfaces model request errors", async () => {
-  const ingestResult = createTestIngestResult();
+test("blocks knowledge map generation when any project file failed", async () => {
+  const calls: string[] = [];
 
-  await assert.rejects(
-    () => enhanceIngestKnowledgeMap({
-      projectId: "project-demo",
-      file: testFile,
-      source: ingestResult.source,
-      parsedSummary: "项目说明",
-      chunks: ingestResult.chunks,
-      ingestResult,
-      provider: {
-        async generateJson() {
-          throw new Error("DeepSeek request failed: 401 invalid api key");
-        },
-      },
-      createdAt: "2026-05-01T00:00:00.000Z",
+  const result = await triggerKnowledgeMapGenerationAfterIngest({
+    fileId: "file-readme",
+    projectId: "project-presento",
+    runSql: createTaskSummaryRunner(calls, {
+      completedTaskCount: 3,
+      failedTaskCount: 1,
+      pendingTaskCount: 0,
+      processingTaskCount: 0,
+      totalTaskCount: 4,
     }),
-    /DeepSeek request failed/u,
-  );
+    sourceJobId: "job-file-readme",
+    taskId: "task-readme",
+  });
+
+  assert.equal(result.reason, "blocked_by_failed_files");
+  assert.equal(result.queued, false);
+  assert.ok(calls.some((sql) => sql.includes("存在解析失败文件，知识图谱未生成")));
+  assert.ok(calls.some((sql) => sql.includes('"status", "payload", "error"')));
 });
 
 test("local parsed result is reserved for code-like files", () => {
@@ -153,14 +154,6 @@ const testFile = {
   addedAt: "2026-05-01T00:00:00.000Z",
   storagePath: ".data/uploads/readme.md",
 };
-
-function fakeProvider(output: unknown): LlmProvider {
-  return {
-    async generateJson<T>() {
-      return output as T;
-    },
-  };
-}
 
 function createTestIngestResult() {
   return ingestLocalFile({
@@ -200,4 +193,23 @@ function createTestIngestResult() {
     },
     createdAt: "2026-05-01T00:00:00.000Z",
   });
+}
+
+function createTaskSummaryRunner(
+  calls: string[],
+  summary: {
+    completedTaskCount: number;
+    failedTaskCount: number;
+    pendingTaskCount: number;
+    processingTaskCount: number;
+    totalTaskCount: number;
+  },
+) {
+  return async (sql: string) => {
+    calls.push(sql);
+    if (sql.includes('FROM "ProcessingTask"')) {
+      return `${JSON.stringify(summary)}\n`;
+    }
+    return "";
+  };
 }

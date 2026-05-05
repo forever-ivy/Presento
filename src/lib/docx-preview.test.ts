@@ -45,6 +45,25 @@ test("buildDocxPreview extracts DOCX paragraphs and tables in document order", (
   assert.equal(preview.blocks[2]?.kind === "paragraph" ? preview.blocks[2].style : undefined, "heading2");
 });
 
+test("buildDocxPreview does not truncate long DOCX documents", () => {
+  const paragraphs = Array.from(
+    { length: 260 },
+    (_, index) => `<w:p><w:r><w:t>第 ${index + 1} 段内容</w:t></w:r></w:p>`,
+  ).join("");
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>${paragraphs}</w:body>
+    </w:document>`;
+
+  const preview = buildDocxPreview(createStoredZip({
+    "word/document.xml": documentXml,
+  }), "long-report.docx");
+
+  assert.equal(preview.blocks.length, 260);
+  const lastBlock = preview.blocks.at(-1);
+  assert.equal(lastBlock?.kind === "paragraph" ? lastBlock.text : undefined, "第 260 段内容");
+});
+
 function createStoredZip(entries: Record<string, string>) {
   const localParts: Buffer[] = [];
   const centralParts: Buffer[] = [];

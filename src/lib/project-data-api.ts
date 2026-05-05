@@ -24,6 +24,55 @@ export type ProjectSlideDeck = {
   createdAt?: string;
 };
 
+export type SlideAssistantAction =
+  | "overview"
+  | "short"
+  | "conversational"
+  | "contribution"
+  | "transition"
+  | "teacher_question"
+  | "answer_card"
+  | "keywords"
+  | "rewrite";
+
+export type SlideAssistantOverview = {
+  projectName: string;
+  slideTitle: string;
+  task: string;
+  normal: string;
+  short: string;
+  conversational: string;
+  contribution: string;
+  transition: string;
+  answerCard: string;
+  keywords: string[];
+  risks: string[];
+  basis: {
+    topics: string[];
+    materials: string[];
+  };
+};
+
+export type SlideAssistantInsertResult = {
+  label: string;
+  content: string;
+  tone?: "pause" | "question" | "card";
+};
+
+export type SlideAssistantResponse =
+  | {
+      result: SlideAssistantOverview;
+      skillInvocationId?: string;
+      skillStatus?: string;
+      usedFallback?: boolean;
+    }
+  | {
+      result: SlideAssistantInsertResult;
+      skillInvocationId?: string;
+      skillStatus?: string;
+      usedFallback?: boolean;
+    };
+
 export type WeaknessItem = {
   id: string;
   projectId: string;
@@ -93,6 +142,25 @@ export async function fetchProjectSlides(projectId: string) {
     slideDecks?: ProjectSlideDeck[];
     slides?: ProjectSlide[];
   }>(projectId, "slides");
+}
+
+export async function runSlideAssistantAction(
+  projectId: string,
+  slideId: string,
+  payload: { action: SlideAssistantAction; instruction?: string },
+) {
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/slides/${encodeURIComponent(slideId)}/assistant`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<SlideAssistantResponse>;
 }
 
 export async function fetchProjectDeepDives(projectId: string) {

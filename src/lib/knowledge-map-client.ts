@@ -443,14 +443,18 @@ export async function loadFileNodePreview(
   if (!response.ok) throw new Error(await readApiErrorMessage(response, "Preview request failed."));
   const payload = await response.json() as {
     chunks?: unknown;
-    file?: { id?: unknown; kind?: unknown; mimeType?: unknown };
+    file?: { id?: unknown; kind?: unknown; mimeType?: unknown; sourcePath?: unknown; fileName?: unknown };
     preview?: unknown;
     viewer?: unknown;
   };
+  const previewRecord = isRecord(payload.preview) ? payload.preview : {};
   return normalizePreview(node, payload.preview, String(payload.viewer ?? payload.file?.kind ?? node.viewer), {
     chunks: payload.chunks,
     fileId: stringValue(payload.file?.id),
-    fileName: node.title,
+    fileName: stringValue(payload.file?.sourcePath)
+      ?? stringValue(payload.file?.fileName)
+      ?? stringValue(previewRecord.fileName)
+      ?? node.title,
     mimeType: stringValue(payload.file?.mimeType),
     projectId,
   });
@@ -674,7 +678,7 @@ function normalizePreview(
     ? node.fileId
     : stringValue(metadata.fileId);
   const fileId = options.fileId ?? nodeFileId;
-  const fileName = options.fileName ?? ("title" in node ? node.title : undefined);
+  const fileName = options.fileName ?? stringValue(record.fileName) ?? ("title" in node ? node.title : undefined);
   const mimeType = options.mimeType ?? stringValue(metadata.mimeType);
   const projectId = options.projectId ?? ("projectId" in node && typeof node.projectId === "string" ? node.projectId : undefined);
   const text = stringValue(record.text) ?? ("summary" in node ? node.summary : "");

@@ -37,6 +37,16 @@ const ignoredUploadFileNames = new Set([
   ".env.local",
   ".env.production",
   ".env.test",
+  "bun.lockb",
+  "cargo.lock",
+  "composer.lock",
+  "gemfile.lock",
+  "package-lock.json",
+  "pipfile.lock",
+  "pnpm-lock.yaml",
+  "poetry.lock",
+  "uv.lock",
+  "yarn.lock",
 ]);
 
 const ignoredUploadExtensions = [".key", ".p12", ".pem", ".pfx"];

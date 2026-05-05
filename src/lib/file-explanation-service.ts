@@ -1,5 +1,6 @@
 import { createUIMessageStreamResponse } from "ai";
 import { createFileExplanationRepository } from "@db/repositories/file-explanations";
+import { createFileRepository, type FileRecord } from "@db/repositories/files";
 import { createKnowledgeMapRepository } from "@db/repositories/knowledge-map";
 import {
   createNotebookRagClient,
@@ -33,7 +34,15 @@ export async function getFileNodePreview(
 ) {
   const node = await readExplainableFileNode(projectId, nodeId);
   const focus = await readFocusNodeContext(projectId, options.focusNodeId);
-  const chunks = await readOrderedFileChunks(projectId, String(node.metadata.fileId), 8);
+  const fileId = String(node.metadata.fileId);
+  const sourceFile = await createFileRepository().read(projectId, fileId);
+  const sourceFileName = sourceFile?.name
+    ?? metadataString(node.metadata.sourcePath)
+    ?? metadataString(node.metadata.fileName)
+    ?? node.title;
+  const fileKind = sourceFile?.kind ?? metadataString(node.metadata.fileKind);
+  const mimeType = sourceFile?.mimeType ?? metadataString(node.metadata.mimeType);
+  const chunks = await readOrderedFileChunks(projectId, fileId, 8);
   return {
     node,
     focusNode: focus
@@ -46,13 +55,15 @@ export async function getFileNodePreview(
     viewer: node.metadata.viewer,
     explainable: node.metadata.explainable,
     file: {
-      id: node.metadata.fileId,
+      id: fileId,
       sourceId: node.metadata.sourceId ?? node.sourceId,
-      kind: node.metadata.fileKind,
-      mimeType: node.metadata.mimeType,
-      sourcePath: node.metadata.sourcePath,
+      kind: fileKind,
+      mimeType,
+      fileName: sourceFileName,
+      sourcePath: sourceFileName,
     },
-    preview: node.metadata.preview ?? {
+    preview: previewWithSourceFileName(node.metadata.preview, sourceFileName) ?? {
+      fileName: sourceFileName,
       text: chunks.slice(0, 3).map((chunk) => chunk.content).join("\n\n"),
       outline: chunks.slice(0, 5).map((chunk) => firstLine(chunk.content)),
     },
@@ -75,6 +86,16 @@ export async function createFileExplanationSession({
   const node = await readExplainableFileNode(projectId, nodeId);
   const focus = await readFocusNodeContext(projectId, focusNodeId);
   const fileId = String(node.metadata.fileId);
+  const repository = createFileExplanationRepository();
+  const reusableSession = await repository.readReusableSession({
+    projectId,
+    nodeId,
+    fileId,
+    mode,
+    focusNodeId: focus?.node.id,
+  });
+  if (reusableSession) return reusableSession;
+
   const chunks = await readExplanationCandidateChunks({
     projectId,
     fileId,
@@ -124,7 +145,6 @@ export async function createFileExplanationSession({
     createdAt: now,
   };
 
-  const repository = createFileExplanationRepository();
   await repository.createSession(session);
   await repository.addTurn(assistantTurn);
   return repository.readSession(projectId, session.id);
@@ -408,13 +428,98 @@ export async function addFileExplanationTurnStream({
 
 async function readExplainableFileNode(projectId: string, nodeId: string) {
   const node = await createKnowledgeMapRepository().readNode(projectId, nodeId);
-  if (!node || node.kind !== "file") {
+  if (!node) {
+    return readWorkspaceFileNode(projectId, nodeId);
+  }
+  if (node.kind !== "file") {
     throw new Error("Knowledge node is not a file leaf node.");
   }
   if (!node.metadata.fileId) {
     throw new Error("File leaf node is missing file metadata.");
   }
   return node;
+}
+
+async function readWorkspaceFileNode(projectId: string, nodeId: string): Promise<KnowledgeNodeRecord> {
+  const fileId = nodeId.startsWith("workspace-file-")
+    ? nodeId.slice("workspace-file-".length)
+    : undefined;
+  if (!fileId) {
+    throw new Error("Knowledge node is not a file leaf node.");
+  }
+
+  const file = await createFileRepository().read(projectId, fileId);
+  if (!file) {
+    throw new Error("Knowledge node is not a file leaf node.");
+  }
+
+  return buildWorkspaceFileNode(projectId, nodeId, file);
+}
+
+function buildWorkspaceFileNode(projectId: string, nodeId: string, file: FileRecord): KnowledgeNodeRecord {
+  const title = basenameFromPath(file.name);
+  return {
+    id: nodeId,
+    projectId,
+    kind: "file",
+    title,
+    summary: file.status || "文件已接入。",
+    tone: toneForFileKind(file.kind),
+    sourceId: file.source,
+    metadata: {
+      explainable: true,
+      fileId: file.id,
+      fileKind: file.kind,
+      mimeType: file.mimeType,
+      preview: {
+        fileName: file.name,
+        text: file.status || "文件已接入。",
+      },
+      sourceId: file.source,
+      sourcePath: file.name,
+      viewer: viewerForFileKind(file.kind),
+    },
+    createdAt: file.addedAt,
+  };
+}
+
+function basenameFromPath(path: string) {
+  return path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) || path || "未命名资料";
+}
+
+function metadataString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function previewWithSourceFileName(preview: unknown, fileName: string) {
+  if (!isRecord(preview)) return undefined;
+  return {
+    ...preview,
+    fileName: metadataString(preview.fileName) ?? fileName,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function viewerForFileKind(kind: FileRecord["kind"]) {
+  if (kind === "presentation") return "presentation";
+  if (kind === "document") return "docx";
+  if (kind === "code") return "code";
+  if (kind === "database") return "sql";
+  if (kind === "dataset") return "table";
+  return "details";
+}
+
+function toneForFileKind(kind: FileRecord["kind"]): KnowledgeNodeRecord["tone"] {
+  if (kind === "presentation") return "purple";
+  if (kind === "document") return "cyan";
+  if (kind === "code") return "green";
+  if (kind === "database") return "orange";
+  if (kind === "dataset") return "blue";
+  if (kind === "asset") return "cyan";
+  return "cyan";
 }
 
 async function readFocusNodeContext(projectId: string, focusNodeId: string | undefined): Promise<FocusNodeContext | undefined> {

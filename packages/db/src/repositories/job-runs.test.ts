@@ -28,3 +28,20 @@ test("creates and updates job runs through the repository abstraction", async ()
   assert.match(executed[1], /"status" = 'running'/);
   assert.match(executed[2], /"status" = 'succeeded'/);
 });
+
+test("claims only knowledge map jobs with allowed payload reasons", async () => {
+  const executed: string[] = [];
+  const repository = createJobRunRepository(async (sql) => {
+    executed.push(sql);
+    return "null";
+  });
+
+  await repository.claimNext({
+    kinds: ["knowledge_map"],
+    payloadReasons: ["project_ready"],
+  });
+
+  assert.match(executed[0] ?? "", /"kind" IN \('knowledge_map'\)/);
+  assert.match(executed[0] ?? "", /"payload"->>'reason'/);
+  assert.match(executed[0] ?? "", /'project_ready'/);
+});

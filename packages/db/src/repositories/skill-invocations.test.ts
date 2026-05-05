@@ -75,3 +75,19 @@ test("writes feedback rows and marks invocation feedback state", async () => {
   assert.match(executed[0] ?? "", /"syncedAt"/u);
   assert.match(executed[0] ?? "", /"feedbackStatus" = 'synced'/u);
 });
+
+test("reads reusable successful invocation by request identity", async () => {
+  const executed: string[] = [];
+  const repository = createSkillInvocationRepository(async (sql) => {
+    executed.push(sql);
+    return JSON.stringify(invocation);
+  });
+
+  const result = await repository.readReusable("project-1", "review_report", "review_generate", { turns: 3 });
+
+  assert.equal(result?.id, invocation.id);
+  assert.match(executed[0] ?? "", /"skillName" = 'review_report'/u);
+  assert.match(executed[0] ?? "", /"trigger" = 'review_generate'/u);
+  assert.ok((executed[0] ?? "").includes(`"input" = '{"turns":3}'::jsonb`));
+  assert.match(executed[0] ?? "", /"status" = 'success'/u);
+});

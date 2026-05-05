@@ -23,20 +23,23 @@ export async function POST(request: Request) {
     .getAll("files")
     .filter((value): value is File => value instanceof File && value.size > 0);
   const relativePaths = formData.getAll("relativePaths");
-  const uploadItems = files
-    .map((file, index) => {
-      const relativePath = relativePaths[index];
-      const displayName = normalizeUploadPath(
-        typeof relativePath === "string" ? relativePath : undefined,
-        file.name,
-      );
-
-      return { file, displayName };
-    })
-    .filter(({ displayName }) =>
-      !isIgnoredUploadPath(displayName)
-      && !(displayName.includes("/") && isUnsupportedCodeArchive(displayName)),
+  const preparedUploadItems = files.map((file, index) => {
+    const relativePath = relativePaths[index];
+    const displayName = normalizeUploadPath(
+      typeof relativePath === "string" ? relativePath : undefined,
+      file.name,
     );
+
+    return { file, displayName };
+  });
+  const ignoredUploadItems = preparedUploadItems.filter(({ displayName }) =>
+    isIgnoredUploadPath(displayName)
+    || (displayName.includes("/") && isUnsupportedCodeArchive(displayName)),
+  );
+  const uploadItems = preparedUploadItems.filter(({ displayName }) =>
+    !isIgnoredUploadPath(displayName)
+    && !(displayName.includes("/") && isUnsupportedCodeArchive(displayName)),
+  );
 
   if (!uploadItems.length) {
     return NextResponse.json(
@@ -103,8 +106,17 @@ export async function POST(request: Request) {
   if (projectId) {
     const batch = buildPersistedFileBatch(projectId, uploadedFiles);
     await createFileRepository().createBatch(batch);
-    return NextResponse.json({ uploadedFiles, ...batch });
+    return NextResponse.json({
+      ignoredFileCount: ignoredUploadItems.length,
+      ignoredFilesPreview: ignoredUploadItems.slice(0, 12).map((item) => item.displayName),
+      uploadedFiles,
+      ...batch,
+    });
   }
 
-  return NextResponse.json({ uploadedFiles });
+  return NextResponse.json({
+    ignoredFileCount: ignoredUploadItems.length,
+    ignoredFilesPreview: ignoredUploadItems.slice(0, 12).map((item) => item.displayName),
+    uploadedFiles,
+  });
 }

@@ -166,7 +166,7 @@ export function projectKnowledgeMapScene(
   const autoExpandedBranchIds = new Set<string>();
 
   const visibleIds = hasScopedSearch
-    ? collectScopedVisibleIds(scene, renderActiveNode.id, matches, autoExpandedBranchIds)
+    ? collectScopedVisibleIds(scene, matches, autoExpandedBranchIds)
     : collectBaseVisibleIds(scene, renderActiveNode.id, manualExpandedBranchIds);
 
   const effectiveExpandedBranchIds = new Set([
@@ -211,7 +211,8 @@ export function projectKnowledgeMapScene(
     .map((edge) => {
       const fromNode = scene.nodesById[edge.fromNodeId];
       const toNode = scene.nodesById[edge.toNodeId];
-      const sharesBranch = fromNode?.branchId === toNode?.branchId;
+      const isRootSpoke = isRootBranchEdge(scene, edge.fromNodeId, edge.toNodeId);
+      const sharesBranch = fromNode?.branchId === toNode?.branchId || isRootSpoke;
       const isActive = activeLineIds.has(edge.id)
         || edge.fromNodeId === renderActiveNode.id
         || edge.toNodeId === renderActiveNode.id;
@@ -234,6 +235,15 @@ export function projectKnowledgeMapScene(
   };
 }
 
+function isRootBranchEdge(scene: KnowledgeMapScene, fromNodeId: string, toNodeId: string) {
+  const fromNode = scene.nodesById[fromNodeId];
+  const toNode = scene.nodesById[toNodeId];
+  return Boolean(
+    (fromNodeId === scene.rootId && toNode?.depth === 1)
+    || (toNodeId === scene.rootId && fromNode?.depth === 1),
+  );
+}
+
 function collectMatches(scene: KnowledgeMapScene, filter: string, query: string) {
   const normalizedQuery = query.trim().toLowerCase();
   if (filter === "all" && !normalizedQuery) return new Set<string>();
@@ -251,10 +261,11 @@ function collectMatches(scene: KnowledgeMapScene, filter: string, query: string)
 
 function collectScopedVisibleIds(
   scene: KnowledgeMapScene,
-  activeNodeId: string,
   matches: Set<string>,
   autoExpandedBranchIds: Set<string>,
 ) {
+  if (matches.size === 0) return new Set<string>();
+
   const visibleIds = new Set<string>([scene.rootId]);
 
   for (const nodeId of matches) {
@@ -267,11 +278,6 @@ function collectScopedVisibleIds(
     for (const branchId of node.branchIds) {
       autoExpandedBranchIds.add(branchId);
     }
-  }
-
-  visibleIds.add(activeNodeId);
-  for (const ancestorId of collectSceneAncestors(scene, activeNodeId)) {
-    visibleIds.add(ancestorId);
   }
 
   return visibleIds;

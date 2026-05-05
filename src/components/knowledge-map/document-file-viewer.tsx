@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -8,92 +8,36 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { FilePreviewUi } from "@/lib/knowledge-map-client";
 
 type DocxPreviewPayload = {
-  blocks?: Array<
-    | {
-      alignment?: "center" | "end" | "justify" | "start";
-      kind: "paragraph";
-      runs?: Array<{ bold?: boolean; italic?: boolean; text?: string; underline?: boolean }>;
-      style?: "heading1" | "heading2" | "heading3" | "title";
-      text?: string;
-    }
-    | {
-      kind: "table";
-      rows?: string[][];
-    }
-  >;
+  blocks?: DocxBlock[];
   fileName?: string;
   title?: string;
 };
+
+type DocxBlock =
+  | {
+    alignment?: "center" | "end" | "justify" | "start";
+    kind: "paragraph";
+    runs?: Array<{ bold?: boolean; italic?: boolean; text?: string; underline?: boolean }>;
+    style?: "heading1" | "heading2" | "heading3" | "title";
+    text?: string;
+  }
+  | {
+    kind: "table";
+    rows?: string[][];
+  };
 
 export function DocumentFileViewer({ preview }: { preview: FilePreviewUi }) {
   const docxUrl = docxAssetUrl(preview);
   const fallbackDocxUrl = docxPreviewUrl(preview);
   const textUrl = textAssetUrl(preview);
-  const docxHostRef = useRef<HTMLDivElement | null>(null);
-  const [nativeDocxState, setNativeDocxState] = useState<{ error: string | null; loading: boolean; url: string } | null>(null);
   const [docxLoaded, setDocxLoaded] = useState<{ document: DocxPreviewPayload | null; error: string | null; url: string } | null>(null);
   const [loaded, setLoaded] = useState<{ error: string | null; text: string; url: string } | null>(null);
   const body = textUrl && loaded?.url === textUrl && !loaded.error
     ? loaded.text
     : preview.text || "当前资料暂无正文预览，AI 会基于已解析片段进行讲解。";
-  const activeNativeDocxState = docxUrl && nativeDocxState?.url === docxUrl ? nativeDocxState : null;
-  const nativeDocxError = activeNativeDocxState?.error ?? null;
-  const isNativeDocxLoading = Boolean(docxUrl && (!activeNativeDocxState || activeNativeDocxState.loading));
 
   useEffect(() => {
-    if (!docxUrl) return;
-
-    let cancelled = false;
-    const host = docxHostRef.current;
-    if (!host) return;
-
-    host.innerHTML = "";
-    setNativeDocxState({ error: null, loading: true, url: docxUrl });
-
-    fetch(docxUrl)
-      .then(async (response) => {
-        if (!response.ok) throw new Error("DOCX 文件读取失败");
-        return response.arrayBuffer();
-      })
-      .then(async (buffer) => {
-        const { renderAsync } = await import("docx-preview");
-        if (cancelled) return;
-        await renderAsync(buffer, host, undefined, {
-          breakPages: true,
-          className: "presento-docx-native",
-          experimental: true,
-          ignoreHeight: false,
-          ignoreLastRenderedPageBreak: false,
-          ignoreWidth: false,
-          inWrapper: true,
-          renderComments: false,
-          renderEndnotes: true,
-          renderFooters: true,
-          renderFootnotes: true,
-          renderHeaders: true,
-          useBase64URL: true,
-        });
-        if (!cancelled) setNativeDocxState({ error: null, loading: false, url: docxUrl });
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          host.innerHTML = "";
-          setNativeDocxState({
-            error: error instanceof Error ? error.message : "DOCX 文件渲染失败",
-            loading: false,
-            url: docxUrl,
-          });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      host.innerHTML = "";
-    };
-  }, [docxUrl]);
-
-  useEffect(() => {
-    if (!fallbackDocxUrl || !nativeDocxError) return;
+    if (!fallbackDocxUrl) return;
 
     let cancelled = false;
     fetch(fallbackDocxUrl)
@@ -117,7 +61,7 @@ export function DocumentFileViewer({ preview }: { preview: FilePreviewUi }) {
     return () => {
       cancelled = true;
     };
-  }, [fallbackDocxUrl, nativeDocxError]);
+  }, [fallbackDocxUrl]);
 
   useEffect(() => {
     if (!textUrl || docxUrl) return;
@@ -148,23 +92,14 @@ export function DocumentFileViewer({ preview }: { preview: FilePreviewUi }) {
 
   if (docxUrl) {
     const fallbackLoaded = docxLoaded?.url === fallbackDocxUrl ? docxLoaded : null;
-    const isFallbackLoading = Boolean(nativeDocxError && fallbackDocxUrl && !fallbackLoaded);
+    const isFallbackLoading = Boolean(fallbackDocxUrl && !fallbackLoaded);
     return (
-      <div className="presento-docx-viewer presento-docx-viewer-native">
-        {isNativeDocxLoading ? <DocumentSkeleton /> : null}
-        <div
-          className={[
-            "presento-docx-native-host",
-            nativeDocxError ? "presento-docx-native-host-hidden" : "",
-            isNativeDocxLoading ? "presento-docx-native-host-loading" : "",
-          ].filter(Boolean).join(" ")}
-          ref={docxHostRef}
-        />
+      <div className="presento-docx-viewer">
         {isFallbackLoading ? <DocumentSkeleton /> : null}
-        {nativeDocxError && fallbackLoaded?.error ? (
-          <div className="presento-file-viewer-state">DOCX 预览暂不可用：{nativeDocxError}；兜底预览失败：{fallbackLoaded.error}</div>
+        {fallbackLoaded?.error ? (
+          <div className="presento-file-viewer-state">DOCX 预览暂不可用：{fallbackLoaded.error}</div>
         ) : null}
-        {nativeDocxError && fallbackLoaded?.document && !fallbackLoaded.error ? (
+        {fallbackLoaded?.document && !fallbackLoaded.error ? (
           <StructuredDocxPreview document={fallbackLoaded.document} fallbackTitle={preview.fileName ?? preview.title} />
         ) : null}
       </div>
@@ -202,15 +137,25 @@ function StructuredDocxPreview({
     );
   }
 
+  const pages = paginateDocxBlocks(blocks);
+
   return (
-    <article className="presento-docx-page" aria-label={document.title ?? fallbackTitle}>
-      {blocks.map((block, index) => {
-        if (block.kind === "table") {
-          return <DocxTable block={block} key={`table-${index}`} />;
-        }
-        return <DocxParagraph block={block} key={`paragraph-${index}`} />;
-      })}
-    </article>
+    <div className="presento-docx-document">
+      <div className="presento-docx-pages" aria-label={document.title ?? fallbackTitle}>
+        {pages.map((pageBlocks, pageIndex) => (
+          <article className="presento-docx-page" key={pageIndex}>
+            <div className="presento-docx-page-index">第 {pageIndex + 1} 页</div>
+            {pageBlocks.map((block, blockIndex) => {
+              const key = `${pageIndex}-${blockIndex}`;
+              if (block.kind === "table") {
+                return <DocxTable block={block} key={`table-${key}`} />;
+              }
+              return <DocxParagraph block={block} key={`paragraph-${key}`} />;
+            })}
+          </article>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -312,4 +257,36 @@ function docxPreviewUrl(preview: FilePreviewUi) {
   const isDocx = mimeType.includes("wordprocessingml") || fileName.endsWith(".docx");
   if (!isDocx) return undefined;
   return preview.assetUrl.replace(/\/content(\?.*)?$/u, "/docx-preview");
+}
+
+function paginateDocxBlocks(blocks: DocxBlock[]) {
+  const pages: DocxBlock[][] = [];
+  let current: DocxBlock[] = [];
+  let weight = 0;
+  const maxWeight = 38;
+
+  for (const block of blocks) {
+    const blockWeight = estimateDocxBlockWeight(block);
+    if (current.length > 0 && weight + blockWeight > maxWeight) {
+      pages.push(current);
+      current = [];
+      weight = 0;
+    }
+    current.push(block);
+    weight += blockWeight;
+  }
+
+  if (current.length) pages.push(current);
+  return pages.length ? pages : [blocks];
+}
+
+function estimateDocxBlockWeight(block: DocxBlock) {
+  if (block.kind === "table") {
+    const rows = Array.isArray(block.rows) ? block.rows : [];
+    return Math.max(8, rows.length * 2.8);
+  }
+  const text = block.runs?.map((run) => run.text ?? "").join("") ?? block.text ?? "";
+  if (block.style === "title") return 5;
+  if (block.style === "heading1" || block.style === "heading2" || block.style === "heading3") return 3.5;
+  return Math.max(1.25, Math.ceil(text.length / 52));
 }

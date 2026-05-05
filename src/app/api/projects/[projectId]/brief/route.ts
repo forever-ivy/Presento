@@ -25,16 +25,30 @@ export async function GET(
     ]);
     const projectName =
       project?.name ?? (workspace?.project.id === projectId ? workspace.project.name : "课程项目答辩");
+    const skillPayload = { chunks };
+    const invocationRepository = createSkillInvocationRepository();
+    const cachedInvocation = await invocationRepository
+      .readReusable(projectId, "project_brief", "brief-api", skillPayload)
+      .catch(() => null);
+    if (cachedInvocation) {
+      return NextResponse.json({
+        brief: cachedInvocation.output,
+        knowledgeChunkCount: chunks.length,
+        skillInvocationId: cachedInvocation.id,
+        skillStatus: cachedInvocation.status,
+        modelStatus: getModelRuntimeStatus(),
+        cached: true,
+      });
+    }
+
     const { output: brief, invocation } = await invokeBuiltInSkillWithInvocation({
       projectId,
       projectName,
       skillId: "project_brief",
       trigger: "brief-api",
-      payload: {
-        chunks,
-      },
+      payload: skillPayload,
     });
-    await createSkillInvocationRepository().write(invocation).catch(() => undefined);
+    await invocationRepository.write(invocation).catch(() => undefined);
 
     return NextResponse.json({
       brief,
@@ -42,6 +56,7 @@ export async function GET(
       skillInvocationId: invocation.id,
       skillStatus: invocation.status,
       modelStatus: getModelRuntimeStatus(),
+      cached: false,
     });
   } catch (error) {
     return NextResponse.json(

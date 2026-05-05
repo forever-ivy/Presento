@@ -1,5 +1,7 @@
 import base64
+import io
 import unittest
+import zipfile
 from unittest.mock import patch
 
 from app.engine import (
@@ -9,6 +11,36 @@ from app.engine import (
     retrieve_chunks_from_payload,
     stream_explain_from_payload,
 )
+from app.parsers import extract_document_with_docling
+
+
+def build_minimal_pptx(slide_text: str) -> bytes:
+    text_nodes = "".join(f"<a:t>{line}</a:t>" for line in slide_text.splitlines())
+    slide_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+        'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">'
+        f"<p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r>{text_nodes}</a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>"
+        "</p:sld>"
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("ppt/slides/slide1.xml", slide_xml)
+    return buffer.getvalue()
+
+
+def build_minimal_docx(document_text: str) -> bytes:
+    text_nodes = "".join(f"<w:t>{line}</w:t>" for line in document_text.splitlines())
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body><w:p><w:r>{text_nodes}</w:r></w:p></w:body>"
+        "</w:document>"
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("word/document.xml", document_xml)
+    return buffer.getvalue()
 
 
 class NotebookRagContractTests(unittest.TestCase):
@@ -126,6 +158,31 @@ class NotebookRagContractTests(unittest.TestCase):
 
         self.assertEqual(result["slides"][0]["title"], "封面")
         self.assertEqual(result["metadata"]["parser"], "docling")
+
+    def test_pptx_uses_lightweight_parser_before_docling(self) -> None:
+        pptx_bytes = build_minimal_pptx("项目目标\n用 AI 生成表达地图")
+
+        with patch("app.parsers.run_docling_conversion") as run_docling_conversion:
+            text, extras = extract_document_with_docling("答辩稿.pptx", pptx_bytes)
+
+        run_docling_conversion.assert_not_called()
+        self.assertIn("项目目标", text)
+        self.assertEqual(extras["chunkMetadata"]["parser"], "lightweight-zipxml")
+        self.assertEqual(extras["slides"][0]["title"], "项目目标")
+        self.assertIn("lightweight slide text parser", extras["sourceMetadata"]["fallbackReason"])
+
+    def test_docling_meta_tensor_error_falls_back_to_lightweight_docx_parser(self) -> None:
+        docx_bytes = build_minimal_docx("项目报告\n系统支持逐页讲稿")
+
+        with patch(
+            "app.parsers.run_docling_conversion",
+            side_effect=NotImplementedError("Cannot copy out of meta tensor; no data!"),
+        ):
+            text, extras = extract_document_with_docling("项目报告.docx", docx_bytes)
+
+        self.assertIn("系统支持逐页讲稿", text)
+        self.assertEqual(extras["chunkMetadata"]["parser"], "lightweight-zipxml")
+        self.assertIn("meta tensor", extras["sourceMetadata"]["fallbackReason"])
 
     def test_stream_explain_from_payload_yields_retrieval_delta_and_completion_events(self) -> None:
         events = list(stream_explain_from_payload({

@@ -6,6 +6,7 @@ import {
   runDefenseReviewGraph,
   runKnowledgeMapGraph,
   runProjectBriefGraph,
+  runSlideScriptGraph,
 } from "./skill-graph.ts";
 
 const chunks = [
@@ -60,6 +61,42 @@ test("project brief graph returns llm structured output", async () => {
   assert.equal(brief.projectName, "智能点餐系统");
   assert.equal(brief.generatedAt, "2026-04-25T00:00:00.000Z");
   assert.match(brief.cards[0].items[0], /PostgreSQL/);
+});
+
+test("slide script graph returns normalized assistant output", async () => {
+  const script = await runSlideScriptGraph({
+    provider: fakeProvider({
+      task: "讲清项目介绍页的背景、目标和历史脉络。",
+      normal: "完整稿来自模型。",
+      short: "30 秒稿来自模型。",
+      conversational: "口语化来自模型。",
+      contribution: "个人贡献来自模型。",
+      transition: "转场来自模型。",
+      answerCard: "答辩卡来自模型。",
+      keywords: ["项目介绍", "VisiCalc", "Excel"],
+      risks: ["历史脉络不要只罗列。"],
+      basis: {
+        topics: ["项目介绍", "历史溯源"],
+        materials: ["MiniSheet 逐页结构", "Slide 02"],
+      },
+      rewrite: "按用户要求改写后的讲稿。",
+    }),
+    projectName: "MiniSheet",
+    slideTitle: "项目介绍",
+    slideIndex: 2,
+    fileId: "file-1",
+    slideId: "slide-2",
+    extractedText: "VisiCalc 到 Lotus 1-2-3，再到 Excel。",
+    instruction: "压缩成 30 秒。",
+    action: "rewrite",
+    chunks,
+    generatedAt: "2026-04-25T00:00:00.000Z",
+  });
+
+  assert.equal(script.generatedAt, "2026-04-25T00:00:00.000Z");
+  assert.equal(script.short, "30 秒稿来自模型。");
+  assert.equal(script.rewrite, "按用户要求改写后的讲稿。");
+  assert.deepEqual(script.basis.materials, ["MiniSheet 逐页结构", "Slide 02"]);
 });
 
 test("knowledge map graph returns normalized deep graph output", async () => {

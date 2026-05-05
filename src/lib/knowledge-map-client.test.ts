@@ -349,6 +349,44 @@ test("loadFileNodePreview adds content asset url and code files from chunks", as
   assert.equal(preview.codeFiles[0].content, "export const ok = true;");
 });
 
+test("loadFileNodePreview uses source file path for graph evidence nodes", async () => {
+  const map = normalizeKnowledgeMapPayload("demo", {
+    nodes: [{
+      ...apiNode,
+      id: "node-evidence-report",
+      title: "项目报告1.1节",
+      metadata: {
+        ...apiNode.metadata,
+        fileId: "file-report",
+        fileKind: "document",
+        viewer: "docx",
+        preview: {
+          text: "项目报告摘要",
+        },
+      },
+    }],
+    edges: [],
+  });
+
+  const preview = await loadFileNodePreview("demo", map.nodes[0], async () => jsonResponse({
+    file: {
+      id: "file-report",
+      kind: "document",
+      sourcePath: "四班第一组.docx",
+    },
+    viewer: "docx",
+    preview: {
+      fileName: "四班第一组.docx",
+      text: "项目报告摘要",
+    },
+    chunks: [],
+  }));
+
+  assert.equal(preview.viewer, "docx");
+  assert.equal(preview.fileName, "四班第一组.docx");
+  assert.equal(preview.assetUrl, "/api/projects/demo/files/file-report/content");
+});
+
 test("file preview and explanation requests can stay focused on the selected expression node", async () => {
   const map = normalizeKnowledgeMapPayload("demo", {
     nodes: [{

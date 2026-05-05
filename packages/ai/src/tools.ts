@@ -1,5 +1,5 @@
 import type { SkillToolCallRecord, SkillToolName } from "@shared/domain";
-import { createKnowledgeMapRepository } from "@db/repositories/knowledge-map";
+import { createKnowledgeMapRepository } from "../../db/src/repositories/knowledge-map.ts";
 import {
   readFileKnowledgeChunks,
   readProjectKnowledgeChunks,

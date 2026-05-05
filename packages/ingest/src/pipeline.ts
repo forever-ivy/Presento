@@ -28,6 +28,7 @@ export function ingestLocalFile({
   content,
   parsed,
   createdAt = new Date().toISOString(),
+  createStarterGraph = true,
 }: {
   projectId: string;
   file: DefenseFileRecord;
@@ -35,6 +36,7 @@ export function ingestLocalFile({
   content: string;
   parsed?: ParsedFileResult;
   createdAt?: string;
+  createStarterGraph?: boolean;
 }) {
   const artifact = createProcessingArtifact({
     file,
@@ -67,19 +69,23 @@ export function ingestLocalFile({
     createdAt,
   });
 
-  const knowledgeNodes = createStarterKnowledgeNodes({
-    projectId,
-    source,
-    file,
-    content,
-    parsed,
-    createdAt,
-  });
-  const knowledgeEdges = createStarterKnowledgeEdges({
-    projectId,
-    nodes: knowledgeNodes,
-    createdAt,
-  });
+  const knowledgeNodes = createStarterGraph
+    ? createStarterKnowledgeNodes({
+      projectId,
+      source,
+      file,
+      content,
+      parsed,
+      createdAt,
+    })
+    : [];
+  const knowledgeEdges = createStarterGraph
+    ? createStarterKnowledgeEdges({
+      projectId,
+      nodes: knowledgeNodes,
+      createdAt,
+    })
+    : [];
 
   return {
     source,

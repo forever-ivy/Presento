@@ -125,6 +125,7 @@ export async function generateExpressionKnowledgeMapDraft({
   llmProvider: LlmProvider;
   workspace: ProjectWorkspaceDto;
 }) {
+  const selectedChunks = selectExpressionKnowledgeMapChunks(chunks);
   const payload = await llmProvider.generateJson<unknown>({
     schemaName: "presento_expression_knowledge_map_v1",
     messages: [
@@ -139,27 +140,27 @@ export async function generateExpressionKnowledgeMapDraft({
       {
         role: "user",
         content: JSON.stringify({
-          task: "生成 4 层表达型知识地图：项目中心、答辩主线、核心表达节点、证据资料。风险问题放在表达节点 topQuestion / riskQuestions 中。",
+          task: "生成 4 层表达型知识地图：项目中心、答辩主线、核心表达节点、项目材料。风险问题放在表达节点 topQuestion / riskQuestions 中。",
           schema: {
             projectCenter: {
               title: "项目名或核心主张",
-              oneSentence: "一句话讲清项目",
-              talkTrack: "项目中心的建议讲法",
+              oneSentence: "一句话定位：定义句/定位句，只说明这个项目是什么，不展开实现过程",
+              talkTrack: "答辩讲法：上台讲述顺序，按场景、主张、路径和取舍组织表达",
             },
             mainlines: [{
               title: "答辩主线名称",
               summary: "主线说明",
               expressionNodes: [{
                 title: "能独立讲 30 秒的答辩讲点",
-                oneSentence: "一句话讲清楚",
-                talkTrack: "建议这样讲",
+                oneSentence: "一句话定位：定义句/定位句，只回答这个节点是什么，不展开实现过程",
+                talkTrack: "答辩讲法：上台讲述顺序，先讲用户场景或问题，再讲实现策略、技术取舍和边界",
                 topQuestion: "最高危追问",
                 riskLevel: "low | medium | high",
                 riskQuestions: ["其他可能追问"],
                 evidenceRefs: [{
                   fileId: "必须引用输入 files 中的 id",
                   label: "PPT 第 3 页 / README.md / pipeline.ts 等",
-                  reason: "这份证据如何支撑该讲点",
+                  reason: "这份项目材料如何支撑该讲点",
                 }],
               }],
             }],
@@ -172,7 +173,7 @@ export async function generateExpressionKnowledgeMapDraft({
             mimeType: file.mimeType,
             source: file.source,
           })),
-          chunks: chunks.slice(0, 36).map((chunk) => ({
+          chunks: selectedChunks.map((chunk) => ({
             fileId: chunk.fileId,
             source: chunk.source,
             content: chunk.content.slice(0, 900),
@@ -180,7 +181,9 @@ export async function generateExpressionKnowledgeMapDraft({
           })),
           constraints: [
             "mainlines 至少包含 项目价值主线、产品功能主线、技术实现主线、答辩风险主线 中最匹配的 2 到 4 条。",
-            "expressionNodes 必须能被讲清楚、被追问、被训练。",
+            "expressionNodes 必须能被定位、被讲述、被追问、被训练。",
+            "oneSentence 必须是定义句或定位句，只说明节点是什么；不要写实现步骤、过程展开或讲述顺序。",
+            "talkTrack 必须是上台讲述顺序，按用户场景、实现策略、技术取舍和边界组织；不要重复 oneSentence 的定义。",
             "evidenceRefs 必须绑定到输入 files 的 fileId。",
             "不要输出 source-category、training、file catalog 结构。",
           ],
@@ -190,6 +193,100 @@ export async function generateExpressionKnowledgeMapDraft({
   });
 
   return normalizeExpressionKnowledgeMapDraft(payload);
+}
+
+export function selectExpressionKnowledgeMapChunks(
+  chunks: KnowledgeChunkRecord[],
+  options: { maxChunks?: number } = {},
+) {
+  const maxChunks = options.maxChunks ?? 36;
+  if (maxChunks <= 0) return [];
+
+  const nonCodeChunks = chunks
+    .filter((chunk) => !isCodeChunk(chunk))
+    .sort((left, right) => chunkPriority(left) - chunkPriority(right));
+  const codeChunks = groupCodeChunksByDirectory(chunks.filter(isCodeChunk));
+  const nonCodeLimit = Math.min(nonCodeChunks.length, Math.ceil(maxChunks * 0.6));
+  const selectedNonCode = nonCodeChunks.slice(0, nonCodeLimit);
+  const selectedCode = codeChunks.slice(0, maxChunks - selectedNonCode.length);
+
+  return [...selectedNonCode, ...selectedCode].slice(0, maxChunks);
+}
+
+function isCodeChunk(chunk: KnowledgeChunkRecord) {
+  return chunk.metadata.kind === "code"
+    || chunk.metadata.chunkKind === "code"
+    || Boolean(chunk.metadata.codePath);
+}
+
+function chunkPriority(chunk: KnowledgeChunkRecord) {
+  if (chunk.metadata.kind === "presentation") return 0;
+  if (chunk.metadata.kind === "document") return 1;
+  if (chunk.metadata.kind === "database" || chunk.metadata.kind === "dataset") return 2;
+  return 3;
+}
+
+function groupCodeChunksByDirectory(chunks: KnowledgeChunkRecord[]) {
+  const groups = new Map<string, KnowledgeChunkRecord[]>();
+  for (const chunk of chunks) {
+    const groupPath = codeGroupPath(
+      String(chunk.metadata.codePath || chunk.metadata.fileName || chunk.source || ""),
+    );
+    const group = groups.get(groupPath) ?? [];
+    group.push(chunk);
+    groups.set(groupPath, group);
+  }
+
+  return Array.from(groups.entries()).map(([groupPath, group]) => createCodeGroupChunk(groupPath, group));
+}
+
+function createCodeGroupChunk(groupPath: string, group: KnowledgeChunkRecord[]): KnowledgeChunkRecord {
+  const first = group[0]!;
+  const files = uniqueStrings(
+    group
+      .map((chunk) => String(chunk.metadata.fileName || chunk.metadata.codePath || chunk.source || ""))
+      .filter(Boolean),
+  );
+  const snippets = group.slice(0, 5).map((chunk) => {
+    const fileName = String(chunk.metadata.fileName || chunk.metadata.codePath || chunk.source || "代码文件");
+    return `- ${fileName}: ${firstLine(chunk.content).slice(0, 180)}`;
+  });
+
+  return {
+    ...first,
+    id: `${first.id}-group-${slugify(groupPath)}`,
+    content: [
+      `代码目录：${groupPath}`,
+      `包含文件：${files.slice(0, 10).join("、")}`,
+      "关键片段：",
+      ...snippets,
+    ].join("\n"),
+    metadata: {
+      ...first.metadata,
+      artifactTitle: `${groupPath} 代码目录摘要`,
+      codePath: groupPath,
+      fileName: groupPath,
+      kind: "code",
+      lineEnd: snippets.length,
+      lineStart: 1,
+    },
+    source: `${groupPath} · code group`,
+  };
+}
+
+function codeGroupPath(value: string) {
+  const normalized = value.replace(/\\/g, "/").replace(/^\/+/u, "");
+  const pathSegments = normalized.split("/").filter(Boolean);
+  if (pathSegments.length <= 1) return pathSegments[0] ?? "code";
+
+  const directorySegments = pathSegments.slice(0, -1);
+  if (directorySegments[0] === "packages" && directorySegments.length >= 3) {
+    return directorySegments.slice(0, 3).join("/");
+  }
+  if (directorySegments[0] === "src" && directorySegments.length >= 2) {
+    return directorySegments.slice(0, 2).join("/");
+  }
+  return directorySegments.slice(0, Math.min(3, directorySegments.length)).join("/");
 }
 
 export function buildExpressionKnowledgeMapRecords({
@@ -285,14 +382,14 @@ export function buildExpressionKnowledgeMapRecords({
           evidence: resolvedEvidenceRefs.map((ref) => `${ref.label}：${ref.reason}`),
           relatedFiles: resolvedEvidenceRefs.map((ref) => ref.label),
           riskQuestions: uniqueStrings([expression.topQuestion, ...(expression.riskQuestions ?? [])]),
-          actions: ["围绕此节点讲练", "查看证据资料"],
+          actions: ["围绕此节点讲练", "查看项目材料"],
           expression: {
             oneSentence: expression.oneSentence,
             talkTrack: expression.talkTrack,
             topQuestion: expression.topQuestion,
             riskLevel: expression.riskLevel,
             evidenceRefs: resolvedEvidenceRefs,
-            actions: ["围绕此节点讲练", "查看证据资料"],
+            actions: ["围绕此节点讲练", "查看项目材料"],
           } satisfies ExpressionMetadata,
           layout: { ring: 2 },
         },
@@ -328,7 +425,7 @@ export function buildExpressionKnowledgeMapRecords({
           fromNodeId: expressionNode.id,
           toNodeId: evidenceNode.id,
           kind: "evidence",
-          label: "证据",
+          label: "项目材料",
           createdAt,
         });
       }
