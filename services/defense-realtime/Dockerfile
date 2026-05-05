@@ -9,4 +9,4 @@ COPY services/defense-realtime ./services/defense-realtime
 
 RUN npm ci
 
-CMD ["node", "services/defense-realtime/src/main.ts"]
+CMD ["./node_modules/.bin/tsx", "services/defense-realtime/src/main.ts"]

@@ -76,6 +76,16 @@ export async function pickUploadDirectory() {
   return pickUploadDirectoryWithInput();
 }
 
+export function configureDirectoryUploadInput(input: HTMLInputElement) {
+  input.multiple = true;
+  Object.assign(input, {
+    directory: true,
+    webkitdirectory: true,
+  });
+  input.setAttribute("directory", "");
+  input.setAttribute("webkitdirectory", "");
+}
+
 export function getUploadDisplayName(file: Pick<File, "name"> & { webkitRelativePath?: string }) {
   return normalizeUploadPath(file.webkitRelativePath, file.name);
 }
@@ -111,9 +121,7 @@ async function readDataTransferItemFiles(items: DataTransferItemList) {
 async function pickUploadDirectoryWithInput() {
   const input = document.createElement("input");
   input.type = "file";
-  input.multiple = true;
-  input.setAttribute("directory", "");
-  input.setAttribute("webkitdirectory", "");
+  configureDirectoryUploadInput(input);
 
   return new Promise<BrowserUploadFile[]>((resolve) => {
     const complete = (files: FileList | BrowserUploadFile[]) => {
@@ -124,7 +132,11 @@ async function pickUploadDirectoryWithInput() {
     input.addEventListener("change", () => complete(input.files ?? []), { once: true });
     input.addEventListener("cancel", () => complete([]), { once: true });
 
-    input.style.display = "none";
+    input.style.position = "fixed";
+    input.style.left = "-9999px";
+    input.style.width = "1px";
+    input.style.height = "1px";
+    input.style.opacity = "0";
     document.body.append(input);
     input.click();
   });

@@ -339,10 +339,14 @@ export function failProcessingTask(
 
 export function createFileRecord(file: DefenseFileInput, addedAt: string): DefenseFileRecord {
   const kind = classifyDefenseFile(file.name);
+  const fileIdentity = file.storageKey
+    ?? file.storagePath
+    ?? file.storedName
+    ?? `${file.name}:${file.size}:${addedAt}`;
 
   return {
     ...file,
-    id: `file-${stableId(file.name, `${file.size}-${addedAt}`)}`,
+    id: `file-${stableId(fileIdentity)}`,
     kind,
     status: statusForKind(kind, Boolean(file.storagePath || file.storageKey)),
     source: sourceForKind(kind),

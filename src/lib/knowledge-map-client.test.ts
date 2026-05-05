@@ -72,6 +72,48 @@ test("normalizes API knowledge map payload into UI nodes and edges", () => {
   assert.equal(map.edges[0].kind, "evidence");
 });
 
+test("deduplicates knowledge edges that connect the same nodes", () => {
+  const map = normalizeKnowledgeMapPayload("demo", {
+    nodes: [apiNode],
+    edges: [
+      apiEdge,
+      {
+        ...apiEdge,
+        id: "edge-project-readme-duplicate",
+        kind: "contains",
+        label: "重复关系",
+      },
+    ],
+  });
+
+  assert.equal(map.edges.length, 1);
+  assert.equal(map.edges[0].id, "edge-project-readme");
+});
+
+test("normalizes module semantic type metadata for graph labels", () => {
+  const map = normalizeKnowledgeMapPayload("demo", {
+    nodes: [{
+      id: "node-api-orders",
+      projectId: "demo",
+      kind: "module",
+      title: "POST /api/orders",
+      summary: "创建订单接口",
+      tone: "purple",
+      sourceId: "source-readme",
+      metadata: {
+        semanticType: "api",
+        fileId: "file-readme",
+        evidence: ["README.md L3"],
+      },
+      createdAt: "2026-04-26T00:00:00.000Z",
+    }],
+    edges: [],
+  });
+
+  assert.equal(map.nodes[0].semanticType, "api");
+  assert.deepEqual(map.nodes[0].evidence, ["README.md L3"]);
+});
+
 test("loadKnowledgeMap keeps empty API results as real empty state", async () => {
   const map = await loadKnowledgeMap("demo", async () => jsonResponse({ nodes: [], edges: [] }));
 
@@ -234,6 +276,9 @@ test("mergeWorkspaceKnowledgeMap keeps uploaded document files visible when API 
     ],
     artifacts: [],
   });
+
+  const edgePairs = new Set(merged.edges.map((edge) => `${edge.fromNodeId}->${edge.toNodeId}`));
+  assert.equal(edgePairs.size, merged.edges.length);
 
   assert.ok(merged.nodes.some((node) => node.title === "项目文档"));
   assert.ok(merged.nodes.some((node) => node.title === "README.md" && node.fileId === "file-readme"));

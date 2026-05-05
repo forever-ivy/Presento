@@ -1,23 +1,28 @@
 "use client";
 
-import { FolderOpen } from "lucide-react";
-import { useState, type ReactElement } from "react";
-import { Button } from "@/components/ui/button";
+import { FolderOpen, ShieldCheck } from "lucide-react";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+  cloneElement,
+  useState,
+  type MouseEvent,
+  type ReactElement,
+} from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type UploadDirectoryDialogProps = {
   isUploading?: boolean;
-  onSelectDirectory: () => Promise<void>;
-  trigger: ReactElement;
+  onSelectDirectory: () => Promise<void> | void;
+  trigger: ReactElement<{ onClick?: (event: MouseEvent<HTMLElement>) => void }>;
 };
 
 export function UploadDirectoryDialog({
@@ -28,48 +33,55 @@ export function UploadDirectoryDialog({
   const [open, setOpen] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
 
-  async function selectDirectory() {
+  function selectDirectory() {
     setIsSelecting(true);
     try {
-      await onSelectDirectory();
+      void onSelectDirectory();
       setOpen(false);
     } finally {
       setIsSelecting(false);
     }
   }
 
+  const triggerElement = cloneElement(trigger, {
+    onClick: (event: MouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      trigger.props.onClick?.(event);
+      if (!isSelecting) setOpen(true);
+    },
+  });
+
   return (
-    <Dialog
+    <AlertDialog
       open={open}
       onOpenChange={(nextOpen) => {
         if (!isSelecting) setOpen(nextOpen);
       }}
     >
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-[460px]">
-        <DialogHeader>
-          <DialogTitle>导入文件夹资料</DialogTitle>
-          <DialogDescription>
-            选择代码、文档或数据目录，系统会按相对路径整理可上传文件。
-          </DialogDescription>
-        </DialogHeader>
+      {triggerElement}
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogMedia>
+            <ShieldCheck aria-hidden="true" />
+          </AlertDialogMedia>
+          <AlertDialogTitle>导入文件夹资料</AlertDialogTitle>
+          <AlertDialogDescription>
+            系统会读取你确认选择的文件夹，并按相对路径整理代码、文档和数据文件。下一步浏览器还会显示一次安全确认，这是浏览器固定流程。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
 
         <div className="rounded-md border bg-muted/40 p-4 text-sm text-muted-foreground">
-          只会读取你在系统选择器里确认的文件夹内容。
+          只会上传支持的项目资料；依赖目录、隐藏配置和代码压缩包会自动跳过。
         </div>
 
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button disabled={isSelecting} type="button" variant="outline">
-              取消
-            </Button>
-          </DialogClose>
-          <Button disabled={isUploading || isSelecting} onClick={selectDirectory} type="button">
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isSelecting}>取消</AlertDialogCancel>
+          <AlertDialogAction disabled={isUploading || isSelecting} onClick={selectDirectory}>
             <FolderOpen data-icon="inline-start" />
             {isSelecting ? "正在打开..." : "选择文件夹"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

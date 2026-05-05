@@ -26,12 +26,23 @@ import {
 } from "lucide-react";
 import {
   forwardRef,
+  type FormEvent,
   useEffect,
   useImperativeHandle,
   useMemo,
   useState,
 } from "react";
 import { cn } from "@/components/presento-ui";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 export type RichScriptEditorHandle = {
   appendContent: (html: string) => void;
@@ -88,7 +99,16 @@ function formatSavedTime(date: Date) {
   });
 }
 
-function runToolbarCommand(editor: Editor, type: (typeof toolbarGroups)[number][number]["type"]) {
+function runToolbarCommand(
+  editor: Editor,
+  type: (typeof toolbarGroups)[number][number]["type"],
+  openLinkDialog?: () => void,
+) {
+  if (type === "link") {
+    openLinkDialog?.();
+    return;
+  }
+
   const chain = editor.chain().focus();
 
   if (type === "paragraph") chain.setParagraph().run();
@@ -103,18 +123,6 @@ function runToolbarCommand(editor: Editor, type: (typeof toolbarGroups)[number][
   if (type === "codeBlock") chain.toggleCodeBlock().run();
   if (type === "undo") chain.undo().run();
   if (type === "redo") chain.redo().run();
-  if (type === "link") {
-    const previousUrl = editor.getAttributes("link").href as string | undefined;
-    const url = window.prompt("输入链接地址", previousUrl ?? "https://");
-
-    if (url === null) return;
-    if (url.trim() === "") {
-      chain.extendMarkRange("link").unsetLink().run();
-      return;
-    }
-
-    chain.extendMarkRange("link").setLink({ href: url }).run();
-  }
 }
 
 function isToolbarActive(editor: Editor, type: (typeof toolbarGroups)[number][number]["type"]) {
@@ -159,6 +167,8 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
     variant = "script",
   }, ref) {
     const [lastSavedAt, setLastSavedAt] = useState("刚刚");
+    const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+    const [linkUrl, setLinkUrl] = useState("https://");
     const editor = useEditor({
       content: initialContent,
       editorProps: {
@@ -191,6 +201,29 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
     useEffect(() => {
       setLastSavedAt(formatSavedTime(new Date()));
     }, []);
+
+    function openLinkDialog() {
+      if (!editor) return;
+      const previousUrl = editor.getAttributes("link").href as string | undefined;
+      setLinkUrl(previousUrl ?? "https://");
+      setIsLinkDialogOpen(true);
+    }
+
+    function submitLink(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      if (!editor) return;
+
+      const url = linkUrl.trim();
+      const chain = editor.chain().focus().extendMarkRange("link");
+
+      if (url === "") {
+        chain.unsetLink().run();
+      } else {
+        chain.setLink({ href: url }).run();
+      }
+
+      setIsLinkDialogOpen(false);
+    }
 
     useEffect(() => {
       if (!editor || editor.getHTML() === initialContent) return;
@@ -248,7 +281,7 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
                     className={cn("presento-rich-tool", active && "presento-rich-tool-active")}
                     disabled={!editor}
                     key={item.type}
-                    onClick={() => editor && runToolbarCommand(editor, item.type)}
+                    onClick={() => editor && runToolbarCommand(editor, item.type, openLinkDialog)}
                     title={item.label}
                     type="button"
                   >
@@ -321,6 +354,35 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
             <span>{statusLabel} · 已自动保存 {lastSavedAt}</span>
           </footer>
         ) : null}
+
+        <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
+          <DialogContent>
+            <form className="flex flex-col gap-4" onSubmit={submitLink}>
+              <DialogHeader>
+                <DialogTitle>添加链接</DialogTitle>
+                <DialogDescription>
+                  输入链接地址；留空保存会移除当前选中文本上的链接。
+                </DialogDescription>
+              </DialogHeader>
+              <Input
+                autoFocus
+                onChange={(event) => setLinkUrl(event.target.value)}
+                placeholder="https://example.com"
+                value={linkUrl}
+              />
+              <DialogFooter>
+                <Button
+                  onClick={() => setIsLinkDialogOpen(false)}
+                  type="button"
+                  variant="outline"
+                >
+                  取消
+                </Button>
+                <Button type="submit">保存</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </section>
     );
   },

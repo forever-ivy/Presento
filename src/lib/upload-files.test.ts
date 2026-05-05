@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  configureDirectoryUploadInput,
   getUploadDisplayName,
   getUploadableFiles,
   pickUploadDirectory,
@@ -83,9 +84,11 @@ test("uses folder input instead of browser directory permissions", async () => {
   const input = {
     files: [file],
     listeners: new Map<string, () => void>(),
+    directory: false,
     multiple: false,
     style: {} as CSSStyleDeclaration,
     type: "",
+    webkitdirectory: false,
     addEventListener(event: string, listener: () => void) {
       this.listeners.set(event, listener);
     },
@@ -122,6 +125,8 @@ test("uses folder input instead of browser directory permissions", async () => {
     const files = await pickUploadDirectory();
 
     assert.equal(directoryPickerCalled, false);
+    assert.equal(input.directory, true);
+    assert.equal(input.webkitdirectory, true);
     assert.deepEqual(
       files.map((pickedFile) => getUploadDisplayName(pickedFile)),
       ["backend/src/routes/orders.ts"],
@@ -136,4 +141,27 @@ test("uses folder input instead of browser directory permissions", async () => {
       value: previousDocument,
     });
   }
+});
+
+test("configures a native input for folder selection", () => {
+  const attributes = new Map<string, string>();
+  const input = {
+    directory: false,
+    multiple: false,
+    webkitdirectory: false,
+    setAttribute(name: string, value: string) {
+      attributes.set(name, value);
+    },
+  } as unknown as HTMLInputElement & {
+    directory: boolean;
+    webkitdirectory: boolean;
+  };
+
+  configureDirectoryUploadInput(input);
+
+  assert.equal(input.directory, true);
+  assert.equal(input.multiple, true);
+  assert.equal(input.webkitdirectory, true);
+  assert.equal(attributes.get("directory"), "");
+  assert.equal(attributes.get("webkitdirectory"), "");
 });

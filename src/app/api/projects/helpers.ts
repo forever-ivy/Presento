@@ -42,9 +42,10 @@ export function createProjectRecord(input: z.infer<typeof projectPayloadSchema>)
 }
 
 export function buildPersistedFileBatch(projectId: string, uploadedFiles: DefenseFileInput[]) {
-  assertSupportedUploadFiles(uploadedFiles);
+  const uniqueUploadedFiles = dedupeUploadedFiles(uploadedFiles);
+  assertSupportedUploadFiles(uniqueUploadedFiles);
   const addedAt = new Date().toISOString();
-  const fileRecords = uploadedFiles.map((file) => createFileRecord(file, addedAt));
+  const fileRecords = uniqueUploadedFiles.map((file) => createFileRecord(file, addedAt));
   const taskRecords = createProcessingTasks(fileRecords, addedAt);
 
   const files: PersistedFileRecord[] = fileRecords.map((file) => ({
@@ -76,6 +77,23 @@ export function buildPersistedFileBatch(projectId: string, uploadedFiles: Defens
     processingTasks,
     jobRuns,
   };
+}
+
+function dedupeUploadedFiles(uploadedFiles: DefenseFileInput[]) {
+  const uniqueFiles = new Map<string, DefenseFileInput>();
+
+  for (const file of uploadedFiles) {
+    uniqueFiles.set(uploadedFileKey(file), file);
+  }
+
+  return Array.from(uniqueFiles.values());
+}
+
+function uploadedFileKey(file: DefenseFileInput) {
+  return file.storageKey
+    ?? file.storagePath
+    ?? file.storedName
+    ?? `${file.name}:${file.size}:${file.type ?? ""}`;
 }
 
 export function asDefenseFileRecord(file: PersistedFileRecord): DefenseFileRecord {

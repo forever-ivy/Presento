@@ -111,14 +111,23 @@ function GraphLoader({
       });
     });
 
+    const graphEdgeKeys = new Set<string>();
+    const graphEdgePairs = new Set<string>();
+
     edges.forEach((edge, index) => {
       if (!graph.hasNode(edge.fromNodeId) || !graph.hasNode(edge.toNodeId)) return;
-      graph.addEdgeWithKey(edge.id ?? `edge-${index}`, edge.fromNodeId, edge.toNodeId, {
+      const edgeKey = edge.id ?? `edge-${index}`;
+      const edgePair = graphEdgePairKey(edge.fromNodeId, edge.toNodeId);
+      if (graphEdgeKeys.has(edgeKey) || graphEdgePairs.has(edgePair)) return;
+
+      graph.addEdgeWithKey(edgeKey, edge.fromNodeId, edge.toNodeId, {
         label: edge.label,
         size: edge.emphasis === "active" ? 2.8 : edge.emphasis === "branch" ? 1.45 : 0.9,
         color: edgeColor(edge),
         zIndex: edge.emphasis === "active" ? 2 : 1,
       });
+      graphEdgeKeys.add(edgeKey);
+      graphEdgePairs.add(edgePair);
     });
 
     loadGraph(graph);
@@ -158,6 +167,12 @@ function GraphLoader({
   }, [activeId, nodes, sigma]);
 
   return null;
+}
+
+function graphEdgePairKey(fromNodeId: string, toNodeId: string) {
+  return fromNodeId < toNodeId
+    ? `${fromNodeId}\u0000${toNodeId}`
+    : `${toNodeId}\u0000${fromNodeId}`;
 }
 
 function cameraTargetForNode(nodes: SigmaKnowledgeNode[], node: SigmaKnowledgeNode) {
@@ -204,7 +219,8 @@ function inferEdges(nodes: SigmaKnowledgeNode[]): SigmaKnowledgeEdge[] {
 
 function labelForNode(node: SigmaKnowledgeNode) {
   const title = compactNodeTitle(node);
-  if (!node.expandable || !node.childCount) return title;
+  if (!node.childCount) return title;
+  if (!node.expandable && node.kind !== "source-category") return title;
   return `${title}  +${node.childCount}`;
 }
 

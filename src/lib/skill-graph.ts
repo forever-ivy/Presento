@@ -5,6 +5,75 @@ import type { KnowledgeChunkRecord } from "./knowledge-chunks";
 import type { LlmProvider } from "./llm-provider";
 import type { ProjectBrief } from "./project-brief-skill";
 
+export type KnowledgeMapGraphSemanticType = "feature" | "api" | "table" | "flow" | "architecture";
+
+export type KnowledgeMapGraphCitation = {
+  fileName?: string;
+  fileId?: string;
+  sourceId?: string;
+  page?: number;
+  slide?: number;
+  sheet?: string;
+  codePath?: string;
+  lineStart?: number;
+  lineEnd?: number;
+  text?: string;
+};
+
+export type KnowledgeMapGraphSemanticNode = {
+  id?: string;
+  title: string;
+  summary?: string;
+  semanticType?: KnowledgeMapGraphSemanticType;
+  evidence?: string[];
+  citations?: KnowledgeMapGraphCitation[];
+  relatedIds?: string[];
+  riskQuestions?: string[];
+};
+
+export type KnowledgeMapGraphRisk = {
+  id?: string;
+  title: string;
+  summary?: string;
+  riskLevel?: "low" | "medium" | "high";
+  evidence?: string[];
+  citations?: KnowledgeMapGraphCitation[];
+  relatedIds?: string[];
+  actions?: string[];
+};
+
+export type KnowledgeMapGraphWeakness = {
+  id?: string;
+  title: string;
+  summary?: string;
+  evidence?: string[];
+  citations?: KnowledgeMapGraphCitation[];
+  relatedIds?: string[];
+  actions?: string[];
+};
+
+export type KnowledgeMapGraphTrainingPath = {
+  id?: string;
+  title: string;
+  summary?: string;
+  evidence?: string[];
+  citations?: KnowledgeMapGraphCitation[];
+  relatedIds?: string[];
+  actions?: string[];
+};
+
+export type KnowledgeMapGraphOutput = {
+  projectSummary: string;
+  modules: KnowledgeMapGraphSemanticNode[];
+  apis: KnowledgeMapGraphSemanticNode[];
+  tables: KnowledgeMapGraphSemanticNode[];
+  risks: KnowledgeMapGraphRisk[];
+  weaknesses: KnowledgeMapGraphWeakness[];
+  trainingPaths: KnowledgeMapGraphTrainingPath[];
+  citations: KnowledgeMapGraphCitation[];
+  generatedAt?: string;
+};
+
 const ModelOutputGraphState = Annotation.Root({
   prompt: Annotation<string>,
   schemaName: Annotation<string>,
@@ -144,6 +213,46 @@ export async function runDefenseReviewGraph({
   });
 }
 
+export async function runKnowledgeMapGraph({
+  provider,
+  projectName,
+  fileName,
+  fileKind,
+  chunks,
+  parsedSummary,
+  generatedAt = new Date().toISOString(),
+}: {
+  provider: LlmProvider | null;
+  projectName: string;
+  fileName: string;
+  fileKind: string;
+  chunks: KnowledgeChunkRecord[];
+  parsedSummary?: string;
+  generatedAt?: string;
+}) {
+  return runStructuredSkillGraph<KnowledgeMapGraphOutput>({
+    provider,
+    schemaName: "KnowledgeMapGraph",
+    generatedAt,
+    systemPrompt:
+      "你是课程项目资料解析后的知识图谱生成器。只能基于给定资料片段生成中文 JSON，禁止编造。每个节点必须有 fileId、sourceId 或 citations 证据。",
+    userPrompt: [
+      `项目名称：${projectName}`,
+      `当前资料：${fileName}`,
+      `资料类型：${fileKind}`,
+      `解析摘要：${parsedSummary || "未提供"}`,
+      "请输出 JSON，字段必须包含 projectSummary、modules、apis、tables、risks、weaknesses、trainingPaths、citations。",
+      "modules 表示功能模块、流程或架构点，semanticType 只能是 feature、flow、architecture；apis 的 semanticType 固定 api；tables 的 semanticType 固定 table。",
+      "risks 是答辩高危追问，weaknesses 是预测薄弱点，trainingPaths 是对应讲练入口。",
+      "所有节点必须带 citations，citation 中尽量给出 fileId、sourceId、fileName、lineStart、lineEnd、page、slide、sheet 或 codePath。",
+      "不要生成没有资料依据的节点；无法判断时输出空数组。",
+      "资料片段：",
+      formatKnowledgeChunks(chunks),
+    ].join("\n"),
+    normalize: normalizeKnowledgeMapGraphOutput,
+  });
+}
+
 async function runStructuredSkillGraph<TOutput>({
   provider,
   schemaName,
@@ -178,6 +287,45 @@ async function runStructuredSkillGraph<TOutput>({
   });
 
   return normalize(result.output as TOutput, generatedAt);
+}
+
+function normalizeKnowledgeMapGraphOutput(
+  output: Partial<KnowledgeMapGraphOutput> | null | undefined,
+  generatedAt: string,
+): KnowledgeMapGraphOutput {
+  const record = output ?? {};
+  return {
+    projectSummary: typeof record.projectSummary === "string" ? record.projectSummary : "",
+    modules: normalizeSemanticNodes(record.modules, "feature"),
+    apis: normalizeSemanticNodes(record.apis, "api"),
+    tables: normalizeSemanticNodes(record.tables, "table"),
+    risks: Array.isArray(record.risks) ? record.risks : [],
+    weaknesses: Array.isArray(record.weaknesses) ? record.weaknesses : [],
+    trainingPaths: Array.isArray(record.trainingPaths) ? record.trainingPaths : [],
+    citations: Array.isArray(record.citations) ? record.citations : [],
+    generatedAt: record.generatedAt ?? generatedAt,
+  };
+}
+
+function normalizeSemanticNodes(
+  nodes: KnowledgeMapGraphSemanticNode[] | undefined,
+  fallbackSemanticType: KnowledgeMapGraphSemanticType,
+) {
+  if (!Array.isArray(nodes)) return [];
+  return nodes.map((node) => ({
+    ...node,
+    semanticType: normalizeSemanticType(node.semanticType, fallbackSemanticType),
+  }));
+}
+
+function normalizeSemanticType(
+  value: KnowledgeMapGraphSemanticType | undefined,
+  fallback: KnowledgeMapGraphSemanticType,
+): KnowledgeMapGraphSemanticType {
+  if (value === "feature" || value === "api" || value === "table" || value === "flow" || value === "architecture") {
+    return value;
+  }
+  return fallback;
 }
 
 function formatKnowledgeChunks(chunks: KnowledgeChunkRecord[]) {

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   assertSupportedUploadFiles,
   createProjectWorkspace,
+  createFileRecord,
   classifyDefenseFile,
   completeProcessingTask,
   failProcessingTask,
@@ -127,6 +128,27 @@ test("creates code parsing tasks for files imported from folders", () => {
   assert.equal(workspace.processingTasks.length, 1);
   assert.equal(workspace.processingTasks[0].fileName, "backend/src/routes/orders.ts");
   assert.equal(workspace.processingTasks[0].kind, "code");
+});
+
+test("uses stored file identity to keep same-name uploads distinct", () => {
+  const first = createFileRecord(
+    {
+      name: "src/index.ts",
+      size: 128,
+      storagePath: ".data/uploads/2026-05-05/a-index.ts",
+    },
+    "2026-05-05T06:00:00.000Z",
+  );
+  const second = createFileRecord(
+    {
+      name: "src/index.ts",
+      size: 128,
+      storagePath: ".data/uploads/2026-05-05/b-index.ts",
+    },
+    "2026-05-05T06:00:00.000Z",
+  );
+
+  assert.notEqual(first.id, second.id);
 });
 
 test("moves processing tasks through start, complete, and failed states", () => {

@@ -446,6 +446,7 @@ export function KnowledgeMapRoom({
       metadata: {
         fileKind: node.node.fileKind,
         riskLevel: node.node.riskLevel,
+        semanticType: node.node.semanticType,
         path: node.path,
       },
     })),
@@ -534,6 +535,23 @@ export function KnowledgeMapRoom({
   function handleNodeOpen(nodeId: string) {
     const node = scene.nodesById[nodeId];
     if (!node) return;
+    if (node.kind === "training") {
+      const action = typeof node.raw.metadata.action === "string" ? node.raw.metadata.action : undefined;
+      if (action === "open-slide-script") {
+        router.push(projectRoute(projectId, "scripts"));
+        return;
+      }
+      if (action === "explain-file" && node.fileId) {
+        const fileNode = scene.nodes.find((candidate) => candidate.kind === "file" && candidate.fileId === node.fileId);
+        if (fileNode && getKnowledgeNodeActivation(fileNode) === "reader") {
+          startTransition(() => {
+            setActiveNodeId(fileNode.id);
+            setReaderNodeId(fileNode.id);
+          });
+          return;
+        }
+      }
+    }
     const activation = getKnowledgeNodeActivation(node);
     if (activation === "scripts") {
       router.push(projectRoute(projectId, "scripts"));
@@ -1400,6 +1418,7 @@ function NodeDetailContent({
           <div className="flex flex-wrap gap-2">
             <RiskBadge risk={node.riskLevel} />
             {node.nodeRole ? <Badge variant="outline">{node.nodeRole}</Badge> : <Badge variant="outline">{node.kind}</Badge>}
+            {node.semanticType ? <Badge variant="secondary">{semanticTypeLabel(node.semanticType)}</Badge> : null}
             {node.fileKind ? <Badge variant="secondary">{node.fileKind}</Badge> : null}
             {node.expandable && node.childCount ? <Badge className="presento-knowledge-badge-soft">可展开 {node.childCount}</Badge> : null}
           </div>
@@ -1442,7 +1461,7 @@ function NodeDetailContent({
       </ScrollArea>
       <div className="presento-knowledge-pane-actions">
         <Button className="rounded-xl bg-[var(--presento-navy)] font-black text-white" onClick={onOpenReader} type="button">
-          {activation === "reader" ? "打开资料讲解" : activation === "scripts" ? "查看逐页讲稿" : "围绕此节点讲练"}
+          {node.kind === "training" ? "开始讲练" : activation === "reader" ? "打开资料讲解" : activation === "scripts" ? "查看逐页讲稿" : "围绕此节点讲练"}
         </Button>
         {evidenceRefs.length ? (
           <Button className="rounded-xl font-black" onClick={() => onOpenEvidence(evidenceRefs[0].nodeId)} type="button" variant="outline">
@@ -1739,6 +1758,14 @@ function RiskBadge({ risk }: { risk: KnowledgeMapNodeUi["riskLevel"] }) {
   if (risk === "high") return <Badge className="bg-red-50 text-red-700">高风险</Badge>;
   if (risk === "low") return <Badge className="bg-emerald-50 text-emerald-700">低风险</Badge>;
   return <Badge className="bg-amber-50 text-amber-700">中风险</Badge>;
+}
+
+function semanticTypeLabel(value: string) {
+  if (value === "api") return "接口";
+  if (value === "table") return "数据表";
+  if (value === "flow") return "流程";
+  if (value === "architecture") return "架构";
+  return "功能模块";
 }
 
 function NodeKindIcon({ node }: { node: KnowledgeMapNodeUi }) {

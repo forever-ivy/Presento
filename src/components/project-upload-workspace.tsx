@@ -50,10 +50,10 @@ import {
   type DefenseFileInput,
 } from "@/lib/project-workspace";
 import {
+  configureDirectoryUploadInput,
   getUploadDisplayName,
   getUploadableFiles,
   getUploadableFilesFromDataTransfer,
-  pickUploadDirectory,
 } from "@/lib/upload-files";
 import {
   buildUploadWorkspaceCopy,
@@ -68,6 +68,7 @@ import {
   ScrollVelocityContainer,
   ScrollVelocityRow,
 } from "./ui/scroll-based-velocity";
+import { UploadDirectoryDialog } from "./upload-directory-dialog";
 
 type UploadResponseBody = {
   uploadedFiles?: DefenseFileInput[];
@@ -192,6 +193,7 @@ export function ProjectUploadWorkspace({
     : "/api/uploads";
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const directoryInputRef = useRef<HTMLInputElement | null>(null);
   const destroyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbacksRef = useRef({
     onUploadComplete,
@@ -395,11 +397,14 @@ export function ProjectUploadWorkspace({
     inputRef.current?.click();
   }
 
-  async function openDirectoryPicker() {
+  function bindDirectoryInput(input: HTMLInputElement | null) {
+    directoryInputRef.current = input;
+    if (input) configureDirectoryUploadInput(input);
+  }
+
+  function openDirectoryPicker() {
     try {
-      const files = await pickUploadDirectory();
-      if (!files.length) return;
-      addFiles(files);
+      directoryInputRef.current?.click();
     } catch (error) {
       notifyUploadError(
         callbacksRef,
@@ -482,39 +487,50 @@ export function ProjectUploadWorkspace({
             {copy.description ? <p>{copy.description}</p> : null}
           </div>
           <div className="presento-upload-header-stats">
-            <Sheet open={isTreeSheetOpen} onOpenChange={setIsTreeSheetOpen}>
-              <SheetTrigger asChild>
-                <Button className="presento-upload-tree-trigger" variant="outline">
-                  {uploadedCount}份已接入
-                  <motion.span
-                    animate={{
-                      rotate: isTreeSheetOpen ? 180 : 0,
-                      x: isTreeSheetOpen ? 1 : 0,
-                    }}
-                    transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-                  >
-                    <PanelRightOpen data-icon="inline-end" />
-                  </motion.span>
-                </Button>
-              </SheetTrigger>
-              <SheetContent className="presento-upload-tree-sheet" side="right">
-                <SheetHeader className="presento-upload-tree-sheet-header">
-                  <SheetTitle className="presento-upload-tree-sheet-title">
-                    已上传文件
-                  </SheetTitle>
-                </SheetHeader>
-                <div className="presento-upload-tree-body">
-                  <UploadTreePanel
-                    emptyLabel={copy.emptyTrayLabel}
-                    nodes={uploadedTreeNodes}
-                  />
-                </div>
-              </SheetContent>
-            </Sheet>
+            {variant === "create" ? (
+              <div className="presento-upload-tree-trigger presento-upload-tree-trigger-static">
+                {uploadedCount}份已接入
+              </div>
+            ) : (
+              <Sheet open={isTreeSheetOpen} onOpenChange={setIsTreeSheetOpen}>
+                <SheetTrigger asChild>
+                  <Button className="presento-upload-tree-trigger" variant="outline">
+                    {uploadedCount}份已接入
+                    <motion.span
+                      animate={{
+                        rotate: isTreeSheetOpen ? 180 : 0,
+                        x: isTreeSheetOpen ? 1 : 0,
+                      }}
+                      transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                    >
+                      <PanelRightOpen data-icon="inline-end" />
+                    </motion.span>
+                  </Button>
+                </SheetTrigger>
+                <SheetContent className="presento-upload-tree-sheet" side="right">
+                  <SheetHeader className="presento-upload-tree-sheet-header">
+                    <SheetTitle className="presento-upload-tree-sheet-title">
+                      已上传文件
+                    </SheetTitle>
+                  </SheetHeader>
+                  <div className="presento-upload-tree-body">
+                    <UploadTreePanel
+                      emptyLabel={copy.emptyTrayLabel}
+                      nodes={uploadedTreeNodes}
+                    />
+                  </div>
+                </SheetContent>
+              </Sheet>
+            )}
           </div>
         </div>
 
-        <div className="presento-upload-main">
+        <div
+          className={cn(
+            "presento-upload-main",
+            variant === "create" && "presento-upload-main-compact",
+          )}
+        >
           <label
             className={cn(
               "presento-upload-dropzone",
@@ -553,19 +569,22 @@ export function ProjectUploadWorkspace({
               >
                 选择文件
               </Button>
-              <Button
-                className="presento-upload-action-button rounded-full font-black"
-                onClick={(event) => {
-                  event.preventDefault();
-                  void openDirectoryPicker();
-                }}
-                size="lg"
-                style={secondaryUploadActionButtonStyle}
-                type="button"
-                variant="outline"
-              >
-                选择文件夹
-              </Button>
+              <UploadDirectoryDialog
+                isUploading={trayItems.some((item) => item.status === "queued" || item.status === "uploading")}
+                onSelectDirectory={openDirectoryPicker}
+                trigger={(
+                  <Button
+                    className="presento-upload-action-button rounded-full font-black"
+                    onClick={(event) => event.preventDefault()}
+                    size="lg"
+                    style={secondaryUploadActionButtonStyle}
+                    type="button"
+                    variant="outline"
+                  >
+                    选择文件夹
+                  </Button>
+                )}
+              />
             </div>
             <input
               className="sr-only"
@@ -579,23 +598,37 @@ export function ProjectUploadWorkspace({
               ref={inputRef}
               type="file"
             />
+            <input
+              className="sr-only"
+              multiple
+              onChange={(event) => {
+                if (!event.target.files?.length) return;
+                addFiles(event.target.files);
+                event.target.value = "";
+              }}
+              ref={bindDirectoryInput}
+              tabIndex={-1}
+              type="file"
+            />
           </label>
 
-          <section className="presento-upload-loop-band" aria-label="支持上传格式">
-            <ScrollVelocityContainer className="presento-upload-loop">
-              <ScrollVelocityRow baseVelocity={1.6}>
-                {uploadLoopFormats.map((item, index) => {
-                  const Icon = formatIconMap[item.id] ?? SheetIcon;
-                  return (
-                    <div className="presento-upload-format-chip" key={`forward-large-${item.id}-${index}`}>
-                      <Icon aria-hidden="true" />
-                      <span>{item.label}</span>
-                    </div>
-                  );
-                })}
-              </ScrollVelocityRow>
-            </ScrollVelocityContainer>
-          </section>
+          {variant === "workspace" ? (
+            <section className="presento-upload-loop-band" aria-label="支持上传格式">
+              <ScrollVelocityContainer className="presento-upload-loop">
+                <ScrollVelocityRow baseVelocity={1.6}>
+                  {uploadLoopFormats.map((item, index) => {
+                    const Icon = formatIconMap[item.id] ?? SheetIcon;
+                    return (
+                      <div className="presento-upload-format-chip" key={`forward-large-${item.id}-${index}`}>
+                        <Icon aria-hidden="true" />
+                        <span>{item.label}</span>
+                      </div>
+                    );
+                  })}
+                </ScrollVelocityRow>
+              </ScrollVelocityContainer>
+            </section>
+          ) : null}
         </div>
       </div>
     </section>

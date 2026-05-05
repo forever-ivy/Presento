@@ -217,7 +217,7 @@ test("projectKnowledgeMapScene handles real empty maps", () => {
   assert.deepEqual(projected.edges, []);
 });
 
-test("projectKnowledgeMapScene hides third-layer nodes by default and expands multiple branches in parallel", () => {
+test("projectKnowledgeMapScene hides file leaves from the default graph and keeps explicit file discovery", () => {
   const map = createKnowledgeMapFixture("demo");
   const scene = buildKnowledgeMapScene(map);
 
@@ -228,7 +228,7 @@ test("projectKnowledgeMapScene hides third-layer nodes by default and expands mu
     query: "",
   });
 
-  assert.ok(collapsed.nodes.some((node) => node.id === "source-python"));
+  assert.ok(!collapsed.nodes.some((node) => node.id === "source-python"));
   assert.ok(!collapsed.nodes.some((node) => node.id === "file-python-intro"));
   assert.ok(!collapsed.nodes.some((node) => node.id === "training-node"));
 
@@ -239,9 +239,130 @@ test("projectKnowledgeMapScene hides third-layer nodes by default and expands mu
     query: "",
   });
 
-  assert.ok(expanded.nodes.some((node) => node.id === "file-python-intro"));
-  assert.ok(expanded.nodes.some((node) => node.id === "file-python-function"));
-  assert.ok(expanded.nodes.some((node) => node.id === "file-python-hello"));
+  assert.ok(!expanded.nodes.some((node) => node.id === "file-python-intro"));
+  assert.ok(!expanded.nodes.some((node) => node.id === "file-python-function"));
+  assert.ok(!expanded.nodes.some((node) => node.id === "file-python-hello"));
+  assert.ok(!expanded.nodes.some((node) => node.id === "source-code"));
+
+  const filtered = projectKnowledgeMapScene(scene, {
+    activeNodeId: "source-code",
+    expandedBranchIds: new Set(["source-code"]),
+    filter: "file",
+    query: "",
+  });
+
+  assert.ok(filtered.nodes.some((node) => node.id === "file-python-function"));
+  assert.ok(filtered.nodes.some((node) => node.id === "source-code"));
+  assert.equal(filtered.nodes.find((node) => node.id === "source-code")?.childCount, 2);
+
+  const searched = projectKnowledgeMapScene(scene, {
+    activeNodeId: "source-code",
+    expandedBranchIds: new Set(["source-code"]),
+    filter: "all",
+    query: "hello.py",
+  });
+
+  assert.ok(searched.nodes.some((node) => node.id === "file-python-hello"));
+});
+
+test("projectKnowledgeMapScene hides source buckets when semantic graph nodes exist", () => {
+  const createdAt = "2026-05-05T00:00:00.000Z";
+  const nodes: KnowledgeNodeRecord[] = [
+    {
+      id: "project",
+      projectId: "demo",
+      kind: "project",
+      title: "项目中心",
+      summary: "",
+      tone: "blue",
+      metadata: {},
+      createdAt,
+    },
+    {
+      id: "source-code",
+      projectId: "demo",
+      kind: "source-category",
+      title: "代码资料",
+      summary: "",
+      tone: "slate",
+      metadata: {},
+      createdAt,
+    },
+    {
+      id: "module-product",
+      projectId: "demo",
+      kind: "module",
+      title: "产品功能主线",
+      summary: "",
+      tone: "green",
+      metadata: { semanticType: "feature" },
+      createdAt,
+    },
+    {
+      id: "file-entry",
+      projectId: "demo",
+      kind: "file",
+      title: "package-lock.json",
+      summary: "",
+      tone: "slate",
+      metadata: { fileKind: "code" },
+      createdAt,
+    },
+  ];
+  const edges: KnowledgeEdgeRecord[] = [
+    {
+      id: "edge-project-source",
+      projectId: "demo",
+      fromNodeId: "project",
+      toNodeId: "source-code",
+      kind: "contains",
+      createdAt,
+    },
+    {
+      id: "edge-project-module",
+      projectId: "demo",
+      fromNodeId: "project",
+      toNodeId: "module-product",
+      kind: "contains",
+      createdAt,
+    },
+    {
+      id: "edge-source-file",
+      projectId: "demo",
+      fromNodeId: "source-code",
+      toNodeId: "file-entry",
+      kind: "contains",
+      createdAt,
+    },
+  ];
+  const scene = buildKnowledgeMapScene(normalizeKnowledgeMapPayload("demo", { edges, nodes }));
+
+  const projected = projectKnowledgeMapScene(scene, {
+    activeNodeId: "project",
+    expandedBranchIds: new Set(["source-code", "module-product"]),
+    filter: "all",
+    query: "",
+  });
+
+  assert.ok(projected.nodes.some((node) => node.id === "module-product"));
+  assert.ok(!projected.nodes.some((node) => node.id === "source-code"));
+  assert.ok(!projected.nodes.some((node) => node.id === "file-entry"));
+
+  const fallbackScene = buildKnowledgeMapScene(
+    normalizeKnowledgeMapPayload("demo", {
+      edges: edges.filter((edge) => edge.toNodeId !== "module-product"),
+      nodes: nodes.filter((node) => node.id !== "module-product"),
+    }),
+  );
+  const fallback = projectKnowledgeMapScene(fallbackScene, {
+    activeNodeId: "project",
+    expandedBranchIds: new Set(["source-code"]),
+    filter: "all",
+    query: "",
+  });
+
+  assert.ok(fallback.nodes.some((node) => node.id === "source-code"));
+  assert.ok(!fallback.nodes.some((node) => node.id === "file-entry"));
 });
 
 test("projectKnowledgeMapScene lays out dense expanded file branches as readable clusters", () => {
@@ -302,7 +423,7 @@ test("projectKnowledgeMapScene lays out dense expanded file branches as readable
   const projected = projectKnowledgeMapScene(scene, {
     activeNodeId: "source-code",
     expandedBranchIds: new Set(["source-code"]),
-    filter: "all",
+    filter: "file",
     query: "",
   });
   const filePositions = projected.nodes

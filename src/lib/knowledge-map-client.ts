@@ -58,6 +58,7 @@ export type KnowledgeMapNodeUi = {
   sourceId?: string;
   fileId?: string;
   fileKind?: string;
+  semanticType?: string;
   riskLevel: "low" | "medium" | "high";
   viewer: KnowledgeMapViewer;
   explainable: boolean;
@@ -133,7 +134,7 @@ export function normalizeKnowledgeMapPayload(
     projectId,
     source,
     nodes: nodes.map(normalizeNode),
-    edges: edges.map((edge) => normalizeEdge(edge, false)),
+    edges: normalizeEdges(edges),
     generation: normalizeGeneration(payload.generation),
   };
 }
@@ -208,6 +209,7 @@ export function mergeWorkspaceKnowledgeMap(
   const edges = [...apiMap.edges];
   const nodeIds = new Set(nodes.map((node) => node.id));
   const edgeIds = new Set(edges.map((edge) => edge.id));
+  const edgePairs = new Set(edges.map((edge) => edgePairKey(edge.fromNodeId, edge.toNodeId)));
   const rootNode = nodes.find((node) => node.kind === "project") ?? nodes[0];
   const missingFilesByKind = groupFilesByKind(missingFiles);
 
@@ -222,7 +224,7 @@ export function mergeWorkspaceKnowledgeMap(
     }
 
     if (rootNode && categoryNode.id !== rootNode.id) {
-      pushKnowledgeEdge(edges, edgeIds, {
+      pushKnowledgeEdge(edges, edgeIds, edgePairs, {
         id: `workspace-edge-${rootNode.id}-${categoryNode.id}`,
         projectId: apiMap.projectId,
         fromNodeId: rootNode.id,
@@ -248,7 +250,7 @@ export function mergeWorkspaceKnowledgeMap(
 
       nodes.push(fileNode);
       nodeIds.add(fileNode.id);
-      pushKnowledgeEdge(edges, edgeIds, {
+      pushKnowledgeEdge(edges, edgeIds, edgePairs, {
         id: `workspace-edge-${categoryNode.id}-${fileNode.id}`,
         projectId: apiMap.projectId,
         fromNodeId: categoryNode.id,
@@ -392,11 +394,15 @@ function categoryKindForNode(node: KnowledgeMapNodeUi) {
 function pushKnowledgeEdge(
   edges: KnowledgeMapEdgeUi[],
   edgeIds: Set<string>,
+  edgePairs: Set<string>,
   edge: KnowledgeMapEdgeUi,
 ) {
   if (edgeIds.has(edge.id)) return;
+  const pairKey = edgePairKey(edge.fromNodeId, edge.toNodeId);
+  if (edgePairs.has(pairKey)) return;
   edges.push(edge);
   edgeIds.add(edge.id);
+  edgePairs.add(pairKey);
 }
 
 function workspaceToneForKind(kind: DefenseFileKind): KnowledgeNodeRecord["tone"] {
@@ -518,7 +524,7 @@ export function filterKnowledgeMapNodes({
   };
   const matchesQuery = (node: KnowledgeMapNodeUi) => {
     if (!normalizedQuery) return true;
-    return [node.title, node.summary, node.kind, node.fileKind, ...node.evidence]
+    return [node.title, node.summary, node.kind, node.fileKind, node.semanticType, ...node.evidence]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
@@ -556,6 +562,7 @@ function normalizeNode(node: KnowledgeNodeRecord): KnowledgeMapNodeUi {
     sourceId: node.sourceId,
     fileId: stringFromMetadata(node.metadata, "fileId"),
     fileKind,
+    semanticType: stringFromMetadata(node.metadata, "semanticType"),
     riskLevel: expression?.riskLevel ?? riskLevelFromMetadata(node.metadata),
     viewer,
     explainable: booleanFromMetadata(node.metadata, "explainable", node.kind === "file" && viewer !== "presentation"),
@@ -607,6 +614,29 @@ function normalizeEdge(edge: KnowledgeEdgeRecord, active: boolean): KnowledgeMap
     active,
     raw: edge,
   };
+}
+
+function normalizeEdges(edges: KnowledgeEdgeRecord[]) {
+  const edgeIds = new Set<string>();
+  const edgePairs = new Set<string>();
+  const normalizedEdges: KnowledgeMapEdgeUi[] = [];
+
+  for (const edge of edges) {
+    if (edgeIds.has(edge.id)) continue;
+    const pairKey = edgePairKey(edge.fromNodeId, edge.toNodeId);
+    if (edgePairs.has(pairKey)) continue;
+    normalizedEdges.push(normalizeEdge(edge, false));
+    edgeIds.add(edge.id);
+    edgePairs.add(pairKey);
+  }
+
+  return normalizedEdges;
+}
+
+function edgePairKey(fromNodeId: string, toNodeId: string) {
+  return fromNodeId < toNodeId
+    ? `${fromNodeId}\u0000${toNodeId}`
+    : `${toNodeId}\u0000${fromNodeId}`;
 }
 
 function normalizePreview(

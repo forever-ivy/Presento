@@ -109,9 +109,15 @@ export function buildKnowledgeMapScene(map: KnowledgeMapUi): KnowledgeMapScene {
     }
   }
 
+  const hasSemanticGraph = hasSemanticGraphNodes(nodes);
+
   for (const node of nodes) {
     node.sceneChildIds = uniqueSorted(node.sceneChildIds, nodesById);
-    node.expandable = node.depth === 1 && node.sceneChildIds.some((childId) => nodesById[childId]?.depth === 2);
+    node.expandable = node.depth === 1
+      && node.sceneChildIds.some((childId) => {
+        const child = nodesById[childId];
+        return child?.depth === 2 && !isDefaultHiddenNode(child, hasSemanticGraph);
+      });
     node.childCount = node.sceneChildIds.filter((childId) => nodesById[childId]?.depth === node.depth + 1).length;
   }
 
@@ -153,11 +159,15 @@ export function projectKnowledgeMapScene(
   );
   const matches = collectMatches(scene, options.filter, options.query);
   const hasScopedSearch = options.filter !== "all" || options.query.trim().length > 0;
+  const hasSemanticGraph = hasSemanticGraphNodes(scene.nodes);
+  const renderActiveNode = !hasScopedSearch && isDefaultHiddenNode(activeNode, hasSemanticGraph)
+    ? scene.nodesById[scene.rootId] ?? activeNode
+    : activeNode;
   const autoExpandedBranchIds = new Set<string>();
 
   const visibleIds = hasScopedSearch
-    ? collectScopedVisibleIds(scene, activeNode.id, matches, autoExpandedBranchIds)
-    : collectBaseVisibleIds(scene, activeNode.id, manualExpandedBranchIds);
+    ? collectScopedVisibleIds(scene, renderActiveNode.id, matches, autoExpandedBranchIds)
+    : collectBaseVisibleIds(scene, renderActiveNode.id, manualExpandedBranchIds);
 
   const effectiveExpandedBranchIds = new Set([
     ...manualExpandedBranchIds,
@@ -171,8 +181,8 @@ export function projectKnowledgeMapScene(
   }
 
   const positionedNodes = layoutVisibleNodes(scene, visibleIds);
-  const highlightedIds = collectHighlightIds(scene, activeNode.id);
-  const activeBranchIds = new Set(activeNode.branchIds);
+  const highlightedIds = collectHighlightIds(scene, renderActiveNode.id);
+  const activeBranchIds = new Set(renderActiveNode.branchIds);
 
   const nodes = positionedNodes.map((node) => ({
     id: node.id,
@@ -180,13 +190,13 @@ export function projectKnowledgeMapScene(
     kind: node.kind,
     tone: node.tone,
     summary: node.summary,
-    active: node.id === activeNode.id,
+    active: node.id === renderActiveNode.id,
     depth: node.depth,
     branchId: node.branchId,
     expandable: node.expandable,
     expanded: effectiveExpandedBranchIds.has(node.id),
     childCount: node.childCount,
-    dimmed: activeNode.id !== scene.rootId
+    dimmed: renderActiveNode.id !== scene.rootId
       && !highlightedIds.has(node.id)
       && (node.depth === 0 || !node.branchIds.some((branchId) => activeBranchIds.has(branchId))),
     position: node.position,
@@ -195,14 +205,16 @@ export function projectKnowledgeMapScene(
   }));
 
   const visibleIdSet = new Set(nodes.map((node) => node.id));
-  const activeLineIds = new Set(collectActualPathIds(scene, activeNode.id));
+  const activeLineIds = new Set(collectActualPathIds(scene, renderActiveNode.id));
   const edges = scene.edges
     .filter((edge) => visibleIdSet.has(edge.fromNodeId) && visibleIdSet.has(edge.toNodeId))
     .map((edge) => {
       const fromNode = scene.nodesById[edge.fromNodeId];
       const toNode = scene.nodesById[edge.toNodeId];
       const sharesBranch = fromNode?.branchId === toNode?.branchId;
-      const isActive = activeLineIds.has(edge.id) || edge.fromNodeId === activeNode.id || edge.toNodeId === activeNode.id;
+      const isActive = activeLineIds.has(edge.id)
+        || edge.fromNodeId === renderActiveNode.id
+        || edge.toNodeId === renderActiveNode.id;
       return {
         id: edge.id,
         fromNodeId: edge.fromNodeId,
@@ -271,8 +283,11 @@ function collectBaseVisibleIds(
   expandedBranchIds: Set<string>,
 ) {
   const visibleIds = new Set<string>();
+  const hasSemanticGraph = hasSemanticGraphNodes(scene.nodes);
 
   for (const node of scene.nodes) {
+    if (isDefaultHiddenNode(node, hasSemanticGraph)) continue;
+
     if (node.depth <= 1) {
       visibleIds.add(node.id);
       continue;
@@ -293,6 +308,20 @@ function collectBaseVisibleIds(
   }
 
   return visibleIds;
+}
+
+function isDefaultHiddenNode(node: KnowledgeMapSceneNode, hasSemanticGraph: boolean) {
+  if (node.kind === "file") return true;
+  return hasSemanticGraph && node.kind === "source-category";
+}
+
+function hasSemanticGraphNodes(nodes: ReadonlyArray<{ kind: KnowledgeMapSceneNode["kind"] }>) {
+  return nodes.some((node) => (
+    node.kind === "module"
+    || node.kind === "risk"
+    || node.kind === "weakness"
+    || node.kind === "training"
+  ));
 }
 
 function layoutVisibleNodes(scene: KnowledgeMapScene, visibleIds: Set<string>) {

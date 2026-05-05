@@ -11,12 +11,12 @@
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "db:check": "node scripts/check-db.mjs",
-    "realtime:dev": "node services/defense-realtime/src/main.ts",
-    "realtime:start": "node services/defense-realtime/src/main.ts",
-    "worker:document": "node workers/document-worker/src/main.ts --loop",
-    "worker:document:once": "node workers/document-worker/src/main.ts",
-    "worker:code": "node workers/code-worker/src/main.ts --loop",
-    "worker:code:once": "node workers/code-worker/src/main.ts",
+    "realtime:dev": "tsx services/defense-realtime/src/main.ts",
+    "realtime:start": "tsx services/defense-realtime/src/main.ts",
+    "worker:document": "tsx workers/document-worker/src/main.ts --loop",
+    "worker:document:once": "tsx workers/document-worker/src/main.ts",
+    "worker:code": "tsx workers/code-worker/src/main.ts --loop",
+    "worker:code:once": "tsx workers/code-worker/src/main.ts",
     "test:unit": "node --test \"src/lib/*.test.ts\" \"packages/*/src/**/*.test.ts\" \"services/*/src/**/*.test.ts\" \"workers/*/src/**/*.test.ts\""
   },
   "dependencies": {
@@ -78,6 +78,7 @@
     "eslint-config-next": "16.2.4",
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

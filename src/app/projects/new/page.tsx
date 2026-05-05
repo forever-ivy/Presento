@@ -13,6 +13,16 @@ import {
   TopNav,
   cn,
 } from "@/components/presento-ui";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { DefenseFileInput } from "@/lib/project-workspace";
 import { projectRoute } from "@/lib/project-routes";
 import {
@@ -32,6 +42,7 @@ export default function ProjectManagementPage() {
   const [error, setError] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectListItem | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,15 +75,13 @@ export default function ProjectManagementPage() {
     router.push(projectRoute(project.id, "knowledge"));
   }
 
-  async function handleDelete(project: ProjectListItem) {
-    const confirmed = window.confirm(`确认删除「${project.name}」吗？项目资料、知识地图、讲稿和训练记录都会一起删除。`);
-    if (!confirmed) return;
-
+  async function confirmDeleteProject(project: ProjectListItem) {
     setDeletingProjectId(project.id);
     setError("");
     try {
       await deleteProject(project.id);
       setProjects((currentProjects) => currentProjects.filter((item) => item.id !== project.id));
+      setDeleteTarget(null);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "项目删除失败");
     } finally {
@@ -120,7 +129,7 @@ export default function ProjectManagementPage() {
                 <ProjectRow
                   isDeleting={deletingProjectId === project.id}
                   key={project.id}
-                  onDelete={handleDelete}
+                  onDelete={setDeleteTarget}
                   project={project}
                 />
               ))}
@@ -136,6 +145,36 @@ export default function ProjectManagementPage() {
         onClose={() => setIsModalOpen(false)}
         onCreated={handleCreated}
       />
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && deletingProjectId === null) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除项目？</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget
+                ? `「${deleteTarget.name}」的项目资料、知识地图、讲稿和训练记录都会一起删除。`
+                : "项目资料、知识地图、讲稿和训练记录都会一起删除。"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingProjectId !== null}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!deleteTarget || deletingProjectId !== null}
+              onClick={(event) => {
+                event.preventDefault();
+                if (deleteTarget) void confirmDeleteProject(deleteTarget);
+              }}
+              variant="destructive"
+            >
+              {deletingProjectId !== null ? "正在删除..." : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppFrame>
   );
 }

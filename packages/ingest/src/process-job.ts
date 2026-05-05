@@ -4,20 +4,23 @@ import { createFileRepository } from "../../db/src/repositories/files.ts";
 import { createJobRunRepository } from "../../db/src/repositories/job-runs.ts";
 import type { FileRecord, ProcessingTaskRecord } from "../../db/src/repositories/files.ts";
 import type { JobRunRecord } from "../../shared/src/domain.ts";
-import type { ParsedFileResult } from "../../shared/src/domain.ts";
+import type { ParsedFileResult, ProjectSourceRecord } from "../../shared/src/domain.ts";
 import type { DefenseFileRecord, DefenseProcessingTask } from "../../../src/lib/project-workspace.ts";
 import { prepareRetrievalChunks } from "../../../src/lib/knowledge-db.ts";
 import {
   generateExpressionKnowledgeMapForProject,
 } from "../../../src/lib/expression-knowledge-map.ts";
+import type { KnowledgeChunkRecord } from "../../../src/lib/knowledge-chunks.ts";
+import { createConfiguredLlmProvider } from "../../../src/lib/llm-provider.ts";
+import type { LlmProvider } from "../../../src/lib/llm-provider.ts";
+import { runKnowledgeMapGraph } from "../../../src/lib/skill-graph.ts";
 import { readStoredFileBuffer, resolveSidecarFileSource } from "../../../src/lib/stored-file-access.ts";
-import { ingestLocalFile } from "./pipeline.ts";
+import { ingestLocalFile, mergeAiKnowledgeGraph } from "./pipeline.ts";
 import { persistIngestedFile } from "./persist.ts";
 import { renderPresentationSlides } from "./presentation-render.ts";
 import { buildPresentationSlideRecords } from "./slides.ts";
 import { createNotebookRagClient } from "./notebook-rag-client.ts";
 import type { CodeRepositorySourceRecord } from "../../../src/lib/github-repository-source.ts";
-import type { LlmProvider } from "../../../src/lib/llm-provider.ts";
 
 type ProcessIngestJobOptions = {
   llmProvider?: LlmProvider | null;
@@ -70,6 +73,16 @@ export async function processFileIngestJob({
       createdAt: startedAt,
     });
     ingestResult.chunks = await prepareRetrievalChunks(ingestResult.chunks);
+    const knowledgeMapMetadata = await enhanceIngestKnowledgeMap({
+      projectId,
+      file,
+      source: ingestResult.source,
+      parsedSummary: parsed?.source.summary,
+      chunks: ingestResult.chunks,
+      ingestResult,
+      provider: createConfiguredLlmProvider(),
+      createdAt: startedAt,
+    });
     const renderedSlides = await renderPresentationSlides({
       buffer,
       file,
@@ -99,6 +112,7 @@ export async function processFileIngestJob({
       slideCount: slideArtifacts.slides.length,
       contentType: extracted.contentType,
       parser: readParserName(parsed),
+      ...knowledgeMapMetadata,
     }).catch(() => undefined);
     await triggerKnowledgeMapGenerationAfterIngest({
       fileId: file.id,
@@ -115,6 +129,7 @@ export async function processFileIngestJob({
       contentType: extracted.contentType,
       synthetic: extracted.synthetic,
       parser: readParserName(parsed),
+      ...knowledgeMapMetadata,
     };
   } catch (error) {
     const failedAt = new Date().toISOString();
@@ -176,6 +191,16 @@ export async function processRepositoryIngestJob({
       createdAt: startedAt,
     });
     ingestResult.chunks = await prepareRetrievalChunks(ingestResult.chunks);
+    const knowledgeMapMetadata = await enhanceIngestKnowledgeMap({
+      projectId,
+      file,
+      source: ingestResult.source,
+      parsedSummary: parsed.source.summary,
+      chunks: ingestResult.chunks,
+      ingestResult,
+      provider: createConfiguredLlmProvider(),
+      createdAt: startedAt,
+    });
 
     await persistIngestedFile({
       projectId,
@@ -202,6 +227,7 @@ export async function processRepositoryIngestJob({
       slideCount: 0,
       contentType: "sidecar",
       parser: readParserName(parsed),
+      ...knowledgeMapMetadata,
     }).catch(() => undefined);
     await triggerKnowledgeMapGenerationAfterIngest({
       fileId: file.id,
@@ -218,6 +244,7 @@ export async function processRepositoryIngestJob({
       contentType: "sidecar",
       synthetic: false,
       parser: readParserName(parsed),
+      ...knowledgeMapMetadata,
     };
   } catch (error) {
     const failedAt = new Date().toISOString();
@@ -240,26 +267,104 @@ export async function processRepositoryIngestJob({
   }
 }
 
+type IngestLocalFileResult = ReturnType<typeof ingestLocalFile>;
+
+export type KnowledgeMapIngestMetadata = {
+  knowledgeMapMode: "ai" | "starter";
+  knowledgeMapError?: string;
+  knowledgeNodeCount: number;
+  knowledgeEdgeCount: number;
+};
+
+export async function enhanceIngestKnowledgeMap({
+  projectId,
+  file,
+  source,
+  parsedSummary,
+  chunks,
+  ingestResult,
+  provider,
+  createdAt,
+}: {
+  projectId: string;
+  file: DefenseFileRecord;
+  source: ProjectSourceRecord;
+  parsedSummary?: string;
+  chunks: KnowledgeChunkRecord[];
+  ingestResult: IngestLocalFileResult;
+  provider: LlmProvider | null;
+  createdAt: string;
+}): Promise<KnowledgeMapIngestMetadata> {
+  try {
+    const graphOutput = await runKnowledgeMapGraph({
+      provider,
+      projectName: projectId,
+      fileName: file.name,
+      fileKind: file.kind,
+      parsedSummary,
+      chunks,
+      generatedAt: createdAt,
+    });
+    const merged = mergeAiKnowledgeGraph({
+      projectId,
+      source,
+      file,
+      starterNodes: ingestResult.knowledgeNodes,
+      starterEdges: ingestResult.knowledgeEdges,
+      output: graphOutput,
+      createdAt,
+    });
+    ingestResult.knowledgeNodes = merged.knowledgeNodes;
+    ingestResult.knowledgeEdges = merged.knowledgeEdges;
+    return {
+      knowledgeMapMode: "ai",
+      knowledgeNodeCount: ingestResult.knowledgeNodes.length,
+      knowledgeEdgeCount: ingestResult.knowledgeEdges.length,
+    };
+  } catch (error) {
+    return {
+      knowledgeMapMode: "starter",
+      knowledgeMapError: error instanceof Error ? error.message : "AI knowledge map generation failed.",
+      knowledgeNodeCount: ingestResult.knowledgeNodes.length,
+      knowledgeEdgeCount: ingestResult.knowledgeEdges.length,
+    };
+  }
+}
+
 async function parseWithSidecar(file: DefenseFileRecord, buffer: Buffer) {
+  if (file.kind === "code") {
+    return createLocalParsedFileResult(file, buffer);
+  }
+
   const client = createNotebookRagClient();
   if (!client) {
-    if (file.kind === "code") {
-      return createLocalParsedFileResult(file, buffer);
-    }
     throw new Error("Notebook RAG sidecar is not configured.");
   }
   const fileSource = await resolveSidecarFileSource(file);
 
-  return client.parseFile({
-    fileId: file.id,
-    fileName: file.name,
-    fileKind: file.kind,
-    mimeType: file.type,
-    storagePath: fileSource.storagePath,
-    storageKey: fileSource.storageKey,
-    signedUrl: fileSource.signedUrl,
-    contentBase64: fileSource.signedUrl ? undefined : buffer.toString("base64"),
-  });
+  try {
+    return await client.parseFile({
+      fileId: file.id,
+      fileName: file.name,
+      fileKind: file.kind,
+      mimeType: file.type,
+      storagePath: fileSource.storagePath,
+      storageKey: fileSource.storageKey,
+      signedUrl: fileSource.signedUrl,
+      contentBase64: fileSource.signedUrl ? undefined : buffer.toString("base64"),
+    });
+  } catch (error) {
+    if (canUseLocalTextFallback(file)) {
+      return createLocalParsedFileResult(file, buffer);
+    }
+    throw error;
+  }
+}
+
+function canUseLocalTextFallback(file: DefenseFileRecord) {
+  if (["code", "database", "dataset", "other"].includes(file.kind)) return true;
+  return /\.(?:txt|md|markdown|json|csv|ts|tsx|js|jsx|mjs|cjs|css|html|xml|yaml|yml|toml|ini|cmake)$/iu.test(file.name)
+    || /(?:^|\/)(?:cmakelists\.txt|makefile|dockerfile)$/iu.test(file.name);
 }
 
 export function createLocalParsedFileResult(

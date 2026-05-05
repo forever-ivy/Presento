@@ -4,6 +4,7 @@ import type { LlmProvider } from "./llm-provider.ts";
 import {
   runDefenseChatGraph,
   runDefenseReviewGraph,
+  runKnowledgeMapGraph,
   runProjectBriefGraph,
 } from "./skill-graph.ts";
 
@@ -59,6 +60,33 @@ test("project brief graph returns llm structured output", async () => {
   assert.equal(brief.projectName, "智能点餐系统");
   assert.equal(brief.generatedAt, "2026-04-25T00:00:00.000Z");
   assert.match(brief.cards[0].items[0], /PostgreSQL/);
+});
+
+test("knowledge map graph returns normalized deep graph output", async () => {
+  const graph = await runKnowledgeMapGraph({
+    provider: fakeProvider({
+      projectSummary: "点餐系统围绕订单提交、支付和取餐提醒展开。",
+      modules: [{ title: "订单中心", summary: "处理订单创建和状态流转。", citations: [{ fileId: "file-1" }] }],
+      apis: [{ title: "POST /api/orders", summary: "创建订单。", citations: [{ fileId: "file-1", lineStart: 1 }] }],
+      tables: [{ title: "orders", summary: "订单主表。", citations: [{ fileId: "file-1" }] }],
+      risks: [{ title: "并发下单如何防重", summary: "需要说明幂等策略。", riskLevel: "high", citations: [{ fileId: "file-1" }] }],
+      weaknesses: [{ title: "数据库关系解释薄弱", summary: "需要补强表关系。", citations: [{ fileId: "file-1" }] }],
+      trainingPaths: [{ title: "订单链路讲练", summary: "围绕下单链路追问。", citations: [{ fileId: "file-1" }] }],
+      citations: [{ fileName: "README.md", fileId: "file-1", lineStart: 1, lineEnd: 2 }],
+    }),
+    projectName: "智能点餐系统",
+    fileName: "README.md",
+    fileKind: "document",
+    chunks,
+    generatedAt: "2026-04-25T00:00:00.000Z",
+  });
+
+  assert.equal(graph.generatedAt, "2026-04-25T00:00:00.000Z");
+  assert.equal(graph.modules[0].semanticType, "feature");
+  assert.equal(graph.apis[0].semanticType, "api");
+  assert.equal(graph.tables[0].semanticType, "table");
+  assert.equal(graph.risks[0].riskLevel, "high");
+  assert.equal(graph.citations[0].fileId, "file-1");
 });
 
 test("defense chat graph returns current-slide teacher feedback", async () => {
