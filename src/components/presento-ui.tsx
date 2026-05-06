@@ -11,7 +11,6 @@ import {
   Cpu,
   FileQuestion,
   FileText,
-  FolderKanban,
   Home,
   Link2,
   Map,
@@ -113,7 +112,6 @@ const navigationItems: Array<{
   badge?: string;
   step?: ProjectRouteStep;
 }> = [
-  { href: projectManagementRoute, label: "项目管理", icon: FolderKanban },
   { step: "knowledge", label: "知识地图", icon: Map },
   { step: "files", label: "资料导入", icon: UploadCloud },
   { step: "scripts", label: "逐页讲稿", icon: FileQuestion },
@@ -252,6 +250,7 @@ type TopNavDetailExit = {
 export function TopNav({
   onNavigate,
   projectId,
+  showProjectSwitch = true,
   detailState,
   detailEntrance,
   detailExit,
@@ -262,6 +261,7 @@ export function TopNav({
 }: {
   onNavigate?: (href: string) => void;
   projectId?: string;
+  showProjectSwitch?: boolean;
   detailState?: TopNavDetailState;
   detailEntrance?: TopNavDetailEntrance;
   detailExit?: TopNavDetailExit;
@@ -288,7 +288,7 @@ export function TopNav({
     ease: [0.2, 0.72, 0.24, 1] as const,
   };
   const titleDrift = detailTransition ? detailTransition.direction * 18 : 0;
-  const showMapActions = !detailState || Boolean(detailExit);
+  const showMapActions = showProjectSwitch && (!detailState || Boolean(detailExit));
   const currentProject = projects.find((project) => project.id === activeProjectId) ?? null;
   const projectSwitchLabel = currentProject?.name ?? (activeProjectId ? "当前项目" : "选择项目");
 
@@ -418,7 +418,7 @@ export function TopNav({
                     href="/projects/new"
                   >
                     <Plus aria-hidden="true" />
-                    项目管理
+                    管理项目
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -451,7 +451,7 @@ export function TopNav({
           iconSize={dockFixedSize ? 52 : 42}
           orientation="vertical"
         >
-          {navigationItems.map((item) => {
+          {activeProjectId ? navigationItems.map((item) => {
             const Icon = item.icon;
             const href = item.href ?? (activeProjectId ? projectRoute(activeProjectId, item.step ?? "knowledge") : projectManagementRoute);
             const active = item.href
@@ -480,12 +480,12 @@ export function TopNav({
                 </Link>
               </DockIcon>
             );
-          })}
+          }) : null}
         </Dock>
       </nav>
 
       <nav className="presento-mobile-nav" aria-label="Presento mobile navigation">
-        {navigationItems.slice(0, 5).map((item) => {
+        {activeProjectId ? navigationItems.slice(0, 5).map((item) => {
           const Icon = item.icon;
           const href = item.href ?? (activeProjectId ? projectRoute(activeProjectId, item.step ?? "knowledge") : projectManagementRoute);
           const active = item.href
@@ -506,7 +506,7 @@ export function TopNav({
               <span>{item.label}</span>
             </Link>
           );
-        })}
+        }) : null}
       </nav>
     </>
   );

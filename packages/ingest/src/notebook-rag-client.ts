@@ -30,6 +30,10 @@ export type ExplainFileRequest = {
     content: string;
   }>;
   question?: string;
+  selectedContext?: Array<{
+    text: string;
+    fileName?: string;
+  }>;
 };
 
 export type ExplainFileResponse = {

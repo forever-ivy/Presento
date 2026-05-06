@@ -15,10 +15,16 @@ test("createTrainingSessionRecord initializes the planned MVP training state", (
     teacherRole: "strict",
     difficulty: "normal",
     currentSlideId: "slide-1",
+    currentSlideIndex: 1,
     currentKnowledgeNodeId: "node-1",
     createdAt: "2026-04-28T12:00:00.000Z",
   });
 
+  assert.equal(session.currentPhase, "idle");
+  assert.equal(session.currentSlideIndex, 1);
+  assert.deepEqual(session.completedSlideIds, []);
+  assert.equal(session.currentFollowupCount, 0);
+  assert.equal(session.finalQuestionIndex, 0);
   assert.equal(session.voiceState, "idle");
   assert.equal(session.hintCount, 0);
   assert.equal(session.followUpCount, 0);
@@ -39,6 +45,7 @@ test("createTrainingSessionRecord snapshots focus nodes and keeps current node c
 
   assert.deepEqual(session.focusKnowledgeNodeIds, ["node-a", "node-b"]);
   assert.equal(session.currentKnowledgeNodeId, "node-a");
+  assert.equal(session.currentSlideIndex, 0);
 });
 
 test("buildRetrievedSources keeps a stable citation-oriented source summary", () => {
@@ -73,12 +80,16 @@ test("buildRetrievedSources keeps a stable citation-oriented source summary", ()
 test("buildSessionStatePatch advances follow-up state and detects finish readiness", () => {
   const patch = buildSessionStatePatch({
     session: {
+      currentPhase: "teacher_followup",
+      currentSlideIndex: 2,
+      completedSlideIds: ["slide-1"],
+      currentFollowupCount: 1,
+      finalQuestionIndex: 0,
       followUpCount: 2,
       hintCount: 0,
       detectedWeaknesses: ["数据库设计解释不够具体"],
       lastRetrievedSources: [],
     },
-    existingTurnCount: 2,
     userAnswer: "",
     retrievedSources: [{ id: "README.md:1-3", source: "README", fileName: "README.md" }],
     followUps: ["继续追问 1", "继续追问 2"],
@@ -86,10 +97,14 @@ test("buildSessionStatePatch advances follow-up state and detects finish readine
     speech: { audioUrl: "data:audio/mpeg;base64,abc" },
   });
 
+  assert.equal(patch.currentPhase, "teacher_followup");
+  assert.equal(patch.currentSlideIndex, 2);
+  assert.equal(patch.currentFollowupCount, 3);
+  assert.deepEqual(patch.completedSlideIds, ["slide-1"]);
   assert.equal(patch.voiceState, "speaking");
   assert.equal(patch.followUpCount, 4);
   assert.equal(patch.hintCount, 1);
-  assert.equal(patch.shouldFinish, true);
+  assert.equal(patch.shouldFinish, false);
   assert.deepEqual(
     patch.detectedWeaknesses,
     ["数据库设计解释不够具体", "个人贡献没有说清楚"],

@@ -83,7 +83,8 @@ export type SlideAssistantAction =
   | "teacher_question"
   | "answer_card"
   | "keywords"
-  | "rewrite";
+  | "rewrite"
+  | "drill_answer";
 
 export type SlideScriptGraphOutput = {
   projectName: string;
@@ -102,6 +103,8 @@ export type SlideScriptGraphOutput = {
     materials: string[];
   };
   rewrite?: string;
+  drillAnswer?: string;
+  suggestedQuestions?: string[];
   generatedAt?: string;
 };
 
@@ -159,8 +162,11 @@ export async function runSlideScriptGraph({
   fileId,
   slideId,
   extractedText,
+  selectedText,
+  currentDraft,
   instruction,
   action = "overview",
+  messages,
   chunks,
   generatedAt = new Date().toISOString(),
 }: {
@@ -171,8 +177,11 @@ export async function runSlideScriptGraph({
   fileId?: string | null;
   slideId?: string | null;
   extractedText?: string | null;
+  selectedText?: string | null;
+  currentDraft?: string | null;
   instruction?: string | null;
   action?: SlideAssistantAction;
+  messages?: Record<string, unknown>[];
   chunks: KnowledgeChunkRecord[];
   generatedAt?: string;
 }) {
@@ -189,12 +198,19 @@ export async function runSlideScriptGraph({
       `文件 ID：${fileId ?? "未提供"}`,
       `本次动作：${action}`,
       `用户改稿要求：${instruction || "未提供"}`,
+      "用户选中的待改文字：",
+      selectedText || "未提供",
+      "当前讲稿上下文 HTML：",
+      currentDraft || "未提供",
+      "最近深挖对话：",
+      messages?.length ? JSON.stringify(messages.slice(-8)) : "未提供",
       "当前页提取文本：",
       extractedText || "未提供",
       "请输出 JSON，字段必须包含 projectName、slideTitle、task、normal、short、conversational、contribution、transition、answerCard、keywords、risks、basis。",
       "normal 是完整讲稿；short 是 30 秒稿；conversational 更口语；contribution 突出个人贡献；transition 是承上启下的一句话；answerCard 是可插入编辑器的答辩卡建议。",
       "risks 是老师最可能追问的本页问题；basis.topics 是本页依据主题；basis.materials 是可引用的资料或页名。",
-      "如果 action 是 rewrite，请根据用户改稿要求输出 rewrite；否则 rewrite 可以省略。",
+      "如果 action 是 rewrite，请只在用户选中的待改文字原文基础上做替换式改稿，并结合当前讲稿上下文、当前页提取文本和资料片段输出 rewrite。rewrite 必须是可直接替换选中原文的正文，不要加标题、解释、标签、Markdown 或额外引导语；否则 rewrite 可以省略。",
+      "如果 action 是 drill_answer，请围绕用户改稿要求里的高危提问输出 drillAnswer 和 suggestedQuestions。drillAnswer 要像答辩现场可直接说出的回答：先正面回答，再给依据，再指出边界或个人贡献；suggestedQuestions 给 2-4 个老师可能继续追问的问题。",
       "资料片段：",
       formatKnowledgeChunks(chunks),
     ].join("\n"),
@@ -415,6 +431,8 @@ function normalizeSlideScriptGraphOutput(
       materials: normalizeStringArray(record.basis?.materials),
     },
     rewrite: typeof record.rewrite === "string" && record.rewrite.trim() ? record.rewrite.trim() : undefined,
+    drillAnswer: typeof record.drillAnswer === "string" && record.drillAnswer.trim() ? record.drillAnswer.trim() : undefined,
+    suggestedQuestions: normalizeStringArray(record.suggestedQuestions),
     generatedAt: record.generatedAt ?? fallback.generatedAt,
   };
 }

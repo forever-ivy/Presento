@@ -88,14 +88,17 @@ export async function POST(
     if (activeRealtimeSession) {
       await realtimeRepository.updateSession(activeRealtimeSession.id, {
         status: "ended",
+        currentPhase: "finished" as const,
         endedAt: createdAt,
       });
     }
     const sessionPatch = {
       status: "finished",
+      currentPhase: "review_ready" as const,
       voiceState: "idle",
       detectedWeaknesses: weaknesses.map((weakness) => weakness.title),
       shouldFinish: true,
+      lastPhaseAt: createdAt,
       finishedAt: createdAt,
     };
     await trainingRepository.updateSession(sessionId, sessionPatch);

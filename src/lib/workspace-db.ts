@@ -84,13 +84,14 @@ function writeCurrentWorkspaceSql(workspace: DefenseWorkspace) {
 function insertProjectSql(project: DatabaseProjectRow) {
   return `
 INSERT INTO "Project" (
-  "id", "name", "category", "ownerScope", "teammateScope", "createdAt", "updatedAt"
+  "id", "name", "category", "ownerScope", "teammateScope", "deadlineAt", "createdAt", "updatedAt"
 ) VALUES (
   ${sqlText(project.id)},
   ${sqlText(project.name)},
   ${sqlText(project.category)},
   ${sqlText(project.ownerScope)},
   ${sqlText(project.teammateScope)},
+  ${sqlTimestamp(project.deadlineAt)},
   ${sqlTimestamp(project.createdAt)},
   now()
 );`;

@@ -17,11 +17,17 @@ import { readProjectKnowledgeChunks, retrieveRelevantKnowledgeChunks } from "./k
 
 export type RealtimeContextInput = {
   projectId: string;
+  currentPhase?: string | null;
   currentSlideId?: string | null;
+  currentSlideIndex?: number | null;
   currentKnowledgeNodeId?: string | null;
   focusKnowledgeNodeIds?: string[];
   slideTitle?: string | null;
   slideIndex?: number | null;
+  slideGoal?: string | null;
+  cueKeywords?: string[];
+  previousSlideFeedback?: string | null;
+  followUpBudget?: number | null;
   memberScope?: string | null;
 };
 
@@ -58,8 +64,14 @@ export async function buildRealtimeContextSnapshot(input: RealtimeContextInput) 
   const focusKnowledgeSummary = focusKnowledgeNodes
     .map((node) => `${node.title}：${node.summary}`)
     .join("\n");
+  const cueKeywords = Array.from(new Set([
+    ...(input.cueKeywords ?? []),
+    ...focusKnowledgeNodes.map((node) => node.title.trim()).filter(Boolean),
+  ])).slice(0, 8);
+  const followUpBudget = input.followUpBudget ?? 1;
   const retrievalQuery = [
     input.slideTitle ?? "",
+    input.slideGoal ?? "",
     memberScope,
     input.currentKnowledgeNodeId ?? "",
     focusKnowledgeSummary,
@@ -87,8 +99,13 @@ export async function buildRealtimeContextSnapshot(input: RealtimeContextInput) 
   return {
     projectName: project.name,
     memberScope,
+    currentPhase: input.currentPhase ?? "slide_intro",
     slideTitle: input.slideTitle?.trim() || "当前页",
-    slideIndex: input.slideIndex ?? null,
+    slideIndex: input.slideIndex ?? input.currentSlideIndex ?? null,
+    slideGoal: input.slideGoal?.trim() || "讲清当前页的核心信息、材料支撑和个人负责范围。",
+    cueKeywords,
+    previousSlideFeedback: input.previousSlideFeedback?.trim() || null,
+    followUpBudget,
     currentSlideId: input.currentSlideId ?? null,
     currentKnowledgeNodeId: input.currentKnowledgeNodeId ?? null,
     focusKnowledgeNodeIds: focusKnowledgeNodes.map((node) => node.id),
@@ -157,6 +174,8 @@ export function createRealtimeSessionRecord({
     status: "created",
     currentSlideId: trainingSession.currentSlideId ?? null,
     currentKnowledgeNodeId: trainingSession.currentKnowledgeNodeId ?? null,
+    currentPhase: trainingSession.currentPhase,
+    currentSlideIndex: trainingSession.currentSlideIndex,
     teacherRole: trainingSession.teacherRole,
     difficulty: trainingSession.difficulty,
     contextSnapshot,
@@ -319,6 +338,11 @@ export async function finalizeRealtimeTurnAndAnalyze(turnDraft: TrainingTurnReco
     risks: mergedRisks,
     improvedAnswer: [analyzed.feedback.improvedAnswer, scopeDefense.scopeStatement].filter(Boolean).join(" "),
     followUps: mergedFollowUps,
+    slideFeedbackSummary: buildSlideFeedbackSummary({
+      strengths: mergedStrengths,
+      risks: mergedRisks,
+      evidenceSummary: evidence.summary,
+    }),
     citations: mergedCitations,
     retrievedSourceIds: retrievedSources.map((source) => source.id),
     speech: null,
@@ -326,18 +350,34 @@ export async function finalizeRealtimeTurnAndAnalyze(turnDraft: TrainingTurnReco
 
   await trainingRepository.addTurn(finalizedTurn);
   const sessionPatch = {
-    currentSlideId: turnDraft.slideId ?? sessionResult.session.currentSlideId ?? null,
-    currentKnowledgeNodeId:
-      turnDraft.knowledgeNodeId ?? sessionResult.session.currentKnowledgeNodeId ?? null,
     ...buildSessionStatePatch({
       session: sessionResult.session,
-      existingTurnCount: sessionResult.turns.length,
       userAnswer: finalizedTurn.userAnswer,
       retrievedSources,
       followUps: mergedFollowUps,
       risks: mergedRisks,
       speech: null,
     }),
+    currentPhase: turnDraft.phaseAfter ?? sessionResult.session.currentPhase,
+    currentSlideId: turnDraft.slideId ?? sessionResult.session.currentSlideId ?? null,
+    currentSlideIndex: turnDraft.slideIndex ?? sessionResult.session.currentSlideIndex ?? 0,
+    currentKnowledgeNodeId:
+      turnDraft.knowledgeNodeId ?? sessionResult.session.currentKnowledgeNodeId ?? null,
+    currentFollowupCount:
+      turnDraft.turnType === "presentation"
+        ? sessionResult.session.currentFollowupCount + 1
+        : turnDraft.turnType === "followup_answer"
+          ? 0
+          : sessionResult.session.currentFollowupCount,
+    finalQuestionIndex:
+      turnDraft.turnType === "final_question"
+        ? sessionResult.session.finalQuestionIndex + 1
+        : sessionResult.session.finalQuestionIndex,
+    completedSlideIds:
+      turnDraft.turnType === "followup_answer" && turnDraft.slideId
+        ? Array.from(new Set([...(sessionResult.session.completedSlideIds ?? []), turnDraft.slideId]))
+        : sessionResult.session.completedSlideIds,
+    lastPhaseAt: finalizedTurn.createdAt,
   };
   await trainingRepository.updateSession(turnDraft.sessionId, sessionPatch);
 
@@ -353,6 +393,23 @@ export async function finalizeRealtimeTurnAndAnalyze(turnDraft: TrainingTurnReco
     ],
     retrievedSources,
   };
+}
+
+function buildSlideFeedbackSummary({
+  strengths,
+  risks,
+  evidenceSummary,
+}: {
+  strengths: string[];
+  risks: string[];
+  evidenceSummary: string;
+}) {
+  const summaryParts = [
+    strengths[0] ? `讲清楚了：${strengths[0]}` : null,
+    risks[0] ? `风险点：${risks[0]}` : null,
+    evidenceSummary ? `材料支撑：${evidenceSummary}` : null,
+  ].filter(Boolean);
+  return summaryParts.join("；") || "当前页已完成，下一页注意继续补足材料支撑和个人负责范围。";
 }
 
 function dedupeCitations(citations: DefensePracticeTurn["citations"]) {

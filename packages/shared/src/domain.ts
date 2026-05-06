@@ -25,6 +25,91 @@ export type RealtimeSessionStatus =
 
 export type TrainingTurnMode = "realtime";
 
+export type DefensePhase =
+  | "idle"
+  | "initializing"
+  | "opening"
+  | "slide_intro"
+  | "user_presenting"
+  | "teacher_followup"
+  | "user_answering"
+  | "slide_feedback"
+  | "slide_transition"
+  | "final_questions"
+  | "finishing"
+  | "review_ready"
+  | "finished"
+  | "failed";
+
+export type TurnType = "presentation" | "followup_answer" | "final_question";
+
+export type TrainingSessionProgress = {
+  currentPhase: DefensePhase;
+  currentSlideIndex: number;
+  completedSlideIds: string[];
+  currentFollowupCount: number;
+  finalQuestionIndex: number;
+  lastPhaseAt: string;
+};
+
+export type RealtimeBusinessClientEvent =
+  | { type: "session.begin" }
+  | {
+      type: "slide.start";
+      currentSlideId?: string | null;
+      currentSlideIndex?: number | null;
+      currentKnowledgeNodeId?: string | null;
+      slideTitle?: string | null;
+      slideGoal?: string | null;
+      cueKeywords?: string[];
+      previousSlideFeedback?: string | null;
+      followUpBudget?: number | null;
+    }
+  | { type: "presentation.commit"; text?: string }
+  | { type: "followup.answer.commit"; text?: string }
+  | { type: "final_questions.begin" }
+  | { type: "session.finish" };
+
+export type RealtimeBusinessServerEvent =
+  | {
+      type: "coach.opening";
+      phase: DefensePhase;
+      message: string;
+    }
+  | {
+      type: "coach.slide_intro";
+      phase: DefensePhase;
+      slideId?: string | null;
+      slideIndex?: number | null;
+      message: string;
+    }
+  | {
+      type: "coach.followup";
+      phase: DefensePhase;
+      turnType: TurnType;
+      message: string;
+      followupCount?: number;
+      finalQuestionIndex?: number;
+    }
+  | {
+      type: "coach.slide_feedback";
+      phase: DefensePhase;
+      slideId?: string | null;
+      slideIndex?: number | null;
+      message: string;
+      summary?: string | null;
+    }
+  | {
+      type: "coach.final_questions_intro";
+      phase: DefensePhase;
+      message: string;
+    }
+  | {
+      type: "coach.session_finished";
+      phase: DefensePhase;
+      message: string;
+    };
+
 export type SkillStatus = "success" | "fallback" | "failed";
 
 export type SkillResolvedBy = "explicit" | "router" | "system";
@@ -354,6 +439,8 @@ export type RealtimeSessionRecord = {
   status: RealtimeSessionStatus;
   currentSlideId?: string | null;
   currentKnowledgeNodeId?: string | null;
+  currentPhase: DefensePhase;
+  currentSlideIndex: number;
   teacherRole: string;
   difficulty: string;
   contextSnapshot: Record<string, unknown>;
@@ -429,6 +516,7 @@ export type ProjectWorkspaceDto = {
     category: string;
     ownerScope: string;
     teammateScope: string;
+    deadlineAt?: string | null;
     createdAt: string;
     updatedAt?: string;
   };

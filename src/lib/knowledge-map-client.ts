@@ -483,6 +483,25 @@ export async function createFileExplanation(
   return { ...payload.session, source: "api" };
 }
 
+export async function fetchReusableFileExplanation(
+  projectId: string,
+  node: KnowledgeMapNodeUi,
+  mode: NotebookExplanationMode,
+  fetcher: FetchLike = fetch,
+  options: {
+    focusNodeId?: string;
+  } = {},
+): Promise<FileExplanationUi | null> {
+  const query = new URLSearchParams({ mode });
+  if (options.focusNodeId) query.set("focusNodeId", options.focusNodeId);
+  const response = await fetcher(
+    `/api/projects/${projectId}/knowledge-map/nodes/${node.id}/explanations?${query.toString()}`,
+  );
+  if (!response.ok) throw new Error(await readApiErrorMessage(response, "Explanation cache request failed."));
+  const payload = await response.json() as { session?: FileExplanationSessionWithTurns | null };
+  return payload.session ? { ...payload.session, source: "api" } : null;
+}
+
 export async function appendFileExplanationTurn(
   projectId: string,
   session: FileExplanationUi,
@@ -500,10 +519,14 @@ export async function appendFileExplanationTurn(
   return { ...payload.session, source: "api" };
 }
 
-export function getKnowledgeNodeActivation(node: Pick<KnowledgeMapNodeUi, "kind" | "fileKind"> | { kind?: string; fileKind?: string }) {
+export function getKnowledgeNodeActivation(
+  node:
+    | Pick<KnowledgeMapNodeUi, "kind" | "fileKind" | "title" | "nodeRole">
+    | { kind?: string; fileKind?: string; nodeRole?: KnowledgeNodeRole; title?: string },
+) {
   if (node.kind !== "file") return "details";
+  if (isPresentationLikeFile(node)) return "scripts";
   if ("nodeRole" in node && node.nodeRole === "evidence") return "reader";
-  if (isPresentationFileKind(node.fileKind)) return "scripts";
   return "reader";
 }
 
@@ -733,6 +756,11 @@ function normalizeViewer(value: string): KnowledgeMapViewer {
 
 function isPresentationFileKind(fileKind: string | undefined) {
   return fileKind === "presentation" || fileKind === "ppt" || fileKind === "pptx" || fileKind === "presentation-pdf";
+}
+
+function isPresentationLikeFile({ fileKind, title }: { fileKind?: string; title?: string }) {
+  if (isPresentationFileKind(fileKind)) return true;
+  return /\.(ppt|pptx)$/iu.test(title ?? "");
 }
 
 function codeFilesFromPreview({

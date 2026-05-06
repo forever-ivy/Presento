@@ -6,6 +6,11 @@ export const runtime = "nodejs";
 
 const createTurnSchema = z.object({
   question: z.string().min(1),
+  selectedContext: z.array(z.object({
+    id: z.string().min(1),
+    text: z.string().min(1),
+    fileName: z.string().optional(),
+  })).max(3).optional(),
 });
 
 export async function POST(
@@ -19,6 +24,7 @@ export async function POST(
       projectId,
       sessionId,
       question: payload.question,
+      selectedContext: payload.selectedContext,
     });
     if (!session) return notFound("File explanation session");
     return apiOk({ session }, { status: 201 });

@@ -15,7 +15,10 @@ export const projectPayloadSchema = z.object({
   category: z.string().min(1),
   ownerScope: z.string().default(""),
   teammateScope: z.string().default(""),
+  deadlineAt: z.string().datetime().nullable().optional(),
 });
+
+export const requiredDeadlineSchema = z.string().datetime();
 
 export const uploadedFileSchema = z.object({
   name: z.string().min(1),
@@ -36,6 +39,7 @@ export function createProjectRecord(input: z.infer<typeof projectPayloadSchema>)
     category: input.category,
     ownerScope: input.ownerScope,
     teammateScope: input.teammateScope,
+    deadlineAt: input.deadlineAt ?? null,
     createdAt: now,
     updatedAt: now,
   };

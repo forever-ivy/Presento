@@ -122,14 +122,15 @@ export function workspaceToDatabaseRows(workspace: DefenseWorkspace): DatabaseWo
 
 export function workspaceFromDatabaseRows(rows: DatabaseWorkspaceRows): DefenseWorkspace {
   return {
-    project: {
+    project: omitUndefined({
       id: rows.project.id,
       name: rows.project.name,
       category: rows.project.category,
       ownerScope: rows.project.ownerScope,
       teammateScope: rows.project.teammateScope,
+      deadlineAt: nullableToUndefinedDate(rows.project.deadlineAt ?? null),
       createdAt: normalizeDateValue(rows.project.createdAt),
-    },
+    }),
     files: rows.files.map(fileFromDatabaseRow),
     processingTasks: rows.processingTasks.map(processingTaskFromDatabaseRow),
     artifacts: rows.artifacts.map(artifactFromDatabaseRow),

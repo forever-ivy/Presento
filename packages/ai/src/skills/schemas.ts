@@ -50,6 +50,7 @@ export const slideAssistantActionSchema = z.enum([
   "answer_card",
   "keywords",
   "rewrite",
+  "drill_answer",
 ]);
 
 export const slideScriptInputSchema = z.object({
@@ -58,7 +59,10 @@ export const slideScriptInputSchema = z.object({
   slideIndex: z.number().default(1),
   fileId: z.string().optional(),
   extractedText: z.string().optional(),
+  selectedText: z.string().optional(),
+  currentDraft: z.string().optional(),
   instruction: z.string().optional(),
+  messages: z.array(looseRecordSchema).default([]),
   action: slideAssistantActionSchema.default("overview"),
   chunks: z.array(skillChunkSchema).default([]),
 });
@@ -80,6 +84,8 @@ export const slideScriptOutputSchema = z.object({
     materials: z.array(z.string()),
   }),
   rewrite: z.string().optional(),
+  drillAnswer: z.string().optional(),
+  suggestedQuestions: z.array(z.string()).optional(),
   generatedAt: z.string().optional(),
 });
 
@@ -297,6 +303,6 @@ export const skillSchemaByName = {
 
 export type SkillSchemaName = keyof typeof skillSchemaByName;
 
-export function getSkillSchema(schemaName: SkillSchemaName) {
+export function getSkillSchema<Name extends SkillSchemaName>(schemaName: Name): (typeof skillSchemaByName)[Name] {
   return skillSchemaByName[schemaName];
 }

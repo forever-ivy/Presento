@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createFileExplanation,
   createWorkspaceKnowledgeMap,
+  fetchReusableFileExplanation,
   getKnowledgeNodeActivation,
   getKnowledgeNodeOpenAction,
   loadFileNodePreview,
@@ -11,6 +12,7 @@ import {
   mergeWorkspaceKnowledgeMap,
   normalizeKnowledgeMapPayload,
 } from "./knowledge-map-client.ts";
+import { sessionToUIMessageList } from "./file-explanation-messages.ts";
 import type { KnowledgeEdgeRecord, KnowledgeNodeRecord } from "../../packages/shared/src/domain.ts";
 
 const apiNode: KnowledgeNodeRecord = {
@@ -446,6 +448,78 @@ test("file preview and explanation requests can stay focused on the selected exp
   });
 });
 
+test("reads reusable file explanations without posting a generation request", async () => {
+  const map = normalizeKnowledgeMapPayload("demo", {
+    nodes: [{
+      ...apiNode,
+      id: "node-file-readme",
+    }],
+    edges: [],
+  });
+  const requested: Array<{ method: string; url: string }> = [];
+
+  const session = await fetchReusableFileExplanation("demo", map.nodes[0], "mastery", async (url, init) => {
+    requested.push({ method: init?.method ?? "GET", url });
+    return jsonResponse({
+      session: {
+        id: "session-cached",
+        projectId: "demo",
+        nodeId: "node-file-readme",
+        fileId: "file-readme",
+        mode: "mastery",
+        status: "completed",
+        summary: "README",
+        outline: [],
+        citations: [],
+        metadata: {},
+        turns: [],
+        createdAt: "2026-05-03T08:00:00.000Z",
+        updatedAt: "2026-05-03T08:00:00.000Z",
+      },
+    });
+  }, {
+    focusNodeId: "node-expression-map",
+  });
+
+  assert.equal(session?.id, "session-cached");
+  assert.deepEqual(requested, [{
+    method: "GET",
+    url: "/api/projects/demo/knowledge-map/nodes/node-file-readme/explanations?mode=mastery&focusNodeId=node-expression-map",
+  }]);
+});
+
+test("maps persisted file explanation turns into AI SDK UI messages", () => {
+  const messages = sessionToUIMessageList({
+    id: "session-1",
+    projectId: "demo",
+    nodeId: "node-file-readme",
+    fileId: "file-readme",
+    mode: "quick",
+    status: "fallback",
+    summary: "README",
+    outline: [],
+    citations: [],
+    metadata: {},
+    turns: [{
+      id: "turn-1",
+      sessionId: "session-1",
+      projectId: "demo",
+      role: "assistant",
+      content: "**重点**：CellRecord",
+      citations: [],
+      metadata: { engine: "deterministic-fallback" },
+      createdAt: "2026-05-03T08:00:00.000Z",
+    }],
+    createdAt: "2026-05-03T08:00:00.000Z",
+    updatedAt: "2026-05-03T08:00:00.000Z",
+  });
+
+  assert.equal(messages[0]?.id, "turn-1");
+  assert.equal(messages[0]?.metadata?.sessionId, "session-1");
+  assert.equal(messages[0]?.metadata?.fallbackUsed, true);
+  assert.deepEqual(messages[0]?.parts, [{ type: "text", text: "**重点**：CellRecord" }]);
+});
+
 test("classifies file node activation between reader, slide scripts, and detail panel", () => {
   assert.equal(
     getKnowledgeNodeActivation({ kind: "file", fileKind: "ppt" }),
@@ -457,6 +531,10 @@ test("classifies file node activation between reader, slide scripts, and detail 
   );
   assert.equal(
     getKnowledgeNodeActivation({ kind: "file", fileKind: "presentation" }),
+    "scripts",
+  );
+  assert.equal(
+    getKnowledgeNodeActivation({ kind: "file", nodeRole: "evidence", title: "四班第一组.pptx" }),
     "scripts",
   );
   assert.equal(

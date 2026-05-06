@@ -6,6 +6,7 @@ COPY package.json package-lock.json tsconfig.json ./
 COPY src ./src
 COPY packages ./packages
 COPY services/defense-realtime ./services/defense-realtime
+COPY workers/shared ./workers/shared
 
 RUN npm ci
 

@@ -23,8 +23,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { DefenseFileInput } from "@/lib/project-workspace";
-import { projectRoute } from "@/lib/project-routes";
+import { projectOverviewRoute } from "@/lib/project-routes";
 import {
   createProject,
   deleteProject,
@@ -34,6 +41,7 @@ import {
 import { mergeUploadedFiles } from "@/lib/upload-workspace";
 
 const scenarios = ["课程项目答辩", "毕设答辩", "小组展示", "比赛路演", "社团宣讲", "实习汇报"];
+const projectTypeOptions = ["软件 / AI / 数据类", "硬件 / 嵌入式", "产品 / 设计类", "商业 / 路演类", "科研 / 论文类", "通用展示"];
 
 export default function ProjectManagementPage() {
   const router = useRouter();
@@ -72,7 +80,7 @@ export default function ProjectManagementPage() {
 
   async function handleCreated(project: ProjectListItem) {
     setIsModalOpen(false);
-    router.push(projectRoute(project.id, "knowledge"));
+    router.push(projectOverviewRoute(project.id));
   }
 
   async function confirmDeleteProject(project: ProjectListItem) {
@@ -110,10 +118,11 @@ export default function ProjectManagementPage() {
         </section>
 
         <section className="min-h-[68vh] overflow-hidden rounded-[28px] border border-[var(--presento-border)] bg-white/86 shadow-[0_28px_80px_rgba(15,23,42,0.06)] backdrop-blur-xl">
-          <div className="grid grid-cols-[minmax(0,1.4fr)_160px_120px_180px_120px_110px] gap-4 border-b border-[var(--presento-border)] px-6 py-4 text-xs font-black uppercase tracking-wider text-[var(--presento-faint)] max-lg:hidden">
+          <div className="grid grid-cols-[minmax(0,1.4fr)_160px_120px_170px_180px_120px_110px] gap-4 border-b border-[var(--presento-border)] px-6 py-4 text-xs font-black uppercase tracking-wider text-[var(--presento-faint)] max-lg:hidden">
             <span>项目</span>
             <span>类型</span>
             <span>资料</span>
+            <span>截止时间</span>
             <span>更新时间</span>
             <span className="text-right">进入</span>
             <span className="text-right">操作</span>
@@ -189,7 +198,7 @@ function ProjectRow({
   project: ProjectListItem;
 }) {
   return (
-    <div className="grid gap-4 px-6 py-5 transition hover:bg-emerald-50/45 lg:grid-cols-[minmax(0,1.4fr)_160px_120px_180px_120px_110px] lg:items-center">
+    <div className="grid gap-4 px-6 py-5 transition hover:bg-emerald-50/45 lg:grid-cols-[minmax(0,1.4fr)_160px_120px_170px_180px_120px_110px] lg:items-center">
       <div className="flex min-w-0 items-center gap-4">
         <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-emerald-50 text-[var(--presento-blue)]">
           <FolderKanban aria-hidden="true" />
@@ -199,7 +208,7 @@ function ProjectRow({
             {project.name}
           </div>
           <div className="mt-1 truncate text-sm font-semibold text-[var(--presento-muted)]">
-            {project.ownerScope || "未填写负责范围"}
+            {project.deadlineAt ? `截止 ${formatDate(project.deadlineAt)}` : "未设置截止时间"}
           </div>
         </div>
       </div>
@@ -210,11 +219,14 @@ function ProjectRow({
         <Badge tone="green">{project.fileCount ?? 0} 份</Badge>
       </div>
       <div className="text-sm font-bold text-[var(--presento-muted)]">
+        {project.deadlineAt ? formatDate(project.deadlineAt) : "未设置"}
+      </div>
+      <div className="text-sm font-bold text-[var(--presento-muted)]">
         {formatDate(project.updatedAt ?? project.createdAt)}
       </div>
       <Link
         className="flex items-center justify-end gap-2 text-sm font-black text-[var(--presento-blue-active)] transition hover:text-[var(--presento-blue)]"
-        href={projectRoute(project.id, "knowledge")}
+        href={projectOverviewRoute(project.id)}
       >
         进入
         <ArrowRight aria-hidden="true" className="size-4" />
@@ -263,10 +275,9 @@ function CreateProjectModal({
   onCreated: (project: ProjectListItem) => void;
 }) {
   const [projectName, setProjectName] = useState("");
-  const [category, setCategory] = useState("软件 / AI / 数据类");
+  const [category, setCategory] = useState(projectTypeOptions[0]);
   const [scenario, setScenario] = useState(scenarios[0]);
-  const [ownerScope, setOwnerScope] = useState("");
-  const [teammateScope, setTeammateScope] = useState("");
+  const [deadlineLocal, setDeadlineLocal] = useState("");
   const [uploadedFiles, setUploadedFiles] = useState<DefenseFileInput[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [hasActiveUploads, setHasActiveUploads] = useState(false);
@@ -278,6 +289,15 @@ function CreateProjectModal({
       setUploadError("请先填写项目名称");
       return;
     }
+    const deadlineAt = datetimeLocalToIso(deadlineLocal);
+    if (!deadlineAt) {
+      setUploadError("请设置截止日期和时间");
+      return;
+    }
+    if (!uploadedFiles.length) {
+      setUploadError("请至少上传一份项目资料");
+      return;
+    }
 
     setIsCreating(true);
     setUploadError("");
@@ -285,8 +305,7 @@ function CreateProjectModal({
       const project = await createProject({
         name,
         category: `${scenario} · ${category.trim() || "未分类"}`,
-        ownerScope: ownerScope.trim(),
-        teammateScope: teammateScope.trim(),
+        deadlineAt,
         uploadedFiles,
       });
       onCreated(project);
@@ -364,22 +383,29 @@ function CreateProjectModal({
                 ))}
               </div>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div className="mt-5 grid gap-4 md:grid-cols-3">
                 <label className="flex flex-col gap-2">
                   <span className="text-sm font-black">项目名称</span>
                   <input className="presento-input" onChange={(event) => setProjectName(event.target.value)} placeholder="例如：智能点餐系统课程答辩" value={projectName} />
                 </label>
                 <label className="flex flex-col gap-2">
                   <span className="text-sm font-black">项目类型</span>
-                  <input className="presento-input" onChange={(event) => setCategory(event.target.value)} value={category} />
+                  <Select onValueChange={setCategory} value={category}>
+                    <SelectTrigger className="presento-input h-11 w-full justify-between px-3 py-0 shadow-none">
+                      <SelectValue placeholder="选择项目类型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projectTypeOptions.map((item) => (
+                        <SelectItem key={item} value={item}>
+                          {item}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </label>
                 <label className="flex flex-col gap-2">
-                  <span className="text-sm font-black">我的负责范围</span>
-                  <input className="presento-input" onChange={(event) => setOwnerScope(event.target.value)} placeholder="例如：后端订单接口" value={ownerScope} />
-                </label>
-                <label className="flex flex-col gap-2">
-                  <span className="text-sm font-black">队友负责范围</span>
-                  <input className="presento-input" onChange={(event) => setTeammateScope(event.target.value)} placeholder="例如：前端页面 / 数据库" value={teammateScope} />
+                  <span className="text-sm font-black">截止日期和时间</span>
+                  <input className="presento-input" onChange={(event) => setDeadlineLocal(event.target.value)} type="datetime-local" value={deadlineLocal} />
                 </label>
               </div>
 
@@ -391,11 +417,11 @@ function CreateProjectModal({
                 </div>
                 <button
                   className="presento-button-primary h-12 rounded-full px-6 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={isCreating || hasActiveUploads}
+                  disabled={isCreating || hasActiveUploads || !projectName.trim() || !deadlineLocal || uploadedFiles.length === 0}
                   onClick={submitProject}
                   type="button"
                 >
-                  {hasActiveUploads ? "等待上传完成..." : isCreating ? "正在创建..." : "创建并进入知识地图"}
+                  {hasActiveUploads ? "等待上传完成..." : isCreating ? "正在创建..." : "创建并进入总览图"}
                 </button>
               </div>
             </section>
@@ -404,6 +430,12 @@ function CreateProjectModal({
       ) : null}
     </AnimatePresence>
   );
+}
+
+function datetimeLocalToIso(value: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function formatDate(value: string) {

@@ -1,6 +1,8 @@
 import type { PresentoTone } from "@/components/presento-ui";
 import {
   extractProjectStepFromPathname,
+  isProjectWorkspaceRoute,
+  projectOverviewRoute,
   projectRoute,
   type ProjectRouteStep,
 } from "./project-routes.ts";
@@ -109,6 +111,13 @@ export type FlowStep = {
 export type FlowWorkspaceNodeData = FlowStep & {
   active: boolean;
   mode?: FlowMode;
+  progress?: FlowStepProgress | null;
+};
+
+export type FlowStepProgress = {
+  label: string;
+  total: number;
+  value: number;
 };
 
 export type FlowWorkspaceNode = {
@@ -308,8 +317,14 @@ export function flowStepToRoute(stepId: FlowStepId, projectId: string) {
   return projectRoute(projectId, stepId as ProjectRouteStep);
 }
 
+export function flowOverviewRoute(projectId: string) {
+  return projectOverviewRoute(projectId);
+}
+
 export function flowRouteToMode(pathname: string): Exclude<FlowMode, "entering"> {
-  return pathname === "/" ? "map" : "inside";
+  if (pathname === "/") return "map";
+  if (isProjectWorkspaceRoute(pathname) && !extractProjectStepFromPathname(pathname)) return "map";
+  return "inside";
 }
 
 export function getFlowWorkspaceInitialRoomStep({

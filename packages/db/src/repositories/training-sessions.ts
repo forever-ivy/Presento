@@ -1,5 +1,6 @@
 import { createJsonRepositoryHelpers, type PsqlRunner, runDockerComposePsql } from "../runner.ts";
 import { sqlJson, sqlNumber, sqlText, sqlTimestamp } from "../sql.ts";
+import type { DefensePhase, TurnType } from "@shared/domain";
 
 export type TrainingSessionRecord = {
   id: string;
@@ -7,9 +8,14 @@ export type TrainingSessionRecord = {
   title: string;
   teacherRole: string;
   difficulty: string;
+  currentPhase: DefensePhase;
   currentSlideId?: string | null;
+  currentSlideIndex: number;
   currentKnowledgeNodeId?: string | null;
   focusKnowledgeNodeIds: string[];
+  completedSlideIds: string[];
+  currentFollowupCount: number;
+  finalQuestionIndex: number;
   status: string;
   voiceState: string;
   hintCount: number;
@@ -17,6 +23,7 @@ export type TrainingSessionRecord = {
   detectedWeaknesses: string[];
   lastRetrievedSources: unknown;
   shouldFinish: boolean;
+  lastPhaseAt: string;
   startedAt: string;
   finishedAt?: string | null;
   createdAt: string;
@@ -29,6 +36,9 @@ export type TrainingTurnRecord = {
   projectId: string;
   realtimeSessionId?: string | null;
   turnIndex?: number | null;
+  turnType?: TurnType | null;
+  phaseBefore?: DefensePhase | null;
+  phaseAfter?: DefensePhase | null;
   slideId?: string | null;
   slideIndex?: number | null;
   slideTitle?: string | null;
@@ -47,6 +57,7 @@ export type TrainingTurnRecord = {
   risks: unknown;
   improvedAnswer?: string | null;
   followUps: unknown;
+  slideFeedbackSummary?: string | null;
   citations: unknown;
   retrievedSourceIds: unknown;
   speech: unknown;
@@ -132,9 +143,10 @@ WHERE "id" = ${sqlText(sessionId)};`);
 function writeSessionSql(session: TrainingSessionRecord) {
   return `
 INSERT INTO "TrainingSession" (
-  "id", "projectId", "title", "teacherRole", "difficulty", "currentSlideId",
-  "currentKnowledgeNodeId", "focusKnowledgeNodeIds", "status", "voiceState", "hintCount", "followUpCount",
-  "detectedWeaknesses", "lastRetrievedSources", "shouldFinish", "startedAt", "finishedAt",
+  "id", "projectId", "title", "teacherRole", "difficulty", "currentPhase", "currentSlideId",
+  "currentSlideIndex", "currentKnowledgeNodeId", "focusKnowledgeNodeIds", "completedSlideIds",
+  "currentFollowupCount", "finalQuestionIndex", "status", "voiceState", "hintCount", "followUpCount",
+  "detectedWeaknesses", "lastRetrievedSources", "shouldFinish", "lastPhaseAt", "startedAt", "finishedAt",
   "createdAt", "updatedAt"
 ) VALUES (
   ${sqlText(session.id)},
@@ -142,9 +154,14 @@ INSERT INTO "TrainingSession" (
   ${sqlText(session.title)},
   ${sqlText(session.teacherRole)},
   ${sqlText(session.difficulty)},
+  ${sqlText(session.currentPhase)},
   ${sqlText(session.currentSlideId)},
+  ${sqlNumber(session.currentSlideIndex)},
   ${sqlText(session.currentKnowledgeNodeId)},
   ${sqlJson(session.focusKnowledgeNodeIds)},
+  ${sqlJson(session.completedSlideIds)},
+  ${sqlNumber(session.currentFollowupCount)},
+  ${sqlNumber(session.finalQuestionIndex)},
   ${sqlText(session.status)},
   ${sqlText(session.voiceState)},
   ${sqlNumber(session.hintCount)},
@@ -152,6 +169,7 @@ INSERT INTO "TrainingSession" (
   ${sqlJson(session.detectedWeaknesses)},
   ${sqlJson(session.lastRetrievedSources)},
   ${session.shouldFinish ? "true" : "false"},
+  ${sqlTimestamp(session.lastPhaseAt)},
   ${sqlTimestamp(session.startedAt)},
   ${sqlTimestamp(session.finishedAt)},
   ${sqlTimestamp(session.createdAt)},
@@ -161,9 +179,14 @@ ON CONFLICT ("id") DO UPDATE SET
   "title" = EXCLUDED."title",
   "teacherRole" = EXCLUDED."teacherRole",
   "difficulty" = EXCLUDED."difficulty",
+  "currentPhase" = EXCLUDED."currentPhase",
   "currentSlideId" = EXCLUDED."currentSlideId",
+  "currentSlideIndex" = EXCLUDED."currentSlideIndex",
   "currentKnowledgeNodeId" = EXCLUDED."currentKnowledgeNodeId",
   "focusKnowledgeNodeIds" = EXCLUDED."focusKnowledgeNodeIds",
+  "completedSlideIds" = EXCLUDED."completedSlideIds",
+  "currentFollowupCount" = EXCLUDED."currentFollowupCount",
+  "finalQuestionIndex" = EXCLUDED."finalQuestionIndex",
   "status" = EXCLUDED."status",
   "voiceState" = EXCLUDED."voiceState",
   "hintCount" = EXCLUDED."hintCount",
@@ -171,6 +194,7 @@ ON CONFLICT ("id") DO UPDATE SET
   "detectedWeaknesses" = EXCLUDED."detectedWeaknesses",
   "lastRetrievedSources" = EXCLUDED."lastRetrievedSources",
   "shouldFinish" = EXCLUDED."shouldFinish",
+  "lastPhaseAt" = EXCLUDED."lastPhaseAt",
   "startedAt" = EXCLUDED."startedAt",
   "finishedAt" = EXCLUDED."finishedAt",
   "updatedAt" = EXCLUDED."updatedAt";`;
@@ -179,16 +203,20 @@ ON CONFLICT ("id") DO UPDATE SET
 function writeTurnSql(turn: TrainingTurnRecord) {
   return `
 INSERT INTO "TrainingTurn" (
-  "id", "sessionId", "projectId", "realtimeSessionId", "turnIndex", "slideId", "slideIndex", "slideTitle",
-  "knowledgeNodeId", "teacherRole", "userAnswer", "aiMessage", "inputTranscript", "assistantTranscript",
-  "providerResponseId", "providerTraceId", "latencyMs", "mode", "score", "strengths", "risks",
-  "improvedAnswer", "followUps", "citations", "retrievedSourceIds", "speech", "createdAt"
+  "id", "sessionId", "projectId", "realtimeSessionId", "turnIndex", "turnType", "phaseBefore",
+  "phaseAfter", "slideId", "slideIndex", "slideTitle", "knowledgeNodeId", "teacherRole", "userAnswer",
+  "aiMessage", "inputTranscript", "assistantTranscript", "providerResponseId", "providerTraceId",
+  "latencyMs", "mode", "score", "strengths", "risks", "improvedAnswer", "followUps",
+  "slideFeedbackSummary", "citations", "retrievedSourceIds", "speech", "createdAt"
 ) VALUES (
   ${sqlText(turn.id)},
   ${sqlText(turn.sessionId)},
   ${sqlText(turn.projectId)},
   ${sqlText(turn.realtimeSessionId)},
   ${turn.turnIndex === null || turn.turnIndex === undefined ? "NULL" : sqlNumber(turn.turnIndex)},
+  ${sqlText(turn.turnType)},
+  ${sqlText(turn.phaseBefore)},
+  ${sqlText(turn.phaseAfter)},
   ${sqlText(turn.slideId)},
   ${turn.slideIndex === null || turn.slideIndex === undefined ? "NULL" : sqlNumber(turn.slideIndex)},
   ${sqlText(turn.slideTitle)},
@@ -207,6 +235,7 @@ INSERT INTO "TrainingTurn" (
   ${sqlJson(turn.risks)},
   ${sqlText(turn.improvedAnswer)},
   ${sqlJson(turn.followUps)},
+  ${sqlText(turn.slideFeedbackSummary)},
   ${sqlJson(turn.citations)},
   ${sqlJson(turn.retrievedSourceIds)},
   ${sqlJson(turn.speech)},
@@ -215,6 +244,9 @@ INSERT INTO "TrainingTurn" (
 ON CONFLICT ("id") DO UPDATE SET
   "realtimeSessionId" = EXCLUDED."realtimeSessionId",
   "turnIndex" = EXCLUDED."turnIndex",
+  "turnType" = EXCLUDED."turnType",
+  "phaseBefore" = EXCLUDED."phaseBefore",
+  "phaseAfter" = EXCLUDED."phaseAfter",
   "slideId" = EXCLUDED."slideId",
   "slideIndex" = EXCLUDED."slideIndex",
   "slideTitle" = EXCLUDED."slideTitle",
@@ -233,6 +265,7 @@ ON CONFLICT ("id") DO UPDATE SET
   "risks" = EXCLUDED."risks",
   "improvedAnswer" = EXCLUDED."improvedAnswer",
   "followUps" = EXCLUDED."followUps",
+  "slideFeedbackSummary" = EXCLUDED."slideFeedbackSummary",
   "citations" = EXCLUDED."citations",
   "retrievedSourceIds" = EXCLUDED."retrievedSourceIds",
   "speech" = EXCLUDED."speech";`;
@@ -327,9 +360,14 @@ SELECT json_build_object(
 
 function updateSessionSql(sessionId: string, patch: Partial<TrainingSessionRecord>) {
   const sets = [
+    patch.currentPhase !== undefined ? `"currentPhase" = ${sqlText(patch.currentPhase)}` : null,
     patch.currentSlideId !== undefined ? `"currentSlideId" = ${sqlText(patch.currentSlideId ?? null)}` : null,
+    patch.currentSlideIndex !== undefined ? `"currentSlideIndex" = ${sqlNumber(patch.currentSlideIndex)}` : null,
     patch.currentKnowledgeNodeId !== undefined ? `"currentKnowledgeNodeId" = ${sqlText(patch.currentKnowledgeNodeId ?? null)}` : null,
     patch.focusKnowledgeNodeIds !== undefined ? `"focusKnowledgeNodeIds" = ${sqlJson(patch.focusKnowledgeNodeIds)}` : null,
+    patch.completedSlideIds !== undefined ? `"completedSlideIds" = ${sqlJson(patch.completedSlideIds)}` : null,
+    patch.currentFollowupCount !== undefined ? `"currentFollowupCount" = ${sqlNumber(patch.currentFollowupCount)}` : null,
+    patch.finalQuestionIndex !== undefined ? `"finalQuestionIndex" = ${sqlNumber(patch.finalQuestionIndex)}` : null,
     patch.status !== undefined ? `"status" = ${sqlText(patch.status)}` : null,
     patch.voiceState !== undefined ? `"voiceState" = ${sqlText(patch.voiceState)}` : null,
     patch.hintCount !== undefined ? `"hintCount" = ${sqlNumber(patch.hintCount)}` : null,
@@ -337,6 +375,7 @@ function updateSessionSql(sessionId: string, patch: Partial<TrainingSessionRecor
     patch.detectedWeaknesses !== undefined ? `"detectedWeaknesses" = ${sqlJson(patch.detectedWeaknesses)}` : null,
     patch.lastRetrievedSources !== undefined ? `"lastRetrievedSources" = ${sqlJson(patch.lastRetrievedSources)}` : null,
     patch.shouldFinish !== undefined ? `"shouldFinish" = ${patch.shouldFinish ? "true" : "false"}` : null,
+    patch.lastPhaseAt !== undefined ? `"lastPhaseAt" = ${sqlTimestamp(patch.lastPhaseAt)}` : null,
     patch.finishedAt !== undefined ? `"finishedAt" = ${sqlTimestamp(patch.finishedAt ?? null)}` : null,
     `"updatedAt" = now()`,
   ].filter(Boolean);

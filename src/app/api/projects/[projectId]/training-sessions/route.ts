@@ -13,6 +13,7 @@ const createTrainingSessionSchema = z.object({
   teacherRole: z.string().default("strict"),
   difficulty: z.string().default("normal"),
   currentSlideId: z.string().optional(),
+  currentSlideIndex: z.number().int().nonnegative().optional(),
   currentKnowledgeNodeId: z.string().optional(),
   focusKnowledgeNodeIds: z.array(z.string().min(1)).optional(),
 });
@@ -36,7 +37,9 @@ export async function POST(
       title: payload.title,
       teacherRole: payload.teacherRole,
       difficulty: payload.difficulty,
+      currentPhase: "idle",
       currentSlideId: payload.currentSlideId,
+      currentSlideIndex: payload.currentSlideIndex ?? 0,
       currentKnowledgeNodeId: payload.currentKnowledgeNodeId,
       focusKnowledgeNodeIds,
     });
@@ -45,6 +48,16 @@ export async function POST(
     const aggregate = await readTrainingSessionAggregate(projectId, session.id);
     return apiOk({
       ...aggregate,
+      progress: aggregate?.session
+        ? {
+            currentPhase: aggregate.session.currentPhase,
+            currentSlideIndex: aggregate.session.currentSlideIndex,
+            completedSlideIds: aggregate.session.completedSlideIds,
+            currentFollowupCount: aggregate.session.currentFollowupCount,
+            finalQuestionIndex: aggregate.session.finalQuestionIndex,
+            lastPhaseAt: aggregate.session.lastPhaseAt,
+          }
+        : null,
       nextStep: {
         provider: "glm-realtime-flash",
         createRealtimeSessionPath: `/api/projects/${projectId}/training-sessions/${session.id}/realtime-sessions`,

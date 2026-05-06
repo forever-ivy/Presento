@@ -25,6 +25,10 @@ const segmentSteps = new Map(
 
 export const projectManagementRoute = "/projects/new";
 
+export function projectOverviewRoute(projectId: string) {
+  return `/projects/${encodeURIComponent(projectId)}`;
+}
+
 export function projectRoute(projectId: string, step: ProjectRouteStep = "knowledge") {
   return `/projects/${encodeURIComponent(projectId)}/${stepSegments[step]}`;
 }

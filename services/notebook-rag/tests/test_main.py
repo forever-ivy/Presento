@@ -11,6 +11,7 @@ from app.engine import (
     retrieve_chunks_from_payload,
     stream_explain_from_payload,
 )
+from app.llm import select_model_for_mode
 from app.parsers import extract_document_with_docling
 
 
@@ -44,6 +45,20 @@ def build_minimal_docx(document_text: str) -> bytes:
 
 
 class NotebookRagContractTests(unittest.TestCase):
+    def test_modes_use_deepseek_v4_flash_and_pro_by_default(self) -> None:
+        with patch.dict("os.environ", {"LLM_MODEL": "deepseek-chat"}, clear=True):
+            self.assertEqual(select_model_for_mode("quick"), "deepseek-v4-flash")
+            self.assertEqual(select_model_for_mode("mastery"), "deepseek-v4-pro")
+
+    def test_mode_models_can_be_overridden(self) -> None:
+        with patch.dict("os.environ", {
+            "LLM_QUICK_MODEL": "custom-quick",
+            "LLM_MASTERY_MODEL": "custom-mastery",
+            "LLM_MODEL": "deepseek-chat",
+        }, clear=True):
+            self.assertEqual(select_model_for_mode("quick"), "custom-quick")
+            self.assertEqual(select_model_for_mode("mastery"), "custom-mastery")
+
     def test_explain_from_chunks_marks_insufficient_evidence(self) -> None:
         result = explain_from_payload({
             "fileId": "file-1",

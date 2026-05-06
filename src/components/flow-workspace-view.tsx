@@ -2,15 +2,13 @@
 
 import {
   Bot,
-  CheckCircle2,
-  Code,
+  ChevronDown,
   FileQuestion,
   MessageSquareText,
   Mic,
   Play,
   Radio,
   Search,
-  Sparkles,
   Target,
   UploadCloud,
 } from "lucide-react";
@@ -50,18 +48,12 @@ import {
 import { AppFrame, PageWrap, TopNav, cn } from "@/components/presento-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -79,6 +71,25 @@ import {
   ScrollVelocityRow,
 } from "@/components/ui/scroll-based-velocity";
 import { KnowledgeMapRoom } from "@/components/knowledge-map/knowledge-map-room";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+} from "@/components/ai-elements/conversation";
+import { Loader } from "@/components/ai-elements/loader";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputTools,
+} from "@/components/ai-elements/prompt-input";
 import { ProjectUploadWorkspace } from "@/components/project-upload-workspace";
 import {
   RichScriptEditor,
@@ -90,6 +101,7 @@ import {
   FLOW_MAP_OVERVIEW_PADDING,
   FLOW_NODE_FOCUS_MAX_ZOOM,
   createFlowWorkspaceFlow,
+  flowOverviewRoute,
   flowRouteToMode,
   flowStepToRoute,
   getFlowBackgroundCopyAnimationMode,
@@ -114,27 +126,30 @@ import {
 } from "@/lib/flow-workspace";
 import { presentoBrandLogo } from "@/lib/brand";
 import {
-  createProjectContentExports,
   createProjectTrainingSession,
-  fetchProjectContentExports,
-  fetchProjectDeepDives,
+  fetchProjectOverview,
   fetchProjectTrainingFocuses,
-  fetchProjectSkillInvocations,
-  fetchProjectSkillPacks,
   fetchProjectSlides,
+  fetchSlideScriptDraft,
   runSlideAssistantAction,
-  type ContentExportItem,
-  type DeepDiveItem,
+  saveSlideScriptDraft,
   type ProjectSlide,
   type ProjectSlideDeck,
-  type SlideAssistantAction,
   type SlideAssistantInsertResult,
   type SlideAssistantOverview,
-  type SkillInvocationItem,
-  type SkillPackItem,
+  type SlideScriptVersion,
   type TrainingFocusItem,
-  type WeaknessItem,
 } from "@/lib/project-data-api";
+import type { ProjectOverviewDto } from "@/lib/project-overview";
+import {
+  mergeSlideDrillQuestionList,
+  normalizeSlideDrillQuestionText,
+} from "@/lib/slide-drill-chat-ui";
+import {
+  getSlideDrillMessageSuggestedQuestions,
+  getSlideDrillMessageText,
+  useSlideDrillChat,
+} from "@/lib/use-slide-drill-chat";
 import { useProjectWorkspace } from "@/lib/use-workspace";
 
 gsap.registerPlugin(useGSAP);
@@ -232,6 +247,7 @@ function easeInOutSine(t: number) {
 export function FlowWorkspaceView({ projectId }: { projectId: string }) {
   const pathname = usePathname();
   const targetMode = flowRouteToMode(pathname);
+  const projectOverview = useProjectOverview(projectId);
   const activeStep = getFlowStepByRoute(pathname);
   const settledDockEntry =
     targetMode === "inside" && pendingSettledDockEntryStepId === activeStep.id;
@@ -571,7 +587,7 @@ export function FlowWorkspaceView({ projectId }: { projectId: string }) {
     returnToMapTimerRef.current = window.setTimeout(() => {
       returnToMapTimerRef.current = null;
       pendingSettledMapReturn = true;
-      startTransition(() => pushFlowHistory("/"));
+      startTransition(() => pushFlowHistory(flowOverviewRoute(projectId)));
     }, EXIT_MS);
   }
 
@@ -654,6 +670,7 @@ export function FlowWorkspaceView({ projectId }: { projectId: string }) {
               behavior={backgroundCopyBehavior}
               exiting={backgroundCopyExiting}
               key={backgroundCopyPinned ? "persistent" : `timed-${backgroundCopyCycle}`}
+              overview={projectOverview.data}
             />
           ) : null}
           <FlowTransitionDirector
@@ -681,6 +698,7 @@ export function FlowWorkspaceView({ projectId }: { projectId: string }) {
                 flowInstanceRef.current = instance;
               }}
               onEnterStep={enterStep}
+              overview={projectOverview.data}
               smoothMapReturn={targetMode === "map" && pendingSettledMapReturn}
               suppressSettledMapFit={targetMode === "map" && pendingSettledMapReturn && returningToMap}
               targetMode={transitionTargetMode}
@@ -1056,13 +1074,16 @@ function getReducedMotionServerSnapshot() {
 function MapBackgroundCopy({
   behavior,
   exiting,
+  overview,
 }: {
   behavior: FlowBackgroundCopyBehavior;
   exiting: boolean;
+  overview?: ProjectOverviewDto | null;
 }) {
   const animationMode = getFlowBackgroundCopyAnimationMode({ behavior, exiting });
   const fadeDurationSeconds = BACKGROUND_COPY_FADE_MS / 1000;
   const timedDurationSeconds = (BACKGROUND_COPY_VISIBLE_MS + BACKGROUND_COPY_FADE_MS) / 1000;
+  const copy = getOverviewBackgroundCopy(overview);
 
   if (animationMode === "hidden") return null;
 
@@ -1097,17 +1118,15 @@ function MapBackgroundCopy({
           scrollReactivity={false}
         >
           <span className="presento-flow-background-copy-label">
-            <span className="presento-flow-background-copy-base">当前</span>
+            <span className="presento-flow-background-copy-base">{copy.primaryBase}</span>
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-red presento-flow-background-copy-accent-primary">
-              <span>项目</span>
-              <span className="presento-flow-background-copy-unit-success">隔离</span>
+              {copy.primaryAccent}
             </span>
           </span>
           <span className="presento-flow-background-copy-label">
-            <span className="presento-flow-background-copy-base">当前</span>
+            <span className="presento-flow-background-copy-base">{copy.primaryBase}</span>
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-red presento-flow-background-copy-accent-primary">
-              <span>项目</span>
-              <span className="presento-flow-background-copy-unit-success">隔离</span>
+              {copy.primaryAccent}
             </span>
           </span>
         </ScrollVelocityRow>
@@ -1119,24 +1138,60 @@ function MapBackgroundCopy({
         >
           <span className="presento-flow-background-copy-label">
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-lime presento-flow-background-copy-accent-secondary presento-flow-background-copy-accent-leading">
-              真实
+              {copy.secondaryAccent}
             </span>
             <span className="presento-flow-background-copy-base presento-flow-background-copy-base-complete">
-              数据驱动
+              {copy.secondaryBase}
             </span>
           </span>
           <span className="presento-flow-background-copy-label">
             <span className="presento-flow-background-copy-accent presento-flow-background-copy-accent-lime presento-flow-background-copy-accent-secondary presento-flow-background-copy-accent-leading">
-              真实
+              {copy.secondaryAccent}
             </span>
             <span className="presento-flow-background-copy-base presento-flow-background-copy-base-complete">
-              数据驱动
+              {copy.secondaryBase}
             </span>
           </span>
         </ScrollVelocityRow>
       </ScrollVelocityContainer>
     </motion.div>
   );
+}
+
+function getOverviewBackgroundCopy(overview?: ProjectOverviewDto | null) {
+  if (!overview) {
+    return {
+      primaryBase: "剩余",
+      primaryAccent: "--",
+      secondaryAccent: "0%",
+      secondaryBase: "已完成",
+    };
+  }
+
+  const deadlineCopy = splitDeadlineCopy(overview.deadline.label);
+
+  return {
+    primaryBase: deadlineCopy.base,
+    primaryAccent: deadlineCopy.accent,
+    secondaryAccent: `${overview.overallPercent}%`,
+    secondaryBase: "已完成",
+  };
+}
+
+function splitDeadlineCopy(label: string) {
+  const normalized = label.replace(/\s+/g, " ").trim();
+  const match = /^(剩余|已逾期)\s+(.+)$/.exec(normalized);
+  if (match) {
+    return {
+      base: match[1] ?? "",
+      accent: match[2] ?? "",
+    };
+  }
+
+  return {
+    base: "",
+    accent: normalized || "--",
+  };
 }
 
 function FlowWorkspaceCanvas({
@@ -1146,6 +1201,7 @@ function FlowWorkspaceCanvas({
   mode,
   onEnterStep,
   onFlowInit,
+  overview,
   smoothMapReturn,
   suppressSettledMapFit,
   targetMode,
@@ -1156,6 +1212,7 @@ function FlowWorkspaceCanvas({
   mode: FlowMode;
   onEnterStep: (stepId: FlowStepId) => void;
   onFlowInit: (instance: ReactFlowInstance<Node<FlowWorkspaceNodeData>, Edge>) => void;
+  overview?: ProjectOverviewDto | null;
   smoothMapReturn: boolean;
   suppressSettledMapFit: boolean;
   targetMode: Exclude<FlowMode, "entering">;
@@ -1179,11 +1236,11 @@ function FlowWorkspaceCanvas({
     return flow.nodes.map((node) => ({
       ...node,
       data: {
-        ...node.data,
+        ...decorateFlowStepNodeData(node.data, overview),
         mode,
       },
     }));
-  }, [flow.nodes, mode]);
+  }, [flow.nodes, mode, overview]);
   const edges = useMemo<Array<Edge>>(() => {
     if (mode === "map") return flow.edges;
 
@@ -1240,6 +1297,83 @@ function FlowWorkspaceCanvas({
       </ReactFlow>
     </div>
   );
+}
+
+function decorateFlowStepNodeData(
+  data: FlowWorkspaceNodeData,
+  overview?: ProjectOverviewDto | null,
+): FlowWorkspaceNodeData {
+  if (!overview) return data;
+
+  const counts = overview.counts;
+  const slideTotal = counts.slideCount;
+  const hasSlides = slideTotal > 0;
+  const allScriptsDone = hasSlides && counts.scriptCompletedSlideCount >= slideTotal;
+  const allPracticeDone = hasSlides && counts.practiceCompletedSlideCount >= slideTotal;
+  const review = overview.latestReview;
+
+  const byStep: Partial<Record<FlowStepId, Partial<FlowWorkspaceNodeData>>> = {
+    files: {
+      metrics: [`${counts.fileCount} 份资料`, `${slideTotal} 页 PPT`, overview.deadline.label],
+      stateLine: counts.fileCount > 0 ? "真实项目资料已入库" : "等待上传项目资料",
+      status: counts.fileCount > 0 ? "completed" : "pending",
+    },
+    knowledge: {
+      metrics: [
+        `${counts.knowledgeNodeCount} 个节点`,
+        `${counts.fileCount} 份资料`,
+        counts.knowledgeNodeCount > 0 ? "可追问" : "生成中",
+      ],
+      stateLine: counts.knowledgeNodeCount > 0 ? "知识地图已从真实资料生成" : "等待资料解析生成知识节点",
+      status: counts.knowledgeNodeCount > 0 ? "active" : "pending",
+    },
+    scripts: {
+      metrics: hasSlides
+        ? [`${counts.scriptCompletedSlideCount}/${slideTotal} 页完成`, "讲稿草稿", "按页推进"]
+        : ["等待 PPT 解析", "讲稿草稿", "按页推进"],
+      progress: hasSlides
+        ? { label: "逐页讲解", total: slideTotal, value: counts.scriptCompletedSlideCount }
+        : null,
+      stateLine: hasSlides ? `逐页讲解完成 ${counts.scriptCompletedSlideCount}/${slideTotal}` : "解析出 PPT 页后开始写讲稿",
+      status: allScriptsDone ? "completed" : counts.scriptCompletedSlideCount > 0 ? "active" : "pending",
+    },
+    defense: {
+      metrics: hasSlides
+        ? [`${counts.practiceCompletedSlideCount}/${slideTotal} 页讲练`, `${counts.trainingSessionCount} 次训练`, "实时追问"]
+        : ["等待 PPT 解析", `${counts.trainingSessionCount} 次训练`, "实时追问"],
+      progress: hasSlides
+        ? { label: "模拟讲练", total: slideTotal, value: counts.practiceCompletedSlideCount }
+        : null,
+      stateLine: hasSlides ? `模拟讲练完成 ${counts.practiceCompletedSlideCount}/${slideTotal}` : "解析出 PPT 页后开始讲练",
+      status: allPracticeDone ? "completed" : counts.practiceCompletedSlideCount > 0 ? "risk" : "pending",
+    },
+    review: {
+      metrics: review ? [`${review.averageScore} 分`, review.scoreLabel, "下一轮任务"] : ["暂无复盘", `${counts.trainingSessionCount} 次训练`, "下一轮任务"],
+      stateLine: review ? "已读取最近一次真实复盘报告" : "完成一次讲练后生成复盘",
+      status: review ? "completed" : "pending",
+    },
+    deepDive: {
+      metrics: [`${counts.weaknessCount} 个薄弱点`, `${counts.deepDiveCount} 份补强`, "引用证据"],
+      stateLine: counts.weaknessCount > 0 ? "从真实薄弱点进入补强" : "复盘后沉淀薄弱点",
+      status: counts.weaknessCount > 0 ? "weakness" : "pending",
+    },
+    pcg: {
+      metrics: [`${counts.contentExportCount} 个输出`, "QQ 摘要", "展示脚本"],
+      stateLine: counts.contentExportCount > 0 ? "已生成真实内容输出" : "等待复盘或讲稿后输出",
+      status: counts.contentExportCount > 0 ? "output" : "pending",
+    },
+    skills: {
+      metrics: ["Skill Packs", "调用记录", "反馈闭环"],
+      stateLine: "读取项目 Skill 配置",
+    },
+  };
+
+  const patch = byStep[data.id] ?? {};
+  return {
+    ...data,
+    ...patch,
+    status: data.active ? data.status : patch.status ?? data.status,
+  };
 }
 
 function FlowCamera({
@@ -1369,6 +1503,20 @@ function FlowStepNode({ id, data }: NodeProps<Node<FlowWorkspaceNodeData>>) {
             </Badge>
           ))}
         </div>
+        {data.progress ? (
+          <div className="presento-flow-node-progress" aria-label={data.progress.label}>
+            <div className="flex items-center justify-between gap-3 text-[12px] font-black text-[var(--presento-faint)]">
+              <span>{data.progress.label}</span>
+              <span>
+                {data.progress.value}/{data.progress.total}
+              </span>
+            </div>
+            <Progress
+              className="mt-2 h-2 bg-[var(--presento-border)] [&>div]:bg-[var(--presento-blue)]"
+              value={data.progress.total > 0 ? (data.progress.value / data.progress.total) * 100 : 0}
+            />
+          </div>
+        ) : null}
         <div className="mt-4 flex items-center gap-2 text-[14px] font-black text-[var(--presento-faint)]">
           <span className={cn("presento-flow-status-dot", data.active && "presento-flow-status-dot-active")} />
           <span>{data.stateLine}</span>
@@ -1502,10 +1650,10 @@ const StepRoomContent = memo(function StepRoomContent({
   }
   if (stepId === "scripts") return <ScriptsRoom projectId={projectId} />;
   if (stepId === "defense") return <DefenseRoom projectId={projectId} />;
-  if (stepId === "review") return <ReviewRoom projectId={projectId} />;
-  if (stepId === "deepDive") return <DeepDiveRoom projectId={projectId} />;
-  if (stepId === "skills") return <SkillsRoom projectId={projectId} />;
-  return <PCGRoom projectId={projectId} />;
+  if (stepId === "review") return <ReviewRoom />;
+  if (stepId === "deepDive") return <DeepDiveRoom />;
+  if (stepId === "skills") return <SkillsRoom />;
+  return <PCGRoom />;
 });
 
 function FilesRoom({ projectId }: { projectId: string }) {
@@ -1551,13 +1699,27 @@ function KnowledgeRoom({
   );
 }
 
-type ScriptVersion = "normal" | "short" | "keywords";
+type ScriptVersion = SlideScriptVersion;
 
 const scriptVersions: { id: ScriptVersion; label: string }[] = [
   { id: "normal", label: "完整稿" },
   { id: "short", label: "30 秒稿" },
   { id: "keywords", label: "提词稿" },
 ];
+
+type ScriptRewriteActionId = "conversational" | "specific" | "contribution" | "transition";
+
+const SCRIPTS_ROOM_PREFS_STORAGE_PREFIX = "presento:scripts-room";
+
+function createClientDrillMeta(prefix: "m" | "q") {
+  const id = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return {
+    createdAt: new Date().toISOString(),
+    id: `${prefix}-${id}`,
+  };
+}
 
 function escapeHtml(value: string) {
   return value
@@ -1572,21 +1734,79 @@ function listHtml(items: string[]) {
   return items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
 }
 
+function scriptsRoomPrefsStorageKey(projectId: string) {
+  return `${SCRIPTS_ROOM_PREFS_STORAGE_PREFIX}:${projectId}`;
+}
+
+function readScriptsRoomPrefs(projectId: string) {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(scriptsRoomPrefsStorageKey(projectId));
+    if (!raw) return null;
+    const prefs = JSON.parse(raw) as {
+      scriptVersion?: string;
+      selectedSlideId?: string;
+    };
+    return {
+      scriptVersion: scriptVersions.some((version) => version.id === prefs.scriptVersion)
+        ? prefs.scriptVersion as ScriptVersion
+        : null,
+      selectedSlideId: typeof prefs.selectedSlideId === "string" ? prefs.selectedSlideId : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeScriptsRoomPrefs(projectId: string, prefs: {
+  scriptVersion: ScriptVersion;
+  selectedSlideId: string | null;
+}) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(scriptsRoomPrefsStorageKey(projectId), JSON.stringify(prefs));
+}
+
 function ScriptsRoom({ projectId }: { projectId: string }) {
   const { data, error, isLoading } = useProjectSlides(projectId);
   const slides = data?.slides ?? emptyProjectSlides;
-  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
-  const [scriptVersion, setScriptVersion] = useState<ScriptVersion>("normal");
+  const initialPrefs = useMemo(() => readScriptsRoomPrefs(projectId), [projectId]);
+  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(() => initialPrefs?.selectedSlideId ?? null);
+  const [scriptVersion, setScriptVersion] = useState<ScriptVersion>(() => initialPrefs?.scriptVersion ?? "normal");
+  const [draftContent, setDraftContent] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState("");
+  const [draftStatus, setDraftStatus] = useState<"empty" | "generating" | "ready">("empty");
+  const [draftRevision, setDraftRevision] = useState(0);
+  const [isDraftLoading, setIsDraftLoading] = useState(false);
   const [isScriptsGalleryCollapsed, setIsScriptsGalleryCollapsed] = useState(false);
+  const [rewriteSelection, setRewriteSelection] = useState<{
+    instruction: string;
+    isSubmitting: boolean;
+    selectedText: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const scriptEditorRef = useRef<RichScriptEditorHandle | null>(null);
   const filmstripRef = useRef<HTMLElement | null>(null);
   const activeSlide = slides.find((slide) => slide.id === selectedSlideId) ?? slides[0] ?? null;
-  const editorContent = useMemo(
-    () => (activeSlide ? buildProjectScriptEditorContent(activeSlide, scriptVersion) : ""),
-    [activeSlide, scriptVersion],
-  );
+  const editorContent = draftContent ?? "";
+  const draftKey = activeSlide ? `${projectId}:${activeSlide.id}:${scriptVersion}` : "";
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDraftSaveRef = useRef<{
+    contentHtml: string;
+    projectId: string;
+    slideId: string;
+    version: ScriptVersion;
+  } | null>(null);
+  const latestDraftRef = useRef({
+    contentHtml: "",
+    isLoading: false,
+    key: "",
+  });
   const selectSlide = useCallback((slideId: string) => {
     startTransition(() => setSelectedSlideId(slideId));
+  }, []);
+  const selectScriptVersion = useCallback((version: ScriptVersion) => {
+    startTransition(() => setScriptVersion(version));
   }, []);
   const resetFilmstripScroll = useCallback(() => {
     const viewport = filmstripRef.current?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']");
@@ -1607,13 +1827,165 @@ function ScriptsRoom({ projectId }: { projectId: string }) {
     const shouldCollapse = panelSize.inPixels <= DEFENSE_GALLERY_COLLAPSED_THRESHOLD;
     setIsScriptsGalleryCollapsed((current) => current === shouldCollapse ? current : shouldCollapse);
   }, []);
-  const insertAssistantToken = useCallback((label: string, content: string, tone: "pause" | "question" | "card" = "card") => {
-    scriptEditorRef.current?.appendContent(`<p><mark data-presento-token="${tone}">${escapeHtml(label)}：${escapeHtml(content)}</mark></p>`);
+  const flushPendingDraftSave = useCallback(() => {
+    if (draftSaveTimerRef.current) {
+      clearTimeout(draftSaveTimerRef.current);
+      draftSaveTimerRef.current = null;
+    }
+    const pending = pendingDraftSaveRef.current;
+    if (!pending) return;
+    pendingDraftSaveRef.current = null;
+    void saveSlideScriptDraft(pending.projectId, pending.slideId, {
+      contentHtml: pending.contentHtml,
+      version: pending.version,
+    })
+      .then(() => setDraftError(""))
+      .catch((nextError) => {
+        setDraftError(nextError instanceof Error ? nextError.message : "讲稿草稿保存失败");
+      });
   }, []);
+  const handleEditorContentChange = useCallback((contentHtml: string) => {
+    latestDraftRef.current.contentHtml = contentHtml;
+    if (!activeSlide || latestDraftRef.current.isLoading) return;
+    if (draftStatus !== "ready") return;
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    const slideId = activeSlide.id;
+    const version = scriptVersion;
+    pendingDraftSaveRef.current = { contentHtml, projectId, slideId, version };
+    draftSaveTimerRef.current = setTimeout(() => {
+      flushPendingDraftSave();
+    }, 700);
+  }, [activeSlide, draftStatus, flushPendingDraftSave, projectId, scriptVersion]);
+  const handleRewriteSelectionRequest = useCallback((selection: {
+    selectedText: string;
+    x: number;
+    y: number;
+  }) => {
+    const maxX = typeof window === "undefined" ? selection.x : Math.max(16, window.innerWidth - 392);
+    const maxY = typeof window === "undefined" ? selection.y : Math.max(16, window.innerHeight - 220);
+    setRewriteSelection({
+      ...selection,
+      x: Math.min(Math.max(16, selection.x), maxX),
+      y: Math.min(Math.max(16, selection.y), maxY),
+      instruction: "",
+      isSubmitting: false,
+    });
+  }, []);
+  const closeRewritePopover = useCallback(() => {
+    scriptEditorRef.current?.clearRewriteSelection();
+    setRewriteSelection(null);
+  }, []);
+  const generateCurrentDraft = useCallback(async (slide: ProjectSlide, version: ScriptVersion) => {
+    setDraftError("");
+    setDraftStatus("generating");
+    latestDraftRef.current.isLoading = true;
+    try {
+      const response = await runSlideAssistantAction(projectId, slide.id, { action: "overview" });
+      if (response.usedFallback) {
+        setDraftContent(null);
+        setDraftError("AI 讲稿暂时没有生成成功，请稍后重试。");
+        setDraftStatus("empty");
+        return;
+      }
+      const contentHtml = buildAiScriptDraftHtml(response.result as SlideAssistantOverview, version);
+      await saveSlideScriptDraft(projectId, slide.id, { contentHtml, version });
+      setDraftContent(contentHtml);
+      setDraftStatus("ready");
+    } catch (nextError) {
+      setDraftContent(null);
+      setDraftError(nextError instanceof Error ? nextError.message : "AI 讲稿生成失败");
+      setDraftStatus("empty");
+    } finally {
+      latestDraftRef.current.isLoading = false;
+      setIsDraftLoading(false);
+      setDraftRevision((current) => current + 1);
+    }
+  }, [projectId]);
+  const submitSelectionRewrite = useCallback(async () => {
+    if (!activeSlide || !rewriteSelection || rewriteSelection.isSubmitting) return;
+    const instruction = rewriteSelection.instruction.trim();
+    if (!instruction) return;
+    setRewriteSelection((current) => current ? { ...current, isSubmitting: true } : current);
+    try {
+      const response = await runSlideAssistantAction(projectId, activeSlide.id, {
+        action: "rewrite",
+        instruction,
+        selectedText: rewriteSelection.selectedText,
+        currentDraft: scriptEditorRef.current?.getHTML(),
+      });
+      const result = response.result as SlideAssistantInsertResult;
+      if (result.content.trim()) {
+        scriptEditorRef.current?.replaceSelection(result.content);
+      }
+      setRewriteSelection(null);
+    } catch {
+      setRewriteSelection((current) => current ? { ...current, isSubmitting: false } : current);
+    }
+  }, [activeSlide, projectId, rewriteSelection]);
 
   useLayoutEffect(() => {
     if (activeSlide && !isScriptsGalleryCollapsed) resetFilmstripScroll();
   }, [activeSlide, isScriptsGalleryCollapsed, resetFilmstripScroll]);
+
+  useEffect(() => {
+    latestDraftRef.current = {
+      contentHtml: editorContent,
+      isLoading: isDraftLoading,
+      key: draftKey,
+    };
+  }, [draftKey, editorContent, isDraftLoading]);
+
+  useEffect(() => {
+    writeScriptsRoomPrefs(projectId, {
+      scriptVersion,
+      selectedSlideId: activeSlide?.id ?? null,
+    });
+  }, [activeSlide, projectId, scriptVersion]);
+
+  useEffect(() => {
+    if (!activeSlide) return undefined;
+    let cancelled = false;
+    flushPendingDraftSave();
+    latestDraftRef.current.isLoading = true;
+    void Promise.resolve()
+      .then(() => {
+        if (cancelled) return null;
+        setDraftError("");
+        setDraftContent(null);
+        setDraftStatus("generating");
+        setIsDraftLoading(true);
+        return fetchSlideScriptDraft(projectId, activeSlide.id, scriptVersion);
+      })
+      .then((response) => {
+        if (cancelled || !response) return;
+        if (response.draft?.contentHtml) {
+          setDraftContent(response.draft.contentHtml);
+          setDraftStatus("ready");
+          return;
+        }
+        void generateCurrentDraft(activeSlide, scriptVersion);
+      })
+      .catch((nextError) => {
+        if (cancelled) return;
+        setDraftContent(null);
+        setDraftError(nextError instanceof Error ? nextError.message : "讲稿草稿读取失败");
+        setDraftStatus("empty");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        latestDraftRef.current.isLoading = false;
+        setIsDraftLoading(false);
+        setDraftRevision((current) => current + 1);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSlide, flushPendingDraftSave, generateCurrentDraft, projectId, scriptVersion]);
+
+  useEffect(() => () => {
+    flushPendingDraftSave();
+  }, [flushPendingDraftSave]);
 
   if (isLoading) return <RoomState icon={<FileQuestion aria-hidden="true" />} title="正在读取逐页讲稿" />;
   if (error) return <RoomState description={error} icon={<FileQuestion aria-hidden="true" />} title="逐页讲稿读取失败" tone="error" />;
@@ -1642,7 +2014,7 @@ function ScriptsRoom({ projectId }: { projectId: string }) {
               <main className="presento-scripts-main">
                 <Tabs
                   className="presento-scripts-version-tabs"
-                  onValueChange={(value) => setScriptVersion(value as ScriptVersion)}
+                  onValueChange={(value) => selectScriptVersion(value as ScriptVersion)}
                   value={scriptVersion}
                 >
                   <TabsList aria-label="讲稿版本" className="presento-scripts-version-tabs-list">
@@ -1653,25 +2025,97 @@ function ScriptsRoom({ projectId }: { projectId: string }) {
                     ))}
                   </TabsList>
                 </Tabs>
-                <RichScriptEditor
-                  className="presento-scripts-editor"
-                  initialContent={editorContent}
-                  key={`${activeSlide.id}-${scriptVersion}`}
-                  minHeight={390}
-                  ref={scriptEditorRef}
-                  showFooterMeta={false}
-                  statusLabel={`${scriptVersions.find((version) => version.id === scriptVersion)?.label ?? "完整稿"} · 当前项目`}
-                  variant="script"
-                />
+                {draftStatus === "ready" ? (
+                  <RichScriptEditor
+                    className="presento-scripts-editor"
+                    initialContent={editorContent}
+                    key={`${activeSlide.id}-${scriptVersion}-${draftRevision}`}
+                    minHeight={390}
+                    onContentChange={handleEditorContentChange}
+                    onRewriteSelectionRequest={handleRewriteSelectionRequest}
+                    ref={scriptEditorRef}
+                    showFooterMeta={false}
+                    statusLabel={`${scriptVersions.find((version) => version.id === scriptVersion)?.label ?? "完整稿"} · 当前项目`}
+                    variant="script"
+                  />
+                ) : draftStatus === "generating" ? (
+                  <ScriptDraftSkeleton />
+                ) : (
+                  <div className="presento-scripts-empty-draft">
+                    <FileQuestion aria-hidden="true" />
+                    <h2>暂无 AI 讲稿</h2>
+                    <p>这页还没有可用的 AI 讲稿。模型生成成功后才会显示编辑器。</p>
+                    <Button onClick={() => void generateCurrentDraft(activeSlide, scriptVersion)} type="button">
+                      重新生成
+                    </Button>
+                  </div>
+                )}
               </main>
             </ResizablePanel>
             <ResizableHandle className="presento-defense-resize-handle presento-scripts-side-resize-handle" withHandle />
             <ResizablePanel defaultSize="26%" minSize="260px">
+              {draftError ? (
+                <p className="presento-scripts-ai-error presento-scripts-draft-error">{draftError}</p>
+              ) : null}
               <ScriptAssistantPanel
-                onInsertToken={insertAssistantToken}
+                editorRef={scriptEditorRef}
                 projectId={projectId}
                 slide={activeSlide}
               />
+              <Popover open={Boolean(rewriteSelection)} onOpenChange={(open) => !open && closeRewritePopover()}>
+                {rewriteSelection ? (
+                  <PopoverAnchor asChild>
+                    <span
+                      aria-hidden="true"
+                      className="presento-scripts-rewrite-anchor"
+                      style={{ left: rewriteSelection.x, top: rewriteSelection.y }}
+                    />
+                  </PopoverAnchor>
+                ) : null}
+                <PopoverContent
+                  align="start"
+                  className="presento-scripts-rewrite-popover"
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                  side="bottom"
+                  sideOffset={0}
+                >
+                  {rewriteSelection ? (
+                    <>
+                      <Input
+                        autoFocus
+                        className="presento-scripts-rewrite-input"
+                        disabled={rewriteSelection.isSubmitting}
+                        onChange={(event) => setRewriteSelection((current) => current ? { ...current, instruction: event.target.value } : current)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") closeRewritePopover();
+                          if (event.key === "Enter") void submitSelectionRewrite();
+                        }}
+                        placeholder="例如：更口语、突出个人贡献、压缩一点"
+                        value={rewriteSelection.instruction}
+                      />
+                      <div className="presento-scripts-rewrite-popover-actions">
+                        <Button
+                          disabled={rewriteSelection.isSubmitting}
+                          onClick={closeRewritePopover}
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          取消
+                        </Button>
+                        <Button
+                          disabled={rewriteSelection.isSubmitting || !rewriteSelection.instruction.trim()}
+                          onClick={() => void submitSelectionRewrite()}
+                          size="sm"
+                          type="button"
+                        >
+                          {rewriteSelection.isSubmitting ? "改稿中..." : "一键改稿"}
+                        </Button>
+                      </div>
+                    </>
+                  ) : null}
+                </PopoverContent>
+              </Popover>
             </ResizablePanel>
           </ResizablePanelGroup>
         </ResizablePanel>
@@ -1733,23 +2177,24 @@ function ScriptsRoom({ projectId }: { projectId: string }) {
 }
 
 function ScriptAssistantPanel({
-  onInsertToken,
+  editorRef,
   projectId,
   slide,
 }: {
-  onInsertToken: (label: string, content: string, tone?: "pause" | "question" | "card") => void;
+  editorRef: RefObject<RichScriptEditorHandle | null>;
   projectId: string;
   slide: ProjectSlide;
 }) {
   const [overview, setOverview] = useState<SlideAssistantOverview | null>(null);
   const [assistantError, setAssistantError] = useState("");
   const [isOverviewLoading, setIsOverviewLoading] = useState(false);
-  const [runningAction, setRunningAction] = useState<SlideAssistantAction | null>(null);
-  const [rewriteInstruction, setRewriteInstruction] = useState("");
+  const [runningAction, setRunningAction] = useState<ScriptRewriteActionId | null>(null);
+  const [assistantTab, setAssistantTab] = useState<"rewrite" | "drill">("rewrite");
+  const getCurrentDraft = useCallback(() => editorRef.current?.getHTML(), [editorRef]);
   const isAssistantBusy = isOverviewLoading || Boolean(runningAction);
   const keywords = overview?.keywords ?? [];
-  const risks = overview?.risks ?? [];
   const basis = overview?.basis ?? { topics: [], materials: [] };
+  const risks = useMemo(() => overview?.risks ?? [], [overview?.risks]);
   const pageTask = overview?.task ?? "正在生成本页任务...";
   const fallbackNotice = overview && assistantError === "fallback"
     ? "当前使用本地兜底文案，模型配置恢复后会自动使用真实 AI。"
@@ -1784,44 +2229,64 @@ function ScriptAssistantPanel({
     };
   }, [projectId, slide.id]);
 
-  const runInsertAction = useCallback(async (action: SlideAssistantAction) => {
+  const initialDrillQuestions = useMemo(
+    () => mergeSlideDrillQuestionList(
+      [],
+      risks,
+      "ai",
+      () => createClientDrillMeta("q"),
+    ),
+    [risks],
+  );
+  const drillChat = useSlideDrillChat({
+    getCurrentDraft,
+    initialQuestions: initialDrillQuestions,
+    projectId,
+    slideId: slide.id,
+  });
+  const visibleDrillQuestions = drillChat.questions.length
+    ? drillChat.questions
+    : initialDrillQuestions;
+  const visibleDrillQuestionSet = useMemo(
+    () => new Set(visibleDrillQuestions.map((question) => normalizeSlideDrillQuestionText(question.text))),
+    [visibleDrillQuestions],
+  );
+  const isDrillLoading = drillChat.status === "loading-cache";
+  const isDrillAnswering = drillChat.status === "submitted" || drillChat.status === "streaming";
+  const isDrillBusy = isDrillLoading || isDrillAnswering;
+  const latestDrillMessage = drillChat.messages.at(-1);
+  const isStreamingAnswerVisible = latestDrillMessage?.role === "assistant"
+    && Boolean(getSlideDrillMessageText(latestDrillMessage));
+
+  const runSelectionRewriteAction = useCallback(async (
+    action: ScriptRewriteActionId,
+    instruction: string,
+  ) => {
+    const selection = editorRef.current?.captureRewriteSelection();
+    if (!selection) {
+      setAssistantError("请先选中要改的句子。");
+      return;
+    }
     setRunningAction(action);
     setAssistantError("");
     try {
-      const response = await runSlideAssistantAction(projectId, slide.id, { action });
+      const response = await runSlideAssistantAction(projectId, slide.id, {
+        action: "rewrite",
+        currentDraft: editorRef.current?.getHTML(),
+        instruction,
+        selectedText: selection.selectedText,
+      });
       const result = response.result as SlideAssistantInsertResult;
       if (response.usedFallback) setAssistantError("fallback");
       if (result.content.trim()) {
-        onInsertToken(result.label, result.content, result.tone);
+        editorRef.current?.replaceSelection(result.content);
       }
     } catch (nextError) {
       setAssistantError(nextError instanceof Error ? nextError.message : "AI 动作执行失败");
     } finally {
       setRunningAction(null);
     }
-  }, [onInsertToken, projectId, slide.id]);
-
-  const submitRewrite = useCallback(async () => {
-    const instruction = rewriteInstruction.trim();
-    if (!instruction) return;
-    setRunningAction("rewrite");
-    setAssistantError("");
-    try {
-      const response = await runSlideAssistantAction(projectId, slide.id, {
-        action: "rewrite",
-        instruction,
-      });
-      const result = response.result as SlideAssistantInsertResult;
-      if (response.usedFallback) setAssistantError("fallback");
-      if (result.content.trim()) {
-        onInsertToken(result.label, result.content, result.tone);
-      }
-    } catch (nextError) {
-      setAssistantError(nextError instanceof Error ? nextError.message : "AI 改稿失败");
-    } finally {
-      setRunningAction(null);
-    }
-  }, [onInsertToken, projectId, rewriteInstruction, slide.id]);
+  }, [editorRef, projectId, slide.id]);
 
   return (
     <aside className="presento-scripts-ai-shell">
@@ -1834,97 +2299,253 @@ function ScriptAssistantPanel({
             <p className="presento-scripts-ai-fallback">{fallbackNotice}</p>
           ) : null}
 
-          <section className="presento-scripts-ai-block presento-scripts-ai-task">
-            <span>本页任务</span>
-            <p>{pageTask}</p>
-          </section>
+          <Tabs
+            className="presento-scripts-ai-tabs"
+            onValueChange={(value) => setAssistantTab(value as "rewrite" | "drill")}
+            value={assistantTab}
+          >
+            <TabsList aria-label="讲稿助手视图" className="presento-scripts-ai-tabs-list">
+              <TabsTrigger className="presento-scripts-ai-tab" value="rewrite">
+                文稿修改
+              </TabsTrigger>
+              <TabsTrigger className="presento-scripts-ai-tab" value="drill">
+                情景深挖
+              </TabsTrigger>
+            </TabsList>
 
-          <section className="presento-scripts-ai-block presento-scripts-ai-actions">
-            <span>改稿动作</span>
-            <div className="presento-scripts-ai-action-grid">
-              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("short")} type="button" variant="outline">
-                <Sparkles data-icon="inline-start" aria-hidden="true" />
-                {runningAction === "short" ? "生成中..." : "压缩成 30 秒"}
-              </Button>
-              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("conversational")} type="button" variant="outline">
-                {runningAction === "conversational" ? "生成中..." : "改得更口语"}
-              </Button>
-              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("contribution")} type="button" variant="outline">
-                {runningAction === "contribution" ? "生成中..." : "突出个人贡献"}
-              </Button>
-              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("transition")} type="button" variant="outline">
-                {runningAction === "transition" ? "生成中..." : "补转场句"}
-              </Button>
-              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("teacher_question")} type="button" variant="outline">
-                <MessageSquareText data-icon="inline-start" aria-hidden="true" />
-                {runningAction === "teacher_question" ? "生成中..." : "生成本页追问"}
-              </Button>
-              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("answer_card")} type="button" variant="outline">
-                <Target data-icon="inline-start" aria-hidden="true" />
-                {runningAction === "answer_card" ? "生成中..." : "插入答辩卡"}
-              </Button>
-              <Button disabled={isAssistantBusy} onClick={() => runInsertAction("keywords")} type="button" variant="outline">
-                {runningAction === "keywords" ? "生成中..." : "提炼关键词"}
-              </Button>
-            </div>
-            <div className="presento-scripts-ai-request">
-              <span>AI改稿</span>
-              <Textarea
-                aria-label="逐页讲稿改写要求"
-                disabled={isAssistantBusy}
-                onChange={(event) => setRewriteInstruction(event.target.value)}
-                placeholder="例如：把这一页改成 30 秒答辩开场，突出我负责的部分。"
-                value={rewriteInstruction}
-              />
-              <Button
-                disabled={isAssistantBusy || !rewriteInstruction.trim()}
-                onClick={submitRewrite}
-                type="button"
-                variant="outline"
-              >
-                {runningAction === "rewrite" ? "改稿中..." : "生成改稿"}
-              </Button>
-            </div>
-          </section>
+            <TabsContent className="presento-scripts-ai-tab-content" value="rewrite">
+              <section className="presento-scripts-ai-block presento-scripts-ai-task">
+                <span>本页任务</span>
+                <p>{pageTask}</p>
+              </section>
 
-          <details className="presento-scripts-ai-block presento-scripts-ai-disclosure presento-scripts-ai-risk">
-            <summary>
-              <span>本页风险</span>
-            </summary>
-            <div className="presento-scripts-ai-risk-list">
-              {risks.length ? risks.map((risk) => (
-                <p key={risk}>{risk}</p>
-              )) : <p>{isOverviewLoading ? "正在生成本页风险..." : "暂无本页风险。"}</p>}
-            </div>
-          </details>
+              <section className="presento-scripts-ai-block presento-scripts-ai-actions">
+                <span>改稿动作</span>
+                <div className="presento-scripts-ai-action-grid">
+                  <Button
+                    disabled={isAssistantBusy}
+                    onClick={() => runSelectionRewriteAction("conversational", "把选中的句子改得更口语、更适合答辩现场表达。")}
+                    onMouseDown={(event) => event.preventDefault()}
+                    type="button"
+                    variant="outline"
+                  >
+                    {runningAction === "conversational" ? "生成中..." : "改得更口语"}
+                  </Button>
+                  <Button
+                    disabled={isAssistantBusy}
+                    onClick={() => runSelectionRewriteAction("specific", "把选中的句子改得更具体，补充清楚对象、动作、依据和结果，避免空泛表述。")}
+                    onMouseDown={(event) => event.preventDefault()}
+                    type="button"
+                    variant="outline"
+                  >
+                    {runningAction === "specific" ? "生成中..." : "改得具体"}
+                  </Button>
+                  <Button
+                    disabled={isAssistantBusy}
+                    onClick={() => runSelectionRewriteAction("contribution", "在选中句子的原意基础上突出我的个人贡献。")}
+                    onMouseDown={(event) => event.preventDefault()}
+                    type="button"
+                    variant="outline"
+                  >
+                    {runningAction === "contribution" ? "生成中..." : "突出个人贡献"}
+                  </Button>
+                  <Button
+                    disabled={isAssistantBusy}
+                    onClick={() => runSelectionRewriteAction("transition", "把选中的句子改成自然的前后转场句。")}
+                    onMouseDown={(event) => event.preventDefault()}
+                    type="button"
+                    variant="outline"
+                  >
+                    {runningAction === "transition" ? "生成中..." : "补转场句"}
+                  </Button>
+                </div>
+              </section>
 
-          <details className="presento-scripts-ai-block presento-scripts-ai-disclosure presento-scripts-ai-basis">
-            <summary>
-              <span>本页依据</span>
-            </summary>
-            <dl>
-              <div>
-                <dt>关联讲点</dt>
-                <dd>{basis.topics.length ? basis.topics.join(" / ") : "暂无关联讲点"}</dd>
-              </div>
-              <div>
-                <dt>关联资料</dt>
-                <dd>{basis.materials.length ? basis.materials.join(" / ") : "暂无关联资料"}</dd>
-              </div>
-              <div>
-                <dt>关键词</dt>
-                <dd className="presento-scripts-ai-chip-list">
-                  {keywords.length ? keywords.map((keyword) => (
-                    <Badge key={keyword} variant="secondary">{keyword}</Badge>
-                  )) : <Badge variant="secondary">暂无关键词</Badge>}
-                </dd>
-              </div>
-            </dl>
-          </details>
+              <details className="presento-scripts-ai-block presento-scripts-ai-disclosure presento-scripts-ai-basis" open>
+                <summary>
+                  <span>本页依据</span>
+                  <ChevronDown className="presento-scripts-ai-disclosure-icon" aria-hidden="true" />
+                </summary>
+                <dl>
+                  <div>
+                    <dt>关联讲点</dt>
+                    <dd>{basis.topics.length ? basis.topics.join(" / ") : "暂无关联讲点"}</dd>
+                  </div>
+                  <div>
+                    <dt>关联资料</dt>
+                    <dd>{basis.materials.length ? basis.materials.join(" / ") : "暂无关联资料"}</dd>
+                  </div>
+                  <div>
+                    <dt>关键词</dt>
+                    <dd className="presento-scripts-ai-chip-list">
+                      {keywords.length ? keywords.map((keyword) => (
+                        <Badge key={keyword} variant="secondary">{keyword}</Badge>
+                      )) : <Badge variant="secondary">暂无关键词</Badge>}
+                    </dd>
+                  </div>
+                </dl>
+              </details>
+            </TabsContent>
+
+            <TabsContent className="presento-scripts-ai-tab-content" value="drill">
+              <section className="presento-scripts-ai-block presento-scripts-ai-risk presento-scripts-drill-panel">
+                <div className="presento-scripts-drill-heading">
+                  <span>高危提问</span>
+                  {isDrillLoading ? <small>读取中</small> : <small>{visibleDrillQuestions.length} 个问题</small>}
+                </div>
+                <ScrollArea className="presento-scripts-ai-risk-scroll">
+                  <div className="presento-scripts-ai-risk-list">
+                    {isDrillLoading ? (
+                      <>
+                        <Skeleton className="presento-scripts-drill-question-skeleton" />
+                        <Skeleton className="presento-scripts-drill-question-skeleton" />
+                      </>
+                    ) : visibleDrillQuestions.length ? visibleDrillQuestions.map((question) => (
+                      <button
+                        className="presento-scripts-drill-question"
+                        disabled={isDrillBusy}
+                        key={question.id}
+                        onClick={() => void drillChat.submit(question.text)}
+                        type="button"
+                      >
+                        {question.text}
+                      </button>
+                    )) : (
+                      <p>{isOverviewLoading ? "正在生成高危提问..." : "暂无高危提问。"}</p>
+                    )}
+                  </div>
+                </ScrollArea>
+              </section>
+
+              <section className="presento-scripts-drill-chat-panel">
+                {drillChat.error ? (
+                  <p className="presento-scripts-ai-error">{drillChat.error}</p>
+                ) : null}
+                <Conversation className="presento-scripts-drill-conversation">
+                  {drillChat.messages.length === 0 && !isDrillAnswering ? (
+                    <ConversationEmptyState
+                      className="presento-scripts-drill-empty"
+                      description="点击上方高危提问，或直接输入你想继续追问的问题。"
+                      icon={<MessageSquareText aria-hidden="true" />}
+                      title="围绕本页开始深挖"
+                    />
+                  ) : (
+                    <ConversationContent className="presento-scripts-drill-conversation-content">
+                      {drillChat.messages.map((message) => {
+                        const text = getSlideDrillMessageText(message);
+                        const suggestedQuestions = getSlideDrillMessageSuggestedQuestions(message);
+                        const visibleSuggestedQuestions = suggestedQuestions.filter(
+                          (question) => !visibleDrillQuestionSet.has(normalizeSlideDrillQuestionText(question)),
+                        );
+                        if (!text && suggestedQuestions.length === 0) return null;
+                        return (
+                          <Message from={message.role} key={message.id}>
+                            <MessageContent className="presento-scripts-drill-message">
+                              {text ? <MessageResponse>{text}</MessageResponse> : null}
+                              <AnimatePresence initial={false}>
+                                {message.role === "assistant" && visibleSuggestedQuestions.length ? (
+                                  <motion.div
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className="presento-scripts-drill-suggestions"
+                                    exit={{ opacity: 0, y: -4, height: 0, marginTop: 0, paddingTop: 0 }}
+                                    initial={{ opacity: 0, y: 4 }}
+                                    layout
+                                    transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                                  >
+                                    <span>推荐继续追问</span>
+                                    <AnimatePresence initial={false}>
+                                      {visibleSuggestedQuestions.map((question) => (
+                                        <motion.div
+                                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                                          className="presento-scripts-drill-suggestion"
+                                          exit={{ opacity: 0, scale: 0.98, y: -6, height: 0, paddingTop: 0, paddingBottom: 0 }}
+                                          initial={{ opacity: 0, scale: 0.98, y: 6 }}
+                                          key={question}
+                                          layout
+                                          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                                        >
+                                          <p>{question}</p>
+                                          <Button
+                                            onClick={() => drillChat.addQuestion(question, "ai")}
+                                            size="sm"
+                                            type="button"
+                                            variant="outline"
+                                          >
+                                            加入高危提问
+                                          </Button>
+                                        </motion.div>
+                                      ))}
+                                    </AnimatePresence>
+                                  </motion.div>
+                                ) : null}
+                              </AnimatePresence>
+                            </MessageContent>
+                          </Message>
+                        );
+                      })}
+                      {isDrillAnswering && !isStreamingAnswerVisible ? (
+                        <Message from="assistant">
+                          <MessageContent className="presento-scripts-drill-message">
+                            <div className="presento-scripts-drill-loading">
+                              <Loader className="presento-scripts-drill-loading-icon" />
+                              正在生成答辩回答...
+                            </div>
+                          </MessageContent>
+                        </Message>
+                      ) : null}
+                    </ConversationContent>
+                  )}
+                </Conversation>
+                <PromptInput
+                  className="presento-scripts-drill-input"
+                  onSubmit={(message) => drillChat.submit(message.text)}
+                >
+                  <PromptInputBody>
+                    <PromptInputTextarea
+                      disabled={isDrillBusy}
+                      onChange={(event) => drillChat.setInput(event.currentTarget.value)}
+                      placeholder="继续追问本页风险"
+                      value={drillChat.input}
+                    />
+                  </PromptInputBody>
+                  <PromptInputFooter>
+                    <PromptInputTools aria-hidden="true" />
+                    <PromptInputSubmit
+                      disabled={!drillChat.input.trim() || isDrillBusy}
+                      status={drillChat.status === "streaming" ? "streaming" : drillChat.status === "submitted" ? "submitted" : drillChat.error ? "error" : "ready"}
+                    />
+                  </PromptInputFooter>
+                </PromptInput>
+              </section>
+            </TabsContent>
+          </Tabs>
 
         </div>
       </ScrollArea>
     </aside>
+  );
+}
+
+function ScriptDraftSkeleton() {
+  const lineWidths = ["78%", "92%", "86%", "64%", "88%", "72%"];
+  return (
+    <div className="presento-scripts-draft-skeleton" aria-label="正在生成 AI 讲稿">
+      <Skeleton className="presento-scripts-draft-skeleton-title" />
+      <div className="presento-scripts-draft-skeleton-lines">
+        {lineWidths.map((width, index) => (
+          <Skeleton
+            className="presento-scripts-draft-skeleton-line"
+            key={`${width}-${index}`}
+            style={{ width }}
+          />
+        ))}
+      </div>
+      <div className="presento-scripts-draft-skeleton-block">
+        <Skeleton />
+        <Skeleton />
+        <Skeleton />
+      </div>
+    </div>
   );
 }
 
@@ -1968,6 +2589,7 @@ function DefenseRoom({ projectId }: { projectId: string }) {
       const result = await createProjectTrainingSession(
         projectId,
         activeSlide?.id,
+        activeSlide?.page,
         trainingFocuses.map((focus) => focus.knowledgeNodeId),
       );
       setSessionMessage(
@@ -2275,120 +2897,16 @@ function slideAssetUrl(projectId: string, slide: ProjectSlide, variant: "image" 
   return `/api/projects/${encodeURIComponent(projectId)}/slides/${encodeURIComponent(slide.id)}/image${search}`;
 }
 
-function ReviewRoom({ projectId }: { projectId: string }) {
-  const { workspace, error, isLoading } = useProjectWorkspace(projectId);
-  const { data: deepDiveData } = useProjectDeepDives(projectId);
-  const latestReview = workspace?.latestReview ?? null;
-  const weaknesses = deepDiveData?.weaknesses ?? [];
-
-  if (isLoading) return <RoomState icon={<MessageSquareText aria-hidden="true" />} title="正在读取复盘" />;
-  if (error) return <RoomState description={error} icon={<MessageSquareText aria-hidden="true" />} title="复盘读取失败" tone="error" />;
-  if (!latestReview) {
-    return (
-      <RoomState
-        description="完成一轮真实训练并生成复盘后，这里会展示评分、问题和下一轮任务。"
-        icon={<MessageSquareText aria-hidden="true" />}
-        title="暂无复盘报告"
-      />
-    );
-  }
-
-  return (
-    <RoomGrid>
-      <RoomCard action={<Badge className="presento-room-badge-green">{latestReview.averageScore} / 100</Badge>} icon={<MessageSquareText aria-hidden="true" />} title="最近复盘" description={latestReview.scoreLabel}>
-        <Progress className="mt-3 bg-[var(--presento-border)] [&>div]:bg-[var(--presento-blue)]" value={latestReview.averageScore} />
-        <p className="presento-muted mt-4 text-sm font-semibold">生成时间：{formatDateTime(latestReview.createdAt)}</p>
-      </RoomCard>
-      <RoomCard className="lg:col-span-2" icon={<Target aria-hidden="true" />} title="回流薄弱点" description="只展示真实训练产生的薄弱点。">
-        {weaknesses.length ? (
-          <QuestionList items={weaknesses.slice(0, 6).map((item) => `${item.title}：${item.reason}`)} />
-        ) : (
-          <p className="presento-muted text-sm font-semibold">当前复盘没有生成薄弱点记录。</p>
-        )}
-      </RoomCard>
-    </RoomGrid>
-  );
+function ReviewRoom() {
+  return <FeatureUnavailableState />;
 }
 
-function DeepDiveRoom({ projectId }: { projectId: string }) {
-  const { data, error, isLoading } = useProjectDeepDives(projectId);
-  const weaknesses = data?.weaknesses ?? [];
-  const deepDives = data?.deepDives ?? [];
-  const firstDeepDive = deepDives[0] ?? null;
-  const firstWeakness = weaknesses[0] ?? null;
-
-  if (isLoading) return <RoomState icon={<Target aria-hidden="true" />} title="正在读取薄弱点" />;
-  if (error) return <RoomState description={error} icon={<Target aria-hidden="true" />} title="薄弱点读取失败" tone="error" />;
-  if (!weaknesses.length && !deepDives.length) {
-    return (
-      <RoomState
-        description="完成真实训练或手动创建薄弱点后，这里会显示补强材料。"
-        icon={<Target aria-hidden="true" />}
-        title="暂无薄弱点"
-      />
-    );
-  }
-
-  return (
-    <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
-      <RoomCard icon={<Target aria-hidden="true" />} title="薄弱点队列" description="从训练复盘和手动创建记录读取。">
-        <div className="flex flex-col gap-2">
-          {weaknesses.map((item, index) => (
-            <button className={cn("presento-weakness-item", index === 0 && "presento-weakness-item-active")} key={item.id} type="button">
-              <strong>{item.title}</strong>
-              <span>{item.reason}</span>
-            </button>
-          ))}
-        </div>
-      </RoomCard>
-      <RoomCard icon={<Search aria-hidden="true" />} title={firstDeepDive?.title ?? firstWeakness?.title ?? "补强材料"} description="中央区域展示后端生成的 deep-dive 内容。">
-        <p className="text-base font-semibold leading-8 text-[var(--presento-muted)]">
-          {firstDeepDive?.summary ?? firstWeakness?.reason}
-        </p>
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          {stringArrayFromUnknown(firstDeepDive?.checklist).map((item) => (
-            <StatusRow icon={<CheckCircle2 aria-hidden="true" />} key={item} label={item} />
-          ))}
-        </div>
-      </RoomCard>
-    </div>
-  );
+function DeepDiveRoom() {
+  return <FeatureUnavailableState />;
 }
 
-function SkillsRoom({ projectId }: { projectId: string }) {
-  const { data, error, isLoading } = useProjectSkills(projectId);
-  const packs = data?.packs ?? [];
-  const invocations = data?.invocations ?? [];
-
-  if (isLoading) return <RoomState icon={<Bot aria-hidden="true" />} title="正在读取 Skills" />;
-  if (error) return <RoomState description={error} icon={<Bot aria-hidden="true" />} title="Skills 读取失败" tone="error" />;
-
-  return (
-    <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
-      <RoomCard icon={<Bot aria-hidden="true" />} title="Skill Packs" description="项目级启用状态来自真实接口。">
-        {packs.length ? (
-          <div className="flex flex-col gap-2">
-            {packs.map((pack) => (
-              <StatusRow badge={pack.enabled ? "启用" : "停用"} icon={<Sparkles aria-hidden="true" />} key={pack.packId ?? pack.id ?? pack.name} label={pack.name} meta={pack.description ?? pack.reason ?? undefined} />
-            ))}
-          </div>
-        ) : (
-          <p className="presento-muted text-sm font-semibold">当前项目没有 Skill Pack 配置。</p>
-        )}
-      </RoomCard>
-      <RoomCard icon={<Code aria-hidden="true" />} title="最近调用" description="只展示当前项目的 SkillInvocation。">
-        {invocations.length ? (
-          <div className="grid gap-2 md:grid-cols-2">
-            {invocations.map((item) => (
-              <StatusRow badge={item.status} icon={<Bot aria-hidden="true" />} key={item.id} label={item.skillName} meta={item.trigger} />
-            ))}
-          </div>
-        ) : (
-          <p className="presento-muted text-sm font-semibold">还没有真实调用记录。</p>
-        )}
-      </RoomCard>
-    </div>
-  );
+function SkillsRoom() {
+  return <FeatureUnavailableState />;
 }
 
 function useProjectSlides(projectId: string) {
@@ -2424,29 +2942,18 @@ function useProjectSlides(projectId: string) {
   return { data, error, isLoading };
 }
 
-function useProjectDeepDives(projectId: string) {
-  const [data, setData] = useState<{
-    deepDives?: DeepDiveItem[];
-    weaknesses?: WeaknessItem[];
-  } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+function useProjectOverview(projectId: string) {
+  const [data, setData] = useState<ProjectOverviewDto | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    fetchProjectDeepDives(projectId)
+    fetchProjectOverview(projectId)
       .then((nextData) => {
-        if (!cancelled) setData(nextData);
+        if (!cancelled) setData(nextData.overview);
       })
-      .catch((nextError) => {
-        if (!cancelled) {
-          setData(null);
-          setError(nextError instanceof Error ? nextError.message : "薄弱点读取失败");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
+      .catch(() => {
+        if (!cancelled) setData(null);
       });
 
     return () => {
@@ -2454,93 +2961,21 @@ function useProjectDeepDives(projectId: string) {
     };
   }, [projectId]);
 
-  return { data, error, isLoading };
+  return { data };
 }
 
-function useProjectSkills(projectId: string) {
-  const [data, setData] = useState<{
-    packs: SkillPackItem[];
-    invocations: SkillInvocationItem[];
-  } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    Promise.all([
-      fetchProjectSkillPacks(projectId),
-      fetchProjectSkillInvocations(projectId),
-    ])
-      .then(([packsPayload, invocationPayload]) => {
-        if (!cancelled) {
-          setData({
-            packs: packsPayload.skillPacks ?? [],
-            invocations: invocationPayload.invocations ?? [],
-          });
-        }
-      })
-      .catch((nextError) => {
-        if (!cancelled) {
-          setData(null);
-          setError(nextError instanceof Error ? nextError.message : "Skills 读取失败");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
-
-  return { data, error, isLoading };
-}
-
-function useProjectContentExports(projectId: string) {
-  const [exports, setExports] = useState<ContentExportItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const payload = await fetchProjectContentExports(projectId);
-      setExports(payload.exports ?? []);
-    } catch (nextError) {
-      setExports([]);
-      setError(nextError instanceof Error ? nextError.message : "内容输出读取失败");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    void Promise.resolve().then(refresh);
-  }, [refresh]);
-
-  return { error, exports, isLoading, refresh };
-}
-
-function buildProjectScriptEditorContent(slide: ProjectSlide, version: ScriptVersion) {
-  const body = slide.extractedText?.trim() || slide.title;
-  const keywords = extractKeywords(slide);
-  const firstParagraph = trimText(body, version === "short" ? 180 : 700);
-
+function buildAiScriptDraftHtml(overview: SlideAssistantOverview, version: ScriptVersion) {
+  if (version === "short") {
+    return `<h2>${escapeHtml(overview.slideTitle)}</h2><p>${escapeHtml(overview.short)}</p>`;
+  }
   if (version === "keywords") {
+    const keywords = overview.keywords.filter(Boolean);
     return `
-      <h2>${escapeHtml(slide.title)}</h2>
-      ${keywords.length ? `<ul>${listHtml(keywords)}</ul>` : "<p>暂无关键词。</p>"}
+      <h2>${escapeHtml(overview.slideTitle)}</h2>
+      ${keywords.length ? `<ul>${listHtml(keywords)}</ul>` : "<p>暂无 AI 提词。</p>"}
     `;
   }
-
-  return `
-    <h2>${escapeHtml(formatSlidePage(slide))} ${escapeHtml(slide.title)}</h2>
-    <p>${escapeHtml(firstParagraph)}</p>
-    ${keywords.length ? `<h2>关键词</h2><ul>${listHtml(keywords)}</ul>` : ""}
-  `;
+  return `<h2>${escapeHtml(overview.slideTitle)}</h2><p>${escapeHtml(overview.normal)}</p>`;
 }
 
 function extractKeywords(slide: ProjectSlide) {
@@ -2591,17 +3026,6 @@ function buildSlideRisks(slide: ProjectSlide) {
   ];
 }
 
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "未知时间";
-  return date.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 function RoomState({
   title,
   tone = "muted",
@@ -2632,10 +3056,25 @@ function RoomState({
   );
 }
 
-function PCGRoom({ projectId }: { projectId: string }) {
-  const { error, exports, isLoading, refresh } = useProjectContentExports(projectId);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState("");
+function FeatureUnavailableState() {
+  return (
+    <div className="presento-feature-unavailable">
+      <Image
+        alt=""
+        aria-hidden="true"
+        className="presento-feature-unavailable-image"
+        height={1254}
+        priority
+        sizes="(max-width: 768px) 68vw, 360px"
+        src="/states/feature-unavailable-transparent.png"
+        width={1254}
+      />
+      <h2>功能暂未开放</h2>
+    </div>
+  );
+}
+
+function PCGRoom() {
   const containerRef = useRef<HTMLDivElement>(null);
   const weiyunRef = useRef<HTMLDivElement>(null);
   const inputDocsRef = useRef<HTMLDivElement>(null);
@@ -2644,19 +3083,6 @@ function PCGRoom({ projectId }: { projectId: string }) {
   const qqRef = useRef<HTMLDivElement>(null);
   const outputDocsRef = useRef<HTMLDivElement>(null);
   const tencentVideoRef = useRef<HTMLDivElement>(null);
-
-  async function generateExports() {
-    setIsGenerating(true);
-    setGenerateError("");
-    try {
-      await createProjectContentExports(projectId);
-      await refresh();
-    } catch (nextError) {
-      setGenerateError(nextError instanceof Error ? nextError.message : "内容输出生成失败");
-    } finally {
-      setIsGenerating(false);
-    }
-  }
 
   return (
     <div
@@ -2676,30 +3102,6 @@ function PCGRoom({ projectId }: { projectId: string }) {
         aria-hidden="true"
         className="absolute inset-x-[16%] top-16 h-64 rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.16),rgba(16,185,129,0))] blur-3xl"
       />
-      <div className="absolute top-8 right-8 z-40 w-[min(360px,calc(100%-2rem))] rounded-[24px] border border-white/80 bg-white/90 p-4 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <div className="text-xs font-black uppercase tracking-wider text-[var(--presento-faint)]">Content exports</div>
-            <h2 className="text-base font-black text-[var(--presento-ink)]">内容输出</h2>
-          </div>
-          <Button className="rounded-xl font-black" disabled={isGenerating} onClick={generateExports} size="sm">
-            {isGenerating ? "生成中" : "生成"}
-          </Button>
-        </div>
-        {isLoading ? (
-          <p className="text-sm font-bold text-[var(--presento-muted)]">正在读取真实输出...</p>
-        ) : error || generateError ? (
-          <p className="text-sm font-bold text-[#c56a09]">{error ?? generateError}</p>
-        ) : exports.length ? (
-          <div className="flex flex-col gap-2">
-            {exports.slice(0, 3).map((item) => (
-              <StatusRow badge={item.status} icon={<Radio aria-hidden="true" />} key={item.id} label={item.title} meta={item.kind} />
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm font-bold text-[var(--presento-muted)]">还没有真实内容输出。</p>
-        )}
-      </div>
       <div className="relative z-20 flex h-full min-h-0 flex-col items-center justify-center gap-12 md:flex-row md:justify-between md:gap-16">
         <div className="relative z-10 flex flex-row items-center justify-center gap-4 md:flex-col md:gap-5">
           <BeamHoverNode
@@ -3036,46 +3438,6 @@ function TencentWeiyunMark() {
   );
 }
 
-function RoomGrid({ children }: { children: ReactNode }) {
-  return <div className="grid gap-4 lg:grid-cols-2">{children}</div>;
-}
-
-function RoomCard({
-  action,
-  children,
-  className,
-  description,
-  icon,
-  title,
-}: {
-  action?: ReactNode;
-  children?: ReactNode;
-  className?: string;
-  description?: string;
-  icon?: ReactNode;
-  title: string;
-}) {
-  return (
-    <Card className={cn("presento-room-card", className)}>
-      <CardHeader>
-        <div className="flex items-start gap-3">
-          {icon ? <div className="presento-room-card-icon">{icon}</div> : null}
-          <div className="min-w-0">
-            <CardTitle className="text-lg font-black text-[var(--presento-ink)]">{title}</CardTitle>
-            {description ? (
-              <CardDescription className="mt-2 font-semibold leading-6 text-[var(--presento-muted)]">
-                {description}
-              </CardDescription>
-            ) : null}
-          </div>
-        </div>
-        {action ? <CardAction>{action}</CardAction> : null}
-      </CardHeader>
-      {children ? <CardContent>{children}</CardContent> : null}
-    </Card>
-  );
-}
-
 function StatusRow({
   badge,
   icon,
@@ -3095,19 +3457,6 @@ function StatusRow({
         {meta ? <div className="truncate text-xs font-semibold text-[var(--presento-muted)]">{meta}</div> : null}
       </div>
       {badge ? <Badge className="presento-room-badge-muted">{badge}</Badge> : null}
-    </div>
-  );
-}
-
-function QuestionList({ items }: { items: string[] }) {
-  return (
-    <div className="flex flex-col gap-2">
-      {items.map((item, index) => (
-        <div className="presento-room-question" key={item}>
-          <span>{index + 1}</span>
-          <strong>{item}</strong>
-        </div>
-      ))}
     </div>
   );
 }

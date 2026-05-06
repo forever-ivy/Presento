@@ -13,6 +13,7 @@ export type DefenseProject = {
   category: string;
   ownerScope: string;
   teammateScope: string;
+  deadlineAt?: string | null;
   createdAt: string;
 };
 
@@ -85,6 +86,7 @@ export type DefenseWorkspaceInput = {
   category: string;
   ownerScope: string;
   teammateScope: string;
+  deadlineAt?: string | null;
   files?: DefenseFileInput[];
 };
 
@@ -203,6 +205,7 @@ export function createProjectWorkspace(input: DefenseWorkspaceInput): DefenseWor
       category: input.category,
       ownerScope: input.ownerScope,
       teammateScope: input.teammateScope,
+      deadlineAt: input.deadlineAt ?? null,
       createdAt,
     },
     files,

@@ -6,6 +6,7 @@ import {
   FLOW_NODE_FOCUS_MAX_ZOOM,
   createFlowWorkspaceFlow,
   flowRouteToMode,
+  flowOverviewRoute,
   flowStepToRoute,
   getFlowBackgroundCopyAnimationMode,
   getFlowBackgroundCopyBehavior,
@@ -34,6 +35,7 @@ test("maps product routes to flow workspace steps", () => {
 });
 
 test("uses canonical routes for flow steps", () => {
+  assert.equal(flowOverviewRoute("project-a"), "/projects/project-a");
   assert.equal(flowStepToRoute("files", "project-a"), "/projects/project-a/files");
   assert.equal(flowStepToRoute("knowledge", "project-a"), "/projects/project-a/knowledge-map");
   assert.equal(flowStepToRoute("defense", "project-a"), "/projects/project-a/defense");
@@ -59,6 +61,7 @@ test("creates active flow graph with colored status edges", () => {
 
 test("distinguishes map overview routes from inside room routes", () => {
   assert.equal(flowRouteToMode("/"), "map");
+  assert.equal(flowRouteToMode("/projects/project-a"), "map");
   assert.equal(flowRouteToMode("/projects/project-a/knowledge-map"), "inside");
   assert.equal(flowRouteToMode("/projects/project-a/defense"), "inside");
 });

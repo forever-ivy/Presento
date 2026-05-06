@@ -5,7 +5,7 @@ import WebSocket, { WebSocketServer } from "ws";
 import type { RealtimeSessionRecord } from "@shared/domain";
 import { createDefenseRealtimeServer } from "./server.ts";
 
-test("realtime server authorizes a client session, relays provider events, and emits finalized turn notifications", async () => {
+test("realtime server drives continuous defense phases and emits coach events around a finalized turn", async () => {
   const providerPort = await getFreePort();
   const serverPort = await getFreePort();
   const providerEvents: unknown[] = [];
@@ -59,11 +59,16 @@ test("realtime server authorizes a client session, relays provider events, and e
         status: persistedStatus as RealtimeSessionRecord["status"],
         currentSlideId: "slide-2",
         currentKnowledgeNodeId: "node-9",
+        currentPhase: "idle",
+        currentSlideIndex: 2,
         teacherRole: "strict",
         difficulty: "normal",
         contextSnapshot: {
+          projectName: "Presento",
           slideTitle: "系统架构",
           slideIndex: 2,
+          slideGoal: "讲清系统主流程",
+          followUpBudget: 1,
           retrievedSources: [{ id: "README.md:1-3" }],
         },
         clientTokenHash: "hash-1",
@@ -119,17 +124,30 @@ test("realtime server authorizes a client session, relays provider events, and e
   await waitFor(() => messages.some((item) => item.type === "session.ready"));
 
   client.send(JSON.stringify({
-    type: "input_text.submit",
+    type: "session.begin",
+  }));
+
+  await waitFor(() => messages.some((item) => item.type === "coach.slide_intro"));
+
+  client.send(JSON.stringify({
+    type: "presentation.commit",
     text: "我负责订单接口和数据库状态流转。",
   }));
 
+  await waitFor(() => messages.some((item) => item.type === "coach.followup"));
   await waitFor(() => messages.some((item) => item.type === "turn.finalized"));
 
   assert.equal(messages.some((item) => item.type === "assistant.text.delta"), true);
   assert.equal(messages.some((item) => item.type === "assistant.response.final"), true);
+  assert.equal(messages.some((item) => item.type === "coach.opening"), true);
+  assert.equal(messages.some((item) => item.type === "coach.slide_intro"), true);
+  assert.equal(messages.some((item) => item.type === "coach.followup"), true);
   assert.equal(Array.isArray(providerEvents), true);
   assert.equal(storedEvents.length > 0, true);
   assert.equal((finalizedTurn as { providerResponseId?: string } | null)?.providerResponseId, "resp-1");
+  assert.equal((finalizedTurn as { turnType?: string } | null)?.turnType, "presentation");
+  assert.equal((finalizedTurn as { phaseBefore?: string } | null)?.phaseBefore, "user_presenting");
+  assert.equal((finalizedTurn as { phaseAfter?: string } | null)?.phaseAfter, "teacher_followup");
 
   client.close();
   await server.close();

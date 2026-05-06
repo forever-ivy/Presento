@@ -18,11 +18,14 @@ const slideAssistantActionSchema = z.enum([
   "answer_card",
   "keywords",
   "rewrite",
+  "drill_answer",
 ]);
 
 const slideAssistantRequestSchema = z.object({
   action: slideAssistantActionSchema.default("overview"),
+  currentDraft: z.string().optional(),
   instruction: z.string().optional(),
+  selectedText: z.string().optional(),
 });
 
 type SlideAssistantAction = z.infer<typeof slideAssistantActionSchema>;
@@ -44,6 +47,8 @@ type SlideAssistantSkillOutput = {
     materials?: string[];
   };
   rewrite?: string;
+  drillAnswer?: string;
+  suggestedQuestions?: string[];
 };
 
 type SlideRow = {
@@ -72,7 +77,9 @@ export async function POST(
 
     const skillPayload = {
       action: payload.action,
+      currentDraft: payload.currentDraft,
       instruction: payload.instruction,
+      selectedText: payload.selectedText,
       slideId: slide.id,
       slideTitle: slide.title,
       slideIndex: slide.page,
@@ -149,10 +156,21 @@ function toAssistantResult(action: SlideAssistantAction, output: SlideAssistantS
   if (action === "contribution") return createInsertResult("个人贡献", overview.contribution, "card");
   if (action === "transition") return createInsertResult("转场句", overview.transition, "pause");
   if (action === "teacher_question") {
-    return createInsertResult("本页追问", overview.risks[0] ?? `老师可能追问 ${overview.slideTitle} 的依据。`, "question");
+    const question = overview.risks[0] ?? `老师可能追问 ${overview.slideTitle} 的依据。`;
+    const referenceAnswer = overview.answerCard || overview.contribution || overview.normal;
+    return createInsertResult(
+      "追问应答",
+      [
+        question,
+        "回答框架：先用一句话回应问题，再补充本页依据，最后落到我的个人负责范围。",
+        `参考答案：${referenceAnswer}`,
+      ].join("\n"),
+      "question",
+    );
   }
   if (action === "answer_card") return createInsertResult("答辩卡", overview.answerCard, "card");
   if (action === "keywords") return createInsertResult("关键词", overview.keywords.join(" / "), "card");
+  if (action === "drill_answer") return createInsertResult("深挖回答", output.drillAnswer || overview.answerCard, "question");
   return createInsertResult("AI改稿", output.rewrite || overview.normal, "card");
 }
 

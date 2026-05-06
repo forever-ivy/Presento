@@ -8,6 +8,9 @@ test("buildFinalizedTurn collapses a completed realtime exchange into a training
     trainingSessionId: "session-1",
     realtimeSessionId: "rt-1",
     turnIndex: 2,
+    turnType: "presentation",
+    phaseBefore: "user_presenting",
+    phaseAfter: "teacher_followup",
     teacherRole: "strict",
     currentSlideId: "slide-2",
     currentKnowledgeNodeId: "node-9",
@@ -42,6 +45,9 @@ test("buildFinalizedTurn collapses a completed realtime exchange into a training
   assert.equal(turn.sessionId, "session-1");
   assert.equal(turn.realtimeSessionId, "rt-1");
   assert.equal(turn.turnIndex, 2);
+  assert.equal(turn.turnType, "presentation");
+  assert.equal(turn.phaseBefore, "user_presenting");
+  assert.equal(turn.phaseAfter, "teacher_followup");
   assert.equal(turn.slideTitle, "系统架构");
   assert.equal(turn.inputTranscript, "我负责订单接口和数据库状态流转。");
   assert.equal(turn.assistantTranscript, "继续说明为什么 orders 和 order_items 要拆表。");
@@ -58,6 +64,9 @@ test("buildFinalizedTurn rejects incomplete exchanges", () => {
     trainingSessionId: "session-1",
     realtimeSessionId: "rt-1",
     turnIndex: 1,
+    turnType: "presentation",
+    phaseBefore: "user_presenting",
+    phaseAfter: "teacher_followup",
     teacherRole: "strict",
     currentSlideId: null,
     currentKnowledgeNodeId: null,

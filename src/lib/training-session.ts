@@ -1,4 +1,8 @@
-import type { SpeechSynthesisResult, TrainingVoiceState } from "@shared/domain";
+import type {
+  DefensePhase,
+  SpeechSynthesisResult,
+  TrainingVoiceState,
+} from "@shared/domain";
 import type { WeaknessRecord } from "@db/repositories/reviews";
 import type {
   TrainingSessionRecord,
@@ -61,7 +65,9 @@ export function createTrainingSessionRecord({
   title,
   teacherRole,
   difficulty,
+  currentPhase = "idle",
   currentSlideId = null,
+  currentSlideIndex = 0,
   currentKnowledgeNodeId = null,
   focusKnowledgeNodeIds = [],
   createdAt = new Date().toISOString(),
@@ -70,7 +76,9 @@ export function createTrainingSessionRecord({
   title: string;
   teacherRole: string;
   difficulty: string;
+  currentPhase?: DefensePhase;
   currentSlideId?: string | null;
+  currentSlideIndex?: number;
   currentKnowledgeNodeId?: string | null;
   focusKnowledgeNodeIds?: string[];
   createdAt?: string;
@@ -84,9 +92,14 @@ export function createTrainingSessionRecord({
     title,
     teacherRole,
     difficulty,
+    currentPhase,
     currentSlideId,
+    currentSlideIndex,
     currentKnowledgeNodeId: compatibleKnowledgeNodeId,
     focusKnowledgeNodeIds: focusNodeIds,
+    completedSlideIds: [] as string[],
+    currentFollowupCount: 0,
+    finalQuestionIndex: 0,
     status: "active",
     voiceState: "idle" as TrainingVoiceState,
     hintCount: 0,
@@ -94,6 +107,7 @@ export function createTrainingSessionRecord({
     detectedWeaknesses: [] as string[],
     lastRetrievedSources: [] as RetrievedSourceRef[],
     shouldFinish: false,
+    lastPhaseAt: createdAt,
     startedAt: createdAt,
     finishedAt: null,
     createdAt,
@@ -146,7 +160,6 @@ export function buildRetrievedSources(chunks: ChunkLike[]): RetrievedSourceRef[]
 
 export function buildSessionStatePatch({
   session,
-  existingTurnCount,
   userAnswer,
   retrievedSources,
   followUps,
@@ -155,9 +168,16 @@ export function buildSessionStatePatch({
 }: {
   session: Pick<
     TrainingSessionRecord,
-    "followUpCount" | "hintCount" | "detectedWeaknesses" | "lastRetrievedSources"
+    | "currentPhase"
+    | "currentSlideIndex"
+    | "completedSlideIds"
+    | "currentFollowupCount"
+    | "finalQuestionIndex"
+    | "followUpCount"
+    | "hintCount"
+    | "detectedWeaknesses"
+    | "lastRetrievedSources"
   >;
-  existingTurnCount: number;
   userAnswer: string;
   retrievedSources: RetrievedSourceRef[];
   followUps: string[];
@@ -168,15 +188,18 @@ export function buildSessionStatePatch({
     ...(session.detectedWeaknesses ?? []),
     ...risks.map((risk) => risk.trim()).filter(Boolean),
   ]));
-  const nextTurnCount = existingTurnCount + 1;
-
   return {
+    currentPhase: session.currentPhase,
+    currentSlideIndex: session.currentSlideIndex,
+    completedSlideIds: session.completedSlideIds,
+    currentFollowupCount: session.currentFollowupCount + followUps.length,
+    finalQuestionIndex: session.finalQuestionIndex,
     voiceState: (speech?.audioUrl ? "speaking" : "thinking") as TrainingVoiceState,
     hintCount: session.hintCount + (userAnswer.trim() ? 0 : 1),
     followUpCount: session.followUpCount + followUps.length,
     detectedWeaknesses: mergedWeaknesses,
     lastRetrievedSources: retrievedSources,
-    shouldFinish: nextTurnCount >= 3,
+    shouldFinish: false,
   };
 }
 

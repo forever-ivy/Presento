@@ -23,9 +23,13 @@ services:
       context: ./services/notebook-rag
     container_name: defense-coach-notebook-rag
     restart: unless-stopped
+    env_file:
+      - path: ./.env.local
+        required: false
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://defense:defense@postgres:5432/defense_coach?schema=public}
-      LLM_API_KEY: ${LLM_API_KEY:-}
+      DATABASE_URL: postgresql://defense:defense@postgres:5432/defense_coach
+      LLM_QUICK_MODEL: ${LLM_QUICK_MODEL:-deepseek-v4-flash}
+      LLM_MASTERY_MODEL: ${LLM_MASTERY_MODEL:-deepseek-v4-pro}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
       LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
       NOTEBOOK_RAG_API_KEY: ${NOTEBOOK_RAG_API_KEY:-local-dev-key}
@@ -49,11 +53,13 @@ services:
       dockerfile: ./services/defense-realtime/Dockerfile
     container_name: defense-coach-realtime
     restart: unless-stopped
+    env_file:
+      - path: ./.env.local
+        required: false
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://defense:defense@postgres:5432/defense_coach?schema=public}
+      DATABASE_URL: postgresql://defense:defense@postgres:5432/defense_coach
       DEFENSE_REALTIME_PORT: ${DEFENSE_REALTIME_PORT:-3021}
       GLM_REALTIME_WS_URL: ${GLM_REALTIME_WS_URL:-wss://open.bigmodel.cn/api/paas/v4/realtime}
-      GLM_API_KEY: ${GLM_API_KEY:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}

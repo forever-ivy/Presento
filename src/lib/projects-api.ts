@@ -7,6 +7,7 @@ export type ProjectListItem = {
   category: string;
   ownerScope: string;
   teammateScope: string;
+  deadlineAt?: string | null;
   createdAt: string;
   updatedAt?: string;
   fileCount?: number;
@@ -16,8 +17,9 @@ export type ProjectListItem = {
 export type CreateProjectPayload = {
   name: string;
   category: string;
-  ownerScope: string;
-  teammateScope: string;
+  ownerScope?: string;
+  teammateScope?: string;
+  deadlineAt: string;
   uploadedFiles?: DefenseFileInput[];
 };
 

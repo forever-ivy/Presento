@@ -3,13 +3,12 @@
 import {
   CheckCircle2,
   Code2,
-  ChevronRight,
   DatabaseZap,
   FileArchive,
   FileCode2,
   FileSpreadsheet,
   FileText,
-  FolderIcon,
+  MessageSquareText,
   Presentation,
   Search,
   Table2,
@@ -21,12 +20,14 @@ import { AnimatePresence, motion, useReducedMotion, type MotionProps } from "fra
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import {
   Conversation,
+  ConversationEmptyState,
   ConversationContent,
 } from "@/components/ai-elements/conversation";
+import { Loader } from "@/components/ai-elements/loader";
 import {
   Message,
   MessageContent,
@@ -38,7 +39,7 @@ import {
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
-  type PromptInputMessage,
+  PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import {
   Source,
@@ -46,6 +47,7 @@ import {
   SourcesContent,
   SourcesTrigger,
 } from "@/components/ai-elements/sources";
+import { File, Folder, Tree } from "@/components/magicui/file-tree";
 import { SigmaKnowledgeGraph } from "@/components/sigma-knowledge-graph";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,24 +67,26 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { FileExplanationSelectedContext } from "@/lib/file-explanation-context";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-  appendFileExplanationTurn,
-  createFileExplanation,
   createWorkspaceKnowledgeMap,
   getKnowledgeNodeActivation,
   getKnowledgeNodeOpenAction,
   loadFileNodePreview,
   loadKnowledgeMap,
-  type FileExplanationUi,
+  mergeWorkspaceKnowledgeMap,
   type FilePreviewUi,
   type KnowledgeMapNodeUi,
   type KnowledgeMapUi,
 } from "@/lib/knowledge-map-client";
+import { useFileExplanationChat } from "@/lib/use-file-explanation-chat";
+import type { FileExplanationStreamMessage } from "@/lib/file-explanation-stream";
+import {
+  getFileExplanationBusyLabel,
+  getFileExplanationMessageCitations,
+  getFileExplanationMessageText,
+  getFileExplanationStarterPrompts,
+} from "@/lib/file-explanation-chat-ui";
 import {
   addProjectTrainingFocus,
   fetchProjectTrainingFocuses,
@@ -92,6 +96,7 @@ import {
 import type { DefenseWorkspace } from "@/lib/project-workspace";
 import { fetchProjectWorkspace } from "@/lib/project-workspace-api";
 import { projectRoute } from "@/lib/project-routes";
+import { shouldShowKnowledgeMapLoadingState } from "@/lib/knowledge-map-loading";
 import {
   buildKnowledgeMapScene,
   projectKnowledgeMapScene,
@@ -260,14 +265,12 @@ export function KnowledgeMapRoom({
   const [readerNodeId, setReaderNodeId] = useState<string | null>(null);
   const [mode, setMode] = useState<NotebookExplanationMode>("quick");
   const [preview, setPreview] = useState<FilePreviewUi | null>(null);
-  const [explanation, setExplanation] = useState<FileExplanationUi | null>(null);
+  const [selectedQuestionContexts, setSelectedQuestionContexts] = useState<FileExplanationSelectedContext[]>([]);
   const [readerError, setReaderError] = useState<string | null>(null);
-  const [chatInput, setChatInput] = useState("");
-  const [isLoadingExplanation, setIsLoadingExplanation] = useState(false);
-  const [isSending, setIsSending] = useState(false);
   const [trainingFocuses, setTrainingFocuses] = useState<TrainingFocusItem[]>([]);
   const [trainingFocusError, setTrainingFocusError] = useState<string | null>(null);
   const [updatingTrainingFocusNodeId, setUpdatingTrainingFocusNodeId] = useState<string | null>(null);
+  const showCreatedIntro = searchParams.get("intro") === "created";
 
   useEffect(() => {
     let cancelled = false;
@@ -350,7 +353,17 @@ export function KnowledgeMapRoom({
     };
   }, [projectId]);
 
-  const effectiveKnowledgeMap = knowledgeMap;
+  const shouldHoldWorkspaceFallback = shouldShowKnowledgeMapLoadingState({
+    apiNodeCount: knowledgeMap.nodes.length,
+    generation: knowledgeMap.generation,
+    isLoadingMap,
+    isLoadingWorkspace,
+    workspace,
+  });
+  const effectiveKnowledgeMap = useMemo(
+    () => shouldHoldWorkspaceFallback ? knowledgeMap : mergeWorkspaceKnowledgeMap(knowledgeMap, workspace),
+    [knowledgeMap, shouldHoldWorkspaceFallback, workspace],
+  );
   const scene = useMemo(() => buildKnowledgeMapScene(effectiveKnowledgeMap), [effectiveKnowledgeMap]);
   const sanitizedExpandedBranchIds = useMemo(
     () => new Set(
@@ -410,6 +423,13 @@ export function KnowledgeMapRoom({
     [trainingFocuses],
   );
   const queryStateKey = searchParams.toString();
+  const explanationChat = useFileExplanationChat({
+    focusNodeId: readerFocusNodeId,
+    focusNodeTitle: readerFocusNode?.title,
+    mode,
+    node: readerNode,
+    projectId,
+  });
 
   const replaceKnowledgeMapQuery = useCallback((next: {
     evidenceNodeId?: string | null;
@@ -445,13 +465,17 @@ export function KnowledgeMapRoom({
         : resolveReaderFocusNode(scene, null, evidenceSceneNode)?.id;
       startTransition(() => {
         if (focusNodeId) setActiveNodeId(focusNodeId);
+        setSelectedQuestionContexts([]);
         setReaderNodeId(evidenceNodeIdParam);
       });
       return;
     }
 
     if (readerNodeId) {
-      startTransition(() => setReaderNodeId(null));
+      startTransition(() => {
+        setSelectedQuestionContexts([]);
+        setReaderNodeId(null);
+      });
     }
 
     if (nodeIdParam && scene.nodesById[nodeIdParam] && !readerNodeId) {
@@ -469,6 +493,7 @@ export function KnowledgeMapRoom({
 
   useEffect(() => {
     onReaderBackHandlerChange?.(() => {
+      setSelectedQuestionContexts([]);
       setReaderNodeId(null);
       replaceKnowledgeMapQuery({ mode: "overview", nodeId: activeNodeId || scene.rootId });
     });
@@ -510,6 +535,7 @@ export function KnowledgeMapRoom({
     })),
     [overviewProjection.edges],
   );
+  const introProjectTitle = workspace?.project.name || activeNode?.title || "新项目";
 
   useEffect(() => {
     let cancelled = false;
@@ -517,7 +543,6 @@ export function KnowledgeMapRoom({
       void Promise.resolve().then(() => {
         if (cancelled) return;
         setPreview(null);
-        setExplanation(null);
         setReaderError(null);
       });
       return () => {
@@ -545,54 +570,13 @@ export function KnowledgeMapRoom({
     };
   }, [projectId, readerFocusNodeId, readerNode]);
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!readerNode) {
-      void Promise.resolve().then(() => {
-        if (cancelled) return;
-        setExplanation(null);
-        setReaderError(null);
-        setIsLoadingExplanation(false);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    void Promise.resolve()
-      .then(async () => {
-        if (cancelled) return;
-        setIsLoadingExplanation(true);
-        setReaderError(null);
-        setExplanation(null);
-        const nextExplanation = await createFileExplanation(projectId, readerNode, mode, undefined, { focusNodeId: readerFocusNodeId });
-        if (cancelled) return;
-        return nextExplanation;
-      })
-      .then((result) => {
-        if (!result || cancelled) return;
-        setExplanation(result);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setReaderError(messageFromError(error, "资料讲解读取失败。"));
-        setExplanation(null);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoadingExplanation(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mode, projectId, readerFocusNodeId, readerNode]);
-
   function handleNodeSelect(nodeId: string) {
     const node = scene.nodesById[nodeId];
     if (!node) return;
 
     startTransition(() => {
       setActiveNodeId(nodeId);
+      setSelectedQuestionContexts([]);
       setReaderNodeId(null);
       if (node.depth === 1 && node.expandable) {
         setExpandedBranchIds((current) => {
@@ -620,6 +604,7 @@ export function KnowledgeMapRoom({
         if (fileNode && getKnowledgeNodeActivation(fileNode) === "reader") {
           startTransition(() => {
             setActiveNodeId(fileNode.id);
+            setSelectedQuestionContexts([]);
             setReaderNodeId(fileNode.id);
           });
           replaceKnowledgeMapQuery({
@@ -633,6 +618,7 @@ export function KnowledgeMapRoom({
       if (action === "explain-file") {
         startTransition(() => {
           setActiveNodeId(node.id);
+          setSelectedQuestionContexts([]);
           setReaderNodeId(null);
         });
         replaceKnowledgeMapQuery({ mode: "overview", nodeId: node.id });
@@ -645,6 +631,7 @@ export function KnowledgeMapRoom({
       return;
     }
     if (activation === "reader") {
+      setSelectedQuestionContexts([]);
       setReaderNodeId(node.id);
       const focusNodeId = resolveReaderFocusNode(scene, activeNode, node)?.id ?? activeNode?.id ?? node.id;
       replaceKnowledgeMapQuery({
@@ -656,6 +643,7 @@ export function KnowledgeMapRoom({
     }
     startTransition(() => {
       setActiveNodeId(node.id);
+      setSelectedQuestionContexts([]);
       setReaderNodeId(null);
     });
     replaceKnowledgeMapQuery({ mode: "overview", nodeId: node.id });
@@ -689,6 +677,7 @@ export function KnowledgeMapRoom({
     if (activation !== "reader") return;
 
     startTransition(() => {
+      setSelectedQuestionContexts([]);
       setReaderNodeId(node.id);
     });
     replaceKnowledgeMapQuery({
@@ -711,6 +700,7 @@ export function KnowledgeMapRoom({
     if (activation !== "reader") return;
 
     startTransition(() => {
+      setSelectedQuestionContexts([]);
       setReaderNodeId(node.id);
     });
     replaceKnowledgeMapQuery({
@@ -718,6 +708,22 @@ export function KnowledgeMapRoom({
       mode: "reader",
       nodeId: readerFocusNodeId ?? activeNode?.id ?? scene.rootId,
     });
+  }
+
+  function handlePreviewContextAdd(context: FileExplanationSelectedContext) {
+    setSelectedQuestionContexts((current) => {
+      const next = [context, ...current.filter((item) => item.text !== context.text)];
+      return next.slice(0, 3);
+    });
+  }
+
+  function handlePreviewContextRemove(contextId: string) {
+    setSelectedQuestionContexts((current) => current.filter((context) => context.id !== contextId));
+  }
+
+  async function handleExplanationSubmit(question: string) {
+    await explanationChat.submit(question, selectedQuestionContexts);
+    setSelectedQuestionContexts([]);
   }
 
   function handleFilterChange(nextFilter: KnowledgeGraphFilter) {
@@ -728,22 +734,6 @@ export function KnowledgeMapRoom({
     setFilterSlideDirection(nextIndex >= currentIndex ? 1 : -1);
 
     startTransition(() => setFilter(nextFilter));
-  }
-
-  async function handleSubmit(message: PromptInputMessage) {
-    const question = message.text.trim();
-    if (!question || !explanation) return;
-    setIsSending(true);
-    setChatInput("");
-    setReaderError(null);
-    try {
-      const nextSession = await appendFileExplanationTurn(projectId, explanation, question);
-      setExplanation(nextSession);
-    } catch (error) {
-      setReaderError(messageFromError(error, "追问发送失败。"));
-    } finally {
-      setIsSending(false);
-    }
   }
 
   if (mapError || (!isLoadingMap && scene.nodes.length === 0)) {
@@ -769,7 +759,11 @@ export function KnowledgeMapRoom({
   if (isLoadingMap && scene.nodes.length === 0) {
     return (
       <KnowledgeResizableShell mode="overview">
-        <KnowledgeMapStatePanel description="正在读取项目资料、文件节点和材料关系。" loading title="正在加载知识地图" />
+        <KnowledgeMapStatePanel
+          description="正在读取项目资料、文件节点和材料关系。"
+          loading
+          title="正在加载知识地图"
+        />
       </KnowledgeResizableShell>
     );
   }
@@ -778,24 +772,31 @@ export function KnowledgeMapRoom({
 
   return (
     <KnowledgeResizableShell mode={readerNode ? "reader" : "overview"}>
+      <CreatedKnowledgeMapIntro
+        nodeCount={sigmaNodes.length}
+        projectTitle={introProjectTitle}
+        show={showCreatedIntro && !readerNode && !isLoadingMap && !isLoadingWorkspace && sigmaNodes.length > 1}
+      />
       {readerNode ? (
         <KnowledgeReaderPanels
           activeNodeId={readerNode.id}
-          chatInput={chatInput}
-          explanation={explanation}
+          chatInput={explanationChat.input}
+          chatMessages={explanationChat.messages}
+          chatStatus={explanationChat.status}
+          contextSelections={selectedQuestionContexts}
           fileGroups={readerFileGroups}
-          focusNode={readerFocusNode}
-          isLoadingExplanation={isLoadingExplanation}
+          isChatReady={explanationChat.isReady}
           isNarrowLayout={isNarrowLayout}
-          isSending={isSending}
           mode={mode}
           onFileSelect={handleReaderFileSelect}
-          onInputChange={setChatInput}
+          onContextAdd={handlePreviewContextAdd}
+          onContextRemove={handlePreviewContextRemove}
+          onInputChange={explanationChat.setInput}
           onModeChange={setMode}
-          onSubmit={handleSubmit}
+          onSubmit={handleExplanationSubmit}
           preview={preview}
           readerNode={readerNode}
-          readerError={readerError}
+          readerError={readerError ?? explanationChat.error}
         />
       ) : (
         <KnowledgeOverviewPanels
@@ -997,6 +998,68 @@ function KnowledgeResizableShell({
         </motion.div>
       </AnimatePresence>
     </div>
+  );
+}
+
+function CreatedKnowledgeMapIntro({
+  nodeCount,
+  projectTitle,
+  show,
+}: {
+  nodeCount: number;
+  projectTitle: string;
+  show: boolean;
+}) {
+  const reduceMotion = useReducedMotion();
+  const [visible, setVisible] = useState(show);
+
+  useEffect(() => {
+    if (!show) return;
+    setVisible(true);
+    const timeout = window.setTimeout(() => setVisible(false), reduceMotion ? 700 : 2300);
+    return () => window.clearTimeout(timeout);
+  }, [reduceMotion, show]);
+
+  return (
+    <AnimatePresence>
+      {visible ? (
+        <motion.div
+          animate={{ opacity: 1 }}
+          className="presento-created-map-intro"
+          exit={{ opacity: 0 }}
+          initial={{ opacity: 0 }}
+          transition={{ duration: reduceMotion ? 0 : 0.28 }}
+        >
+          <motion.div
+            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, scale: [0.92, 1, 1.04], y: [18, 0, -8] }}
+            className="presento-created-map-intro-node"
+            initial={reduceMotion ? false : { opacity: 0, scale: 0.72, y: 26 }}
+            transition={{ duration: 0.86, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <span className="presento-created-map-intro-pulse" aria-hidden="true" />
+            <strong>{projectTitle}</strong>
+            <small>项目原点</small>
+          </motion.div>
+          <motion.div
+            animate={reduceMotion ? { opacity: 1 } : { opacity: [0, 1, 0.86], scale: [0.82, 1.04, 1] }}
+            className="presento-created-map-intro-burst"
+            initial={reduceMotion ? false : { opacity: 0, scale: 0.78 }}
+            transition={{ delay: reduceMotion ? 0 : 0.62, duration: 0.92, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {Array.from({ length: Math.min(Math.max(nodeCount - 1, 4), 8) }).map((_, index) => (
+              <span key={index} style={{ "--i": index } as CSSProperties} />
+            ))}
+          </motion.div>
+          <motion.p
+            animate={{ opacity: 1, y: 0 }}
+            initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+            transition={{ delay: reduceMotion ? 0 : 0.9, duration: 0.4 }}
+          >
+            资料已接入，知识地图正在展开
+          </motion.p>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 }
 
@@ -1245,13 +1308,15 @@ function filterEmptyCopy(filter: KnowledgeGraphFilter) {
 function KnowledgeReaderPanels({
   activeNodeId,
   chatInput,
-  explanation,
+  chatMessages,
+  chatStatus,
+  contextSelections,
   fileGroups,
-  focusNode,
-  isLoadingExplanation,
+  isChatReady,
   isNarrowLayout,
-  isSending,
   mode,
+  onContextAdd,
+  onContextRemove,
   onFileSelect,
   onInputChange,
   onModeChange,
@@ -1262,17 +1327,19 @@ function KnowledgeReaderPanels({
 }: {
   activeNodeId: string;
   chatInput: string;
-  explanation: FileExplanationUi | null;
+  chatMessages: FileExplanationStreamMessage[];
+  chatStatus: "loading-cache" | "submitted" | "streaming" | "ready" | "error";
+  contextSelections: FileExplanationSelectedContext[];
   fileGroups: KnowledgeReaderFileGroup[];
-  focusNode: KnowledgeMapSceneNode | null;
-  isLoadingExplanation: boolean;
+  isChatReady: boolean;
   isNarrowLayout: boolean;
-  isSending: boolean;
   mode: NotebookExplanationMode;
+  onContextAdd: (context: FileExplanationSelectedContext) => void;
+  onContextRemove: (contextId: string) => void;
   onFileSelect: (nodeId: string) => void;
   onInputChange: (value: string) => void;
   onModeChange: (mode: NotebookExplanationMode) => void;
-  onSubmit: (message: PromptInputMessage) => void | Promise<void>;
+  onSubmit: (question: string) => void | Promise<void>;
   preview: FilePreviewUi | null;
   readerNode: KnowledgeMapNodeUi;
   readerError: string | null;
@@ -1318,7 +1385,7 @@ function KnowledgeReaderPanels({
       <ResizableHandle className="presento-knowledge-resize-handle" withHandle />
       <ResizablePanel defaultSize={isNarrowLayout ? "40%" : "52%"} minSize={isNarrowLayout ? "28%" : "30%"}>
         {preview ? (
-          <FilePreviewPanel preview={preview} />
+          <FilePreviewPanel onContextAdd={onContextAdd} preview={preview} />
         ) : (
           <section className="presento-knowledge-pane presento-knowledge-preview-panel">
             <PreviewSkeleton variant={previewSkeletonVariant(readerNode)} />
@@ -1342,13 +1409,14 @@ function KnowledgeReaderPanels({
               <motion.div className="presento-knowledge-explain-motion" key="explain-panel" {...explanationPanelMotion}>
                 <ExplanationPanel
                   chatInput={chatInput}
-                  explanation={explanation}
+                  chatMessages={chatMessages}
+                  chatStatus={chatStatus}
+                  contextSelections={contextSelections}
                   error={readerError}
-                  focusNode={focusNode}
-                  isLoading={isLoadingExplanation}
-                  isSending={isSending}
+                  isChatReady={isChatReady}
                   mode={mode}
-                  node={readerNode}
+                  nodeTitle={readerNode.title}
+                  onContextRemove={onContextRemove}
                   onInputChange={onInputChange}
                   onModeChange={onModeChange}
                   onSubmit={onSubmit}
@@ -1376,29 +1444,28 @@ function KnowledgeFileLibraryPanel({
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <ScrollArea className="presento-knowledge-file-library-scroll">
           <div className="presento-knowledge-file-library-tree">
-            {fileGroups.map((group) => (
-              <Collapsible className="presento-knowledge-file-group" defaultOpen key={group.id}>
-                <CollapsibleTrigger asChild>
-                  <Button className="presento-knowledge-file-group-trigger" type="button" variant="ghost">
-                    <ChevronRight className="presento-knowledge-file-group-chevron" aria-hidden="true" />
-                    <FolderIcon aria-hidden="true" />
-                    <span>{group.label}</span>
-                    <small>{group.count}</small>
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="presento-knowledge-file-group-content">
-                  {group.children.map((node) => (
-                    <KnowledgeFileTreeNodeRow
-                      activeNodeId={activeNodeId}
-                      key={node.id}
-                      level={0}
-                      node={node}
-                      onFileSelect={onFileSelect}
-                    />
-                  ))}
-                </CollapsibleContent>
-              </Collapsible>
-            ))}
+            <Tree
+              className="presento-knowledge-file-magic-tree"
+              indicator={false}
+              initialExpandedItems={expandedKnowledgeFileTreeIds(fileGroups)}
+              initialSelectedId={activeNodeId}
+              sort="none"
+            >
+              {fileGroups.map((group) => (
+                <KnowledgeFileTreeNodeRow
+                  activeNodeId={activeNodeId}
+                  key={group.id}
+                  node={{
+                    children: group.children,
+                    count: group.count,
+                    id: group.id,
+                    kind: "folder",
+                    label: group.label,
+                  }}
+                  onFileSelect={onFileSelect}
+                />
+              ))}
+            </Tree>
           </div>
         </ScrollArea>
       </div>
@@ -1408,12 +1475,10 @@ function KnowledgeFileLibraryPanel({
 
 function KnowledgeFileTreeNodeRow({
   activeNodeId,
-  level,
   node,
   onFileSelect,
 }: {
   activeNodeId: string;
-  level: number;
   node: KnowledgeReaderFileTreeNode;
   onFileSelect: (nodeId: string) => void;
 }) {
@@ -1421,7 +1486,6 @@ function KnowledgeFileTreeNodeRow({
     return (
       <KnowledgeFileTreeItem
         label={node.label}
-        level={level}
         node={node.node}
         openAction={node.openAction}
         onSelect={onFileSelect}
@@ -1434,38 +1498,31 @@ function KnowledgeFileTreeNodeRow({
   }
 
   return (
-    <Collapsible className="presento-knowledge-file-folder" defaultOpen>
-      <CollapsibleTrigger asChild>
-        <Button
-          className="presento-knowledge-file-folder-trigger"
-          style={{ "--tree-level": level } as CSSProperties}
-          type="button"
-          variant="ghost"
-        >
-          <ChevronRight className="presento-knowledge-file-group-chevron" aria-hidden="true" />
-          <FolderIcon aria-hidden="true" />
+    <Folder
+      className="presento-knowledge-file-folder-trigger"
+      element={(
+        <span className="presento-knowledge-file-folder-copy">
           <span>{node.label}</span>
           <small>{node.count}</small>
-        </Button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="presento-knowledge-file-folder-content">
-        {node.children.map((child) => (
-          <KnowledgeFileTreeNodeRow
-            activeNodeId={activeNodeId}
-            key={child.id}
-            level={level + 1}
-            node={child}
-            onFileSelect={onFileSelect}
-          />
-        ))}
-      </CollapsibleContent>
-    </Collapsible>
+        </span>
+      )}
+      isSelectable
+      value={node.id}
+    >
+      {node.children.map((child) => (
+        <KnowledgeFileTreeNodeRow
+          activeNodeId={activeNodeId}
+          key={child.id}
+          node={child}
+          onFileSelect={onFileSelect}
+        />
+      ))}
+    </Folder>
   );
 }
 
 function KnowledgeFileTreeItem({
   label,
-  level,
   node,
   openAction,
   onSelect,
@@ -1475,7 +1532,6 @@ function KnowledgeFileTreeItem({
   statusText,
 }: {
   label: string;
-  level: number;
   node: KnowledgeMapNodeUi;
   openAction: KnowledgeReaderFileOpenAction;
   onSelect: (nodeId: string) => void;
@@ -1488,23 +1544,21 @@ function KnowledgeFileTreeItem({
   const relationLabel = fileRelationLabel(relation);
   const statusLabel = status === "ready" ? null : fileStatusLabel(status, statusText);
   return (
-    <Button
+    <File
       className={cn(
         "presento-knowledge-file-tree-item",
         selected && "presento-knowledge-file-tree-item-active",
         disabled && "presento-knowledge-file-tree-item-disabled",
         relation !== "normal" && `presento-knowledge-file-tree-item-${relation}`,
       )}
-      disabled={disabled}
-      onClick={() => {
+      fileIcon={<KnowledgeFileIcon node={node} />}
+      handleSelect={() => {
         if (!disabled) onSelect(node.id);
       }}
-      size="sm"
-      style={{ "--tree-level": level } as CSSProperties}
-      type="button"
-      variant="ghost"
+      isSelectable={!disabled}
+      isSelect={selected}
+      value={node.id}
     >
-      <KnowledgeFileIcon node={node} />
       <span className="presento-knowledge-file-tree-copy">
         <strong>{label}</strong>
         <small>
@@ -1513,7 +1567,7 @@ function KnowledgeFileTreeItem({
           {statusLabel ? <em>{statusLabel}</em> : null}
         </small>
       </span>
-    </Button>
+    </File>
   );
 }
 
@@ -1713,11 +1767,19 @@ function ExpressionCardBlock({
 }
 
 function FilePreviewPanel({
+  onContextAdd,
   preview,
 }: {
+  onContextAdd: (context: FileExplanationSelectedContext) => void;
   preview: FilePreviewUi;
 }) {
   const [previewZoom, setPreviewZoom] = useState(1);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    text: string;
+  } | null>(null);
+  const previewRef = useRef<HTMLElement | null>(null);
   const pdfFallback = <PdfPreview preview={preview} />;
   const codeFallback = <CodePreview preview={preview} />;
   const tableFallback = <TablePreview preview={preview} />;
@@ -1733,8 +1795,51 @@ function FilePreviewPanel({
     "--presento-preview-zoom": previewZoom,
   } as CSSProperties;
 
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    window.addEventListener("click", closeContextMenu);
+    window.addEventListener("scroll", closeContextMenu, true);
+    return () => {
+      window.removeEventListener("click", closeContextMenu);
+      window.removeEventListener("scroll", closeContextMenu, true);
+    };
+  }, [closeContextMenu, contextMenu]);
+
+  function handleContextMenu(event: MouseEvent<HTMLElement>) {
+    const selection = window.getSelection();
+    const selectedText = selection?.toString().replace(/\s+/gu, " ").trim() ?? "";
+    if (!selectedText || !previewRef.current || !selection?.rangeCount) return;
+    const anchorNode = selection.anchorNode;
+    if (anchorNode && !previewRef.current.contains(anchorNode)) return;
+    event.preventDefault();
+    const panelRect = previewRef.current.getBoundingClientRect();
+    const menuOffset = 10;
+    setContextMenu({
+      x: Math.max(12, Math.min(event.clientX + menuOffset, panelRect.right - 176)),
+      y: Math.max(12, Math.min(event.clientY + menuOffset, panelRect.bottom - 48)),
+      text: selectedText.slice(0, 1200),
+    });
+  }
+
+  function addSelectedContext() {
+    if (!contextMenu) return;
+    onContextAdd({
+      id: `selected-context-${Date.now()}`,
+      text: contextMenu.text,
+      fileName: preview.fileName ?? preview.title,
+    });
+    setContextMenu(null);
+    window.getSelection()?.removeAllRanges();
+  }
+
   return (
-    <section className="presento-knowledge-pane presento-knowledge-preview-panel">
+    <section
+      className="presento-knowledge-pane presento-knowledge-preview-panel"
+      onContextMenu={handleContextMenu}
+      ref={previewRef}
+    >
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className="presento-knowledge-preview-scroll">
           <div
@@ -1770,6 +1875,16 @@ function FilePreviewPanel({
           <ZoomIn data-icon="inline-start" aria-hidden="true" />
         </Button>
       </div>
+      {contextMenu ? (
+        <div
+          className="presento-selection-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button onClick={addSelectedContext} type="button">
+            添加为提问上下文
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1802,30 +1917,45 @@ function previewSkeletonVariant(node: KnowledgeMapNodeUi): "code" | "document" |
 
 function ExplanationPanel({
   chatInput,
+  chatMessages,
+  chatStatus,
+  contextSelections,
   error,
-  explanation,
-  focusNode,
-  isLoading,
-  isSending,
+  isChatReady,
   mode,
-  node,
+  nodeTitle,
+  onContextRemove,
   onInputChange,
   onModeChange,
   onSubmit,
 }: {
   chatInput: string;
+  chatMessages: FileExplanationStreamMessage[];
+  chatStatus: "loading-cache" | "submitted" | "streaming" | "ready" | "error";
+  contextSelections: FileExplanationSelectedContext[];
   error: string | null;
-  explanation: FileExplanationUi | null;
-  focusNode: KnowledgeMapNodeUi | null;
-  isLoading: boolean;
-  isSending: boolean;
+  isChatReady: boolean;
   mode: NotebookExplanationMode;
-  node: KnowledgeMapNodeUi;
+  nodeTitle: string;
+  onContextRemove: (contextId: string) => void;
   onInputChange: (value: string) => void;
   onModeChange: (mode: NotebookExplanationMode) => void;
-  onSubmit: (message: PromptInputMessage) => void | Promise<void>;
+  onSubmit: (question: string) => void | Promise<void>;
 }) {
-  const citations = explanation?.citations ?? [];
+  const isBusy = chatStatus === "loading-cache" || chatStatus === "submitted" || chatStatus === "streaming";
+  const starterPrompts = useMemo(
+    () => getFileExplanationStarterPrompts(mode, nodeTitle),
+    [mode, nodeTitle],
+  );
+  const busyLabel = getFileExplanationBusyLabel(chatStatus);
+  const displayTitle = useMemo(() => basenameFromDisplayPath(nodeTitle), [nodeTitle]);
+
+  async function submitQuestion(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || !isChatReady || isBusy) return;
+    await onSubmit(trimmed);
+  }
+
   return (
     <section className="presento-knowledge-pane presento-knowledge-explain-panel">
       <header className="presento-knowledge-pane-header">
@@ -1841,8 +1971,8 @@ function ExplanationPanel({
             />
           </div>
           <div className="min-w-0">
-            <h2 className="text-xl font-black text-[var(--presento-ink)]">
-              AI 项目材料讲解
+            <h2 className="truncate text-xl font-black text-[var(--presento-ink)]" title={displayTitle}>
+              {displayTitle}
             </h2>
           </div>
         </div>
@@ -1854,47 +1984,122 @@ function ExplanationPanel({
             <TabsTrigger value="mastery">精通模式</TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className="presento-knowledge-summary">
-          <div className="text-xs font-black text-[var(--presento-muted)]">正在查看项目材料</div>
-          <div className="mt-1 text-sm font-black">{node.title}</div>
-          {focusNode ? (
-            <div className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black leading-5 text-emerald-800">
-              用于支撑讲点：{focusNode.title}
-            </div>
-          ) : null}
-          {error ? (
-            <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-bold leading-6 text-red-700">
-              {error}
-            </p>
-          ) : null}
-          {isLoading || explanation?.summary || node.summary ? (
-            <p className="mt-2 text-sm font-semibold leading-6 text-[var(--presento-muted)]">
-              {isLoading ? "正在生成讲解..." : explanation?.summary ?? node.summary}
-            </p>
-          ) : null}
-        </div>
-        {citations.length ? <CitationSources citations={citations} /> : null}
+        {error ? (
+          <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold leading-6 text-red-700">
+            {error}
+          </p>
+        ) : null}
         <Conversation className="presento-knowledge-conversation">
-          <ConversationContent>
-            {(explanation?.turns ?? []).map((turn) => (
-              <Message from={turn.role} key={turn.id}>
-                <MessageContent>
-                  <MessageResponse>{turn.content}</MessageResponse>
-                </MessageContent>
-              </Message>
-            ))}
-          </ConversationContent>
+          {chatMessages.length === 0 && !isBusy ? (
+            <ConversationEmptyState
+              className="px-5 py-6"
+              description="先让 AI 帮你速通材料，再继续追问答辩时最容易被卡住的点。"
+              title="围绕当前资料开始对话"
+            >
+              <div className="flex max-w-sm flex-col items-center gap-4 text-center">
+                <div className="flex size-14 items-center justify-center rounded-2xl bg-emerald-50">
+                  <MessageSquareText className="size-7 text-emerald-700" />
+                </div>
+                <div>
+                  <div className="text-sm font-black text-[var(--presento-ink)]">像正式答辩前排练一样继续问</div>
+                  <div className="mt-1 text-xs font-semibold leading-6 text-[var(--presento-muted)]">
+                    你可以先让它帮你讲清材料，再追问高风险点、核心函数、老师可能继续问的问题。
+                  </div>
+                </div>
+                <div className="flex w-full flex-wrap justify-center gap-2">
+                  {starterPrompts.map((prompt) => (
+                    <Button
+                      className="h-auto max-w-full whitespace-normal rounded-full px-4 py-2 text-left text-xs font-bold leading-5"
+                      disabled={!isChatReady}
+                      key={prompt}
+                      onClick={() => {
+                        void submitQuestion(prompt);
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      {prompt}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </ConversationEmptyState>
+          ) : (
+            <ConversationContent className="gap-5 px-4 py-4">
+              {chatMessages.map((message) => {
+                const text = getFileExplanationMessageText(message);
+                const citations = getFileExplanationMessageCitations(message);
+                if (!text && citations.length === 0) return null;
+                return (
+                  <Message from={message.role} key={message.id}>
+                    <MessageContent className="text-[15px] leading-7">
+                      {text ? <MessageResponse>{text}</MessageResponse> : null}
+                      {citations.length > 0 ? (
+                        <Sources className="mt-3">
+                          <SourcesTrigger count={citations.length}>材料来源 {citations.length}</SourcesTrigger>
+                          <SourcesContent>
+                            {citations.map((citation, index) => (
+                              <Source
+                                href="#"
+                                key={`${citation.fileName ?? citation.codePath ?? citation.fileId ?? "citation"}-${index}`}
+                                onClick={(event) => event.preventDefault()}
+                                title={formatCitationLabel(citation)}
+                              />
+                            ))}
+                          </SourcesContent>
+                        </Sources>
+                      ) : null}
+                    </MessageContent>
+                  </Message>
+                );
+              })}
+              {isBusy && busyLabel ? (
+                <Message from="assistant">
+                  <MessageContent className="text-[15px]">
+                    <div className="flex items-center gap-3 text-sm font-bold text-[var(--presento-muted)]">
+                      <Loader className="border-emerald-200 border-t-emerald-700" />
+                      <span>{busyLabel}</span>
+                    </div>
+                  </MessageContent>
+                </Message>
+              ) : null}
+            </ConversationContent>
+          )}
         </Conversation>
-        <PromptInput onSubmit={onSubmit}>
+        {contextSelections.length > 0 ? (
+          <div className="presento-selected-contexts" aria-label="已添加的提问上下文">
+            {contextSelections.map((context) => (
+              <button
+                className="presento-selected-context-chip"
+                key={context.id}
+                onClick={() => onContextRemove(context.id)}
+                title="点击移除这段上下文"
+                type="button"
+              >
+                <span>{context.text}</span>
+                <small>移除</small>
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <PromptInput
+          onSubmit={(message) => submitQuestion(message.text)}
+        >
           <PromptInputBody>
             <PromptInputTextarea
+              disabled={!isChatReady}
               onChange={(event) => onInputChange(event.currentTarget.value)}
+              placeholder={isChatReady ? "继续追问当前资料" : "AI 正在准备当前资料的上下文"}
               value={chatInput}
             />
           </PromptInputBody>
           <PromptInputFooter>
-            <span className="text-xs font-bold text-[var(--presento-muted)]">回答会优先参考当前项目材料</span>
-            <PromptInputSubmit disabled={!chatInput.trim() || !explanation} status={isSending ? "submitted" : "ready"} />
+            <PromptInputTools aria-hidden="true" />
+            <PromptInputSubmit
+              disabled={!chatInput.trim() || !isChatReady}
+              status={chatStatus === "streaming" ? "streaming" : chatStatus === "submitted" ? "submitted" : "ready"}
+            />
           </PromptInputFooter>
         </PromptInput>
       </div>
@@ -1902,17 +2107,29 @@ function ExplanationPanel({
   );
 }
 
-function CitationSources({ citations }: { citations: NotebookCitation[] }) {
-  return (
-    <Sources open>
-      <SourcesTrigger count={citations.length} />
-      <SourcesContent>
-        {citations.map((citation, index) => (
-          <Source href="#" key={`${citation.fileName ?? "source"}-${index}`} title={formatCitation(citation)} />
-        ))}
-      </SourcesContent>
-    </Sources>
-  );
+function formatCitationLabel(citation: NotebookCitation) {
+  const source = citation.fileName ?? citation.codePath ?? citation.fileId ?? "当前材料";
+  const location =
+    typeof citation.lineStart === "number"
+      ? `第 ${citation.lineStart}${typeof citation.lineEnd === "number" && citation.lineEnd !== citation.lineStart ? `-${citation.lineEnd}` : ""} 行`
+      : typeof citation.page === "number"
+        ? `第 ${citation.page} 页`
+        : typeof citation.slide === "number"
+          ? `第 ${citation.slide} 页`
+          : typeof citation.sheet === "string"
+            ? citation.sheet
+            : "";
+  return location ? `${source} · ${location}` : source;
+}
+
+function basenameFromDisplayPath(value: string) {
+  return value
+    .replace(/[》]+$/u, "")
+    .replaceAll("\\", "/")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .at(-1) || value;
 }
 
 function PdfPreview({ preview }: { preview: FilePreviewUi }) {
@@ -2220,6 +2437,22 @@ function buildKnowledgeFilePathTree(nodes: Extract<KnowledgeReaderFileTreeNode, 
   return materializeKnowledgeFileTree(root);
 }
 
+function expandedKnowledgeFileTreeIds(fileGroups: KnowledgeReaderFileGroup[]) {
+  const ids: string[] = [];
+  const visit = (node: KnowledgeReaderFileTreeNode) => {
+    if (node.kind !== "folder") return;
+    ids.push(node.id);
+    node.children.forEach(visit);
+  };
+
+  for (const group of fileGroups) {
+    ids.push(group.id);
+    group.children.forEach(visit);
+  }
+
+  return ids;
+}
+
 type KnowledgeReaderMutableFolder = {
   id: string;
   label: string;
@@ -2286,15 +2519,4 @@ function fileKindLabel(node: KnowledgeMapNodeUi) {
   if (node.fileKind === "asset") return "图片素材";
   if (node.fileKind === "other") return "其他资料";
   return node.fileKind?.toUpperCase() ?? "资料";
-}
-
-function formatCitation(citation: NotebookCitation) {
-  const segments = [citation.fileName ?? "未知来源"];
-  if (citation.page) segments.push(`第 ${citation.page} 页`);
-  if (citation.sheet) segments.push(citation.cellRange ? `${citation.sheet}!${citation.cellRange}` : citation.sheet);
-  if (citation.codePath) {
-    const lines = citation.lineStart ? `:${citation.lineStart}${citation.lineEnd ? `-${citation.lineEnd}` : ""}` : "";
-    segments.push(`${citation.codePath}${lines}`);
-  }
-  return segments.join(" · ");
 }

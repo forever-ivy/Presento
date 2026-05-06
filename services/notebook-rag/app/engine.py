@@ -102,7 +102,7 @@ def explain_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     citations = [citation_from_chunk(payload["fileName"], chunk) for chunk in ranked_chunks]
     outline = [first_line(chunk.get("content", "")) for chunk in ranked_chunks if first_line(chunk.get("content", ""))]
-    llm_result = generate_grounded_answer(build_llm_prompt(payload, ranked_chunks, outline, citations))
+    llm_result = generate_grounded_answer(build_llm_prompt(payload, ranked_chunks, outline, citations), mode=mode)
 
     if llm_result:
         return {
@@ -168,7 +168,7 @@ def stream_explain_from_payload(payload: dict[str, Any]):
     outline = [first_line(chunk.get("content", "")) for chunk in ranked_chunks if first_line(chunk.get("content", ""))]
     prompt = build_llm_prompt(payload, ranked_chunks, outline, citations)
     streamed_text = []
-    llm_stream = stream_grounded_answer(prompt)
+    llm_stream = stream_grounded_answer(prompt, mode=mode)
 
     if llm_stream is None:
         response = {
@@ -196,7 +196,10 @@ def stream_explain_from_payload(payload: dict[str, Any]):
         streamed_text.append(delta)
         yield {"event": "delta", "data": {"delta": delta}}
 
-    answer = "".join(streamed_text).strip() or deterministic_answer(payload["fileName"], outline, question, mode)
+    answer = "".join(streamed_text).strip()
+    if not answer:
+        llm_result = generate_grounded_answer(prompt, mode=mode)
+        answer = (llm_result or {}).get("answer") or deterministic_answer(payload["fileName"], outline, question, mode)
     response = {
         "summary": default_summary(payload["fileName"], outline, question),
         "outline": outline,
@@ -290,8 +293,15 @@ def insufficient_evidence_response() -> dict[str, Any]:
 
 
 def deterministic_answer(file_name: str, outline: list[str], question: str, mode: str) -> str:
-    if question:
+    if question and not is_low_signal_question(question):
         return f"围绕“{question}”，可以依据文件这样回答：{'; '.join(outline[:4])}。"
+
+    if question:
+        return "\n".join([
+            "我在。当前资料里能支撑的答辩点主要是：",
+            f"{'; '.join(outline[:4])}。",
+            "你可以继续追问它的作用、实现细节，或者让它整理成 30 秒答辩话术。",
+        ])
 
     if mode == "quick":
         summary = default_summary(file_name, outline, question)
@@ -326,6 +336,11 @@ def default_quiz() -> list[str]:
 
 def default_weaknesses() -> list[str]:
     return ["证据引用不熟", "个人贡献边界不清"]
+
+
+def is_low_signal_question(question: str) -> bool:
+    normalized = question.strip().lower()
+    return normalized in {"hi", "hello", "hey", "你好", "在吗", "test", "测试"} or len(normalized) <= 2
 
 
 def deterministic_response(

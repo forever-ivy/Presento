@@ -18,6 +18,8 @@ test("writes realtime session records with token and context snapshot", async ()
     status: "created",
     currentSlideId: "slide-2",
     currentKnowledgeNodeId: "node-9",
+    currentPhase: "slide_intro",
+    currentSlideIndex: 2,
     teacherRole: "strict",
     difficulty: "normal",
     contextSnapshot: { slideTitle: "系统架构" },
@@ -29,6 +31,8 @@ test("writes realtime session records with token and context snapshot", async ()
     updatedAt: "2026-04-28T12:00:00.000Z",
   });
 
+  assert.match(executed[0] ?? "", /"currentPhase"/u);
+  assert.match(executed[0] ?? "", /"currentSlideIndex"/u);
   assert.match(executed[0] ?? "", /"clientTokenHash"/u);
   assert.match(executed[0] ?? "", /"tokenExpiresAt"/u);
   assert.match(executed[0] ?? "", /"contextSnapshot"/u);

@@ -1,6 +1,13 @@
 import { createServer } from "node:http";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
-import type { RealtimeEventRecord, RealtimeSessionRecord } from "@shared/domain";
+import type {
+  DefensePhase,
+  RealtimeBusinessClientEvent,
+  RealtimeEventRecord,
+  RealtimeSessionRecord,
+  TurnType,
+} from "@shared/domain";
+import { getNextPhaseAfterTurn, getTurnTypeForCommit } from "../../../src/lib/defense-session-machine.ts";
 import { buildFinalizedTurn } from "./turn-finalizer.ts";
 
 type StoredRealtimeSession = RealtimeSessionRecord;
@@ -19,17 +26,35 @@ type ServerDependencies = {
   finalizeTurn?: (payload: ReturnType<typeof buildFinalizedTurn>) => Promise<unknown>;
 };
 
-type AppClientEvent =
+type TransportClientEvent =
   | { type: "session.init"; realtimeSessionId: string; sessionToken: string }
   | { type: "input_text.submit"; text: string }
   | { type: "input_audio.append"; audioBase64: string; format?: string; sampleRate?: number }
   | { type: "input_audio.commit" }
-  | { type: "context.update"; currentSlideId?: string | null; currentKnowledgeNodeId?: string | null; contextSnapshot?: Record<string, unknown> }
+  | {
+      type: "context.update";
+      currentSlideId?: string | null;
+      currentSlideIndex?: number | null;
+      currentKnowledgeNodeId?: string | null;
+      currentPhase?: DefensePhase;
+      contextSnapshot?: Record<string, unknown>;
+    }
   | { type: "assistant.interrupt" }
   | { type: "session.end" };
 
+type AppClientEvent =
+  | TransportClientEvent
+  | RealtimeBusinessClientEvent;
+
 type AppServer = {
   close(): Promise<void>;
+};
+
+type LocalTurnEvent = {
+  id: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
 };
 
 type SessionState = {
@@ -38,12 +63,18 @@ type SessionState = {
   persisted: StoredRealtimeSession;
   sequence: number;
   turnIndex: number;
-  currentTurnEvents: Array<{
-    id: string;
-    eventType: string;
-    payload: Record<string, unknown>;
-    createdAt: string;
-  }>;
+  currentTurnEvents: LocalTurnEvent[];
+  assistantResponding: boolean;
+  pendingTurnType: TurnType | null;
+  pendingPhaseBefore: DefensePhase | null;
+  pendingPhaseAfter: DefensePhase | null;
+  finalQuestionLimit: number;
+  closingIntent: boolean;
+};
+
+type FinalizedTurnWithPatch = ReturnType<typeof buildFinalizedTurn> & {
+  sessionPatch?: Record<string, unknown>;
+  slideFeedbackSummary?: string | null;
 };
 
 export async function createDefenseRealtimeServer(deps: ServerDependencies): Promise<AppServer> {
@@ -87,10 +118,13 @@ export async function createDefenseRealtimeServer(deps: ServerDependencies): Pro
       try {
         state.provider.close();
       } finally {
-        await deps.realtimeRepository.updateSession(state.persisted.id, {
-          status: "failed",
-          endedAt: new Date().toISOString(),
-        });
+        if (!state.closingIntent) {
+          await deps.realtimeRepository.updateSession(state.persisted.id, {
+            status: "failed",
+            currentPhase: "failed",
+            endedAt: new Date().toISOString(),
+          });
+        }
       }
     });
   });
@@ -103,14 +137,16 @@ export async function createDefenseRealtimeServer(deps: ServerDependencies): Pro
   return {
     async close() {
       await new Promise<void>((resolve) => webSocketServer.close(() => resolve()));
-      await new Promise<void>((resolve, reject) => httpServer.close((error) => (error ? reject(error) : resolve())));
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((error) => (error ? reject(error) : resolve()))
+      );
     },
   };
 }
 
 async function initializeSession(
   client: WebSocket,
-  payload: Extract<AppClientEvent, { type: "session.init" }>,
+  payload: Extract<TransportClientEvent, { type: "session.init" }>,
   deps: ServerDependencies,
 ) {
   const tokenHash = deps.hashToken(payload.sessionToken);
@@ -129,19 +165,21 @@ async function initializeSession(
     sequence: 0,
     turnIndex: 1,
     currentTurnEvents: [],
+    assistantResponding: false,
+    pendingTurnType: null,
+    pendingPhaseBefore: null,
+    pendingPhaseAfter: null,
+    finalQuestionLimit: 3,
+    closingIntent: false,
   };
 
   provider.on("open", async () => {
-    await deps.realtimeRepository.updateSession(persisted.id, {
+    const startedAt = new Date().toISOString();
+    await updatePersistedSession(state, deps, {
       status: "connecting",
-      startedAt: new Date().toISOString(),
+      startedAt,
     });
-    provider.send(JSON.stringify({
-      type: "session.update",
-      session: {
-        instructions: buildProviderInstructions(persisted),
-      },
-    }));
+    sendProviderInstructions(state);
   });
 
   provider.on("message", async (raw: RawData) => {
@@ -149,12 +187,14 @@ async function initializeSession(
   });
 
   provider.on("close", async () => {
-    await deps.realtimeRepository.updateSession(persisted.id, {
-      status: "ended",
-      endedAt: new Date().toISOString(),
-    });
+    if (!state.closingIntent) {
+      await updatePersistedSession(state, deps, {
+        status: "ended",
+        endedAt: new Date().toISOString(),
+      });
+    }
     if (client.readyState === WebSocket.OPEN) {
-      sendToClient(client, { type: "session.state", status: "ended" });
+      sendSessionState(state);
     }
   });
 
@@ -174,8 +214,83 @@ async function handleClientEvent(
   payload: Exclude<AppClientEvent, { type: "session.init" }>,
   deps: ServerDependencies,
 ) {
+  if (payload.type === "session.begin") {
+    await recordEvent(state, deps, "client", payload.type, {});
+    await emitOpeningSequence(state, deps);
+    return;
+  }
+
+  if (payload.type === "slide.start") {
+    await recordEvent(state, deps, "client", payload.type, {
+      currentSlideId: payload.currentSlideId ?? state.persisted.currentSlideId ?? null,
+      currentSlideIndex: payload.currentSlideIndex ?? state.persisted.currentSlideIndex,
+    });
+    await updatePersistedSession(state, deps, {
+      currentPhase: "slide_intro",
+      currentSlideId: payload.currentSlideId ?? state.persisted.currentSlideId ?? null,
+      currentSlideIndex: payload.currentSlideIndex ?? state.persisted.currentSlideIndex,
+      currentKnowledgeNodeId:
+        payload.currentKnowledgeNodeId ?? state.persisted.currentKnowledgeNodeId ?? null,
+    });
+    sendProviderInstructions(state);
+    sendSessionState(state);
+    await emitCoachEvent(state, deps, {
+      type: "coach.slide_intro",
+      phase: state.persisted.currentPhase,
+      slideId: state.persisted.currentSlideId,
+      slideIndex: state.persisted.currentSlideIndex,
+      message: buildSlideIntroMessage(state.persisted),
+    });
+    return;
+  }
+
+  if (payload.type === "final_questions.begin") {
+    await recordEvent(state, deps, "client", payload.type, {});
+    await updatePersistedSession(state, deps, {
+      currentPhase: "final_questions",
+      contextSnapshot: {
+        ...state.persisted.contextSnapshot,
+        finalQuestionIndex: 0,
+      },
+    });
+    sendProviderInstructions(state);
+    sendSessionState(state);
+    await emitCoachEvent(state, deps, {
+      type: "coach.final_questions_intro",
+      phase: "final_questions",
+      message: "PPT 部分已经讲完。下面进入综合追问，我会连续从整体价值、个人贡献和设计取舍三个方向施压。",
+    });
+    await emitCoachEvent(state, deps, {
+      type: "coach.followup",
+      phase: "final_questions",
+      turnType: "final_question",
+      finalQuestionIndex: 0,
+      message: buildFinalQuestionPrompt(0, state.persisted),
+    });
+    return;
+  }
+
+  if (payload.type === "presentation.commit" || payload.type === "followup.answer.commit") {
+    const turnType = getTurnTypeForCommit(payload.type);
+    const phaseBefore = turnType === "presentation" ? "user_presenting" : "user_answering";
+    await preparePendingTurn(state, turnType, phaseBefore);
+    await recordEvent(state, deps, "client", payload.type, {
+      text: payload.text ?? null,
+    });
+    await submitCommitPayload(state, payload.text, deps);
+    return;
+  }
+
+  if (payload.type === "session.finish") {
+    await recordEvent(state, deps, "client", payload.type, {});
+    await closeSession(state, deps, true);
+    return;
+  }
+
   if (payload.type === "input_text.submit") {
+    await preparePendingTurn(state, inferTurnTypeFromPhase(state.persisted.currentPhase), state.persisted.currentPhase);
     await recordEvent(state, deps, "client", payload.type, { text: payload.text });
+    appendUserTranscript(state, payload.text);
     state.provider.send(JSON.stringify({
       type: "input_text.submit",
       text: payload.text,
@@ -197,45 +312,35 @@ async function handleClientEvent(
   }
 
   if (payload.type === "input_audio.commit") {
+    await preparePendingTurn(state, inferTurnTypeFromPhase(state.persisted.currentPhase), state.persisted.currentPhase);
     await recordEvent(state, deps, "client", payload.type, {});
     state.provider.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
     return;
   }
 
   if (payload.type === "context.update") {
-    state.persisted = {
-      ...state.persisted,
+    await updatePersistedSession(state, deps, {
+      currentPhase: payload.currentPhase ?? state.persisted.currentPhase,
       currentSlideId: payload.currentSlideId ?? state.persisted.currentSlideId,
+      currentSlideIndex: payload.currentSlideIndex ?? state.persisted.currentSlideIndex,
       currentKnowledgeNodeId: payload.currentKnowledgeNodeId ?? state.persisted.currentKnowledgeNodeId,
       contextSnapshot: payload.contextSnapshot ?? state.persisted.contextSnapshot,
-    };
-    await deps.realtimeRepository.updateSession(state.persisted.id, {
-      currentSlideId: state.persisted.currentSlideId,
-      currentKnowledgeNodeId: state.persisted.currentKnowledgeNodeId,
-      contextSnapshot: state.persisted.contextSnapshot,
     });
-    sendToClient(state.client, {
-      type: "session.state",
-      status: state.persisted.status,
-      currentSlideId: state.persisted.currentSlideId,
-      currentKnowledgeNodeId: state.persisted.currentKnowledgeNodeId,
-    });
+    sendProviderInstructions(state);
+    sendSessionState(state);
     return;
   }
 
   if (payload.type === "assistant.interrupt") {
     await recordEvent(state, deps, "client", payload.type, {});
+    state.assistantResponding = false;
     state.provider.send(JSON.stringify({ type: "response.cancel" }));
+    sendSessionState(state);
     return;
   }
 
   if (payload.type === "session.end") {
-    await deps.realtimeRepository.updateSession(state.persisted.id, {
-      status: "draining",
-      endedAt: new Date().toISOString(),
-    });
-    state.provider.close();
-    state.client.close();
+    await closeSession(state, deps, false);
   }
 }
 
@@ -244,13 +349,8 @@ async function handleProviderEvent(state: SessionState, raw: RawData, deps: Serv
   await recordEvent(state, deps, "provider", String(payload.type ?? "provider.event"), payload);
 
   if (payload.type === "session.created") {
-    state.persisted = {
-      ...state.persisted,
+    await updatePersistedSession(state, deps, {
       providerSessionId: readNestedString(payload, "session", "id"),
-      status: "active",
-    };
-    await deps.realtimeRepository.updateSession(state.persisted.id, {
-      providerSessionId: state.persisted.providerSessionId,
       status: "active",
     });
     sendToClient(state.client, {
@@ -258,14 +358,14 @@ async function handleProviderEvent(state: SessionState, raw: RawData, deps: Serv
       realtimeSessionId: state.persisted.id,
       providerSessionId: state.persisted.providerSessionId,
     });
+    sendSessionState(state);
     return;
   }
 
   if (payload.type === "conversation.item.input_audio_transcription.completed") {
     const transcriptText = readString(payload, "transcript");
     if (!transcriptText) return;
-    const event = makeLocalTurnEvent("user.transcript.final", { transcriptText });
-    state.currentTurnEvents.push(event);
+    appendUserTranscript(state, transcriptText);
     sendToClient(state.client, {
       type: "user.transcript.final",
       transcriptText,
@@ -276,16 +376,19 @@ async function handleProviderEvent(state: SessionState, raw: RawData, deps: Serv
   if (payload.type === "response.audio_transcript.delta") {
     const delta = readString(payload, "delta");
     if (!delta) return;
+    state.assistantResponding = true;
     const event = makeLocalTurnEvent("assistant.text.delta", { delta });
     state.currentTurnEvents.push(event);
     sendToClient(state.client, {
       type: "assistant.text.delta",
       delta,
     });
+    sendSessionState(state);
     return;
   }
 
   if (payload.type === "response.done") {
+    state.assistantResponding = false;
     const transcriptText =
       readNestedString(payload, "response", "output_text") ??
       collapseAssistantDelta(state.currentTurnEvents);
@@ -309,11 +412,23 @@ async function handleProviderEvent(state: SessionState, raw: RawData, deps: Serv
       latencyMs,
     });
 
+    const turnType = state.pendingTurnType ?? inferTurnTypeFromPhase(state.persisted.currentPhase);
+    const phaseBefore = state.pendingPhaseBefore ?? state.persisted.currentPhase;
+    const phaseAfter = state.pendingPhaseAfter ?? getNextPhaseAfterTurn({
+      currentPhase: state.persisted.currentPhase,
+      turnType,
+      finalQuestionIndex: readFinalQuestionIndex(state.persisted.contextSnapshot),
+      finalQuestionLimit: state.finalQuestionLimit,
+    });
+
     const finalizedPayload = buildFinalizedTurn({
       projectId: state.persisted.projectId,
       trainingSessionId: state.persisted.trainingSessionId,
       realtimeSessionId: state.persisted.id,
       turnIndex: state.turnIndex,
+      turnType,
+      phaseBefore,
+      phaseAfter,
       teacherRole: state.persisted.teacherRole,
       currentSlideId: state.persisted.currentSlideId,
       currentKnowledgeNodeId: state.persisted.currentKnowledgeNodeId,
@@ -324,15 +439,210 @@ async function handleProviderEvent(state: SessionState, raw: RawData, deps: Serv
     const finalizedTurn = deps.finalizeTurn
       ? await deps.finalizeTurn(finalizedPayload)
       : finalizedPayload;
+    const finalizedWithPatch = finalizedTurn as FinalizedTurnWithPatch;
+
+    if (isRecord(finalizedWithPatch.sessionPatch)) {
+      await updatePersistedSession(state, deps, finalizedWithPatch.sessionPatch as Partial<StoredRealtimeSession>);
+    } else {
+      await updatePersistedSession(state, deps, {
+        currentPhase: phaseAfter,
+      });
+    }
+
+    if (turnType === "final_question") {
+      await updatePersistedSession(state, deps, {
+        contextSnapshot: {
+          ...state.persisted.contextSnapshot,
+          finalQuestionIndex: readFinalQuestionIndex(state.persisted.contextSnapshot) + 1,
+        },
+      });
+    }
 
     sendToClient(state.client, {
       type: "turn.finalized",
-      turn: finalizedTurn,
+      turn: {
+        ...finalizedWithPatch,
+        turnType,
+        phaseBefore,
+        phaseAfter,
+      },
+    });
+
+    await emitPostTurnCoachEvent(state, deps, {
+      transcriptText,
+      turnType,
+      phaseAfter,
+      slideFeedbackSummary: finalizedWithPatch.slideFeedbackSummary ?? null,
     });
 
     state.turnIndex += 1;
     state.currentTurnEvents = [];
+    state.pendingTurnType = null;
+    state.pendingPhaseBefore = null;
+    state.pendingPhaseAfter = null;
+    sendSessionState(state);
   }
+}
+
+async function submitCommitPayload(
+  state: SessionState,
+  text: string | undefined,
+  deps: ServerDependencies,
+) {
+  if (text && text.trim()) {
+    appendUserTranscript(state, text);
+    state.provider.send(JSON.stringify({
+      type: "input_text.submit",
+      text,
+    }));
+    return;
+  }
+
+  await recordEvent(state, deps, "system", "input_audio.commit.forwarded", {});
+  state.provider.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+}
+
+async function preparePendingTurn(
+  state: SessionState,
+  turnType: TurnType,
+  phaseBefore: DefensePhase,
+) {
+  const phaseAfter = getNextPhaseAfterTurn({
+    currentPhase: state.persisted.currentPhase,
+    turnType,
+    finalQuestionIndex: readFinalQuestionIndex(state.persisted.contextSnapshot),
+    finalQuestionLimit: state.finalQuestionLimit,
+  });
+  state.pendingTurnType = turnType;
+  state.pendingPhaseBefore = phaseBefore;
+  state.pendingPhaseAfter = phaseAfter;
+  await updatePersistedSessionFromMemory(state, {
+    currentPhase: phaseBefore,
+  });
+  sendProviderInstructions(state);
+  sendSessionState(state);
+}
+
+async function emitOpeningSequence(state: SessionState, deps: ServerDependencies) {
+  await updatePersistedSession(state, deps, {
+    currentPhase: "opening",
+  });
+  sendProviderInstructions(state);
+  sendSessionState(state);
+  await emitCoachEvent(state, deps, {
+    type: "coach.opening",
+    phase: "opening",
+    message: buildOpeningMessage(state.persisted),
+  });
+
+  await updatePersistedSession(state, deps, {
+    currentPhase: "slide_intro",
+  });
+  sendProviderInstructions(state);
+  sendSessionState(state);
+  await emitCoachEvent(state, deps, {
+    type: "coach.slide_intro",
+    phase: "slide_intro",
+    slideId: state.persisted.currentSlideId,
+    slideIndex: state.persisted.currentSlideIndex,
+    message: buildSlideIntroMessage(state.persisted),
+  });
+}
+
+async function emitPostTurnCoachEvent(
+  state: SessionState,
+  deps: ServerDependencies,
+  input: {
+    transcriptText: string | null;
+    turnType: TurnType;
+    phaseAfter: DefensePhase;
+    slideFeedbackSummary: string | null;
+  },
+) {
+  if (input.turnType === "presentation") {
+    await emitCoachEvent(state, deps, {
+      type: "coach.followup",
+      phase: "teacher_followup",
+      turnType: "presentation",
+      followupCount: readFollowupBudget(state.persisted.contextSnapshot),
+      message: input.transcriptText ?? "继续解释你刚才提到的关键实现和材料支撑。",
+    });
+    return;
+  }
+
+  if (input.turnType === "followup_answer") {
+    await emitCoachEvent(state, deps, {
+      type: "coach.slide_feedback",
+      phase: "slide_feedback",
+      slideId: state.persisted.currentSlideId,
+      slideIndex: state.persisted.currentSlideIndex,
+      message: input.slideFeedbackSummary ?? input.transcriptText ?? "这一页先到这里，下一页继续讲。",
+      summary: input.slideFeedbackSummary,
+    });
+    return;
+  }
+
+  if (input.phaseAfter === "finishing") {
+    await emitCoachEvent(state, deps, {
+      type: "coach.session_finished",
+      phase: "finishing",
+      message: input.transcriptText ?? "本轮模拟答辩结束，现在可以生成整场复盘。",
+    });
+    return;
+  }
+
+  await emitCoachEvent(state, deps, {
+    type: "coach.followup",
+    phase: "final_questions",
+    turnType: "final_question",
+    finalQuestionIndex: readFinalQuestionIndex(state.persisted.contextSnapshot) + 1,
+    message: input.transcriptText ?? buildFinalQuestionPrompt(readFinalQuestionIndex(state.persisted.contextSnapshot) + 1, state.persisted),
+  });
+}
+
+async function closeSession(
+  state: SessionState,
+  deps: ServerDependencies,
+  fromBusinessFinish: boolean,
+) {
+  state.closingIntent = true;
+  await recordEvent(state, deps, "client", fromBusinessFinish ? "session.finish" : "session.end", {});
+  await updatePersistedSession(state, deps, {
+    status: "draining",
+    currentPhase: "finishing",
+    endedAt: new Date().toISOString(),
+  });
+  state.provider.close();
+  state.client.close();
+}
+
+async function updatePersistedSession(
+  state: SessionState,
+  deps: ServerDependencies,
+  patch: Partial<StoredRealtimeSession>,
+) {
+  await updatePersistedSessionFromMemory(state, patch);
+  await deps.realtimeRepository.updateSession(state.persisted.id, patch);
+}
+
+async function updatePersistedSessionFromMemory(
+  state: SessionState,
+  patch: Partial<StoredRealtimeSession>,
+) {
+  state.persisted = {
+    ...state.persisted,
+    ...patch,
+    contextSnapshot: patch.contextSnapshot ?? state.persisted.contextSnapshot,
+  };
+}
+
+async function emitCoachEvent(
+  state: SessionState,
+  deps: ServerDependencies,
+  payload: Record<string, unknown>,
+) {
+  await recordEvent(state, deps, "system", String(payload.type ?? "coach.event"), payload);
+  sendToClient(state.client, payload);
 }
 
 async function recordEvent(
@@ -357,24 +667,72 @@ async function recordEvent(
   });
 }
 
+function sendSessionState(state: SessionState) {
+  sendToClient(state.client, {
+    type: "session.state",
+    status: state.persisted.status,
+    phase: state.persisted.currentPhase,
+    slideId: state.persisted.currentSlideId,
+    slideIndex: state.persisted.currentSlideIndex,
+    followupCount: readFollowupBudget(state.persisted.contextSnapshot),
+    canInterrupt: state.assistantResponding,
+    canAdvance: state.persisted.currentPhase === "slide_feedback" || state.persisted.currentPhase === "review_ready",
+    reconnecting: false,
+  });
+}
+
 function sendToClient(client: WebSocket, payload: Record<string, unknown>) {
   if (client.readyState !== WebSocket.OPEN) return;
   client.send(JSON.stringify(payload));
 }
 
+function sendProviderInstructions(state: SessionState) {
+  if (state.provider.readyState !== WebSocket.OPEN) return;
+  state.provider.send(JSON.stringify({
+    type: "session.update",
+    session: {
+      instructions: buildProviderInstructions(state.persisted),
+    },
+  }));
+}
+
 function buildProviderInstructions(session: StoredRealtimeSession) {
   const snapshot = session.contextSnapshot ?? {};
   const slideTitle = readString(snapshot, "slideTitle");
+  const slideGoal = readString(snapshot, "slideGoal");
   const slideIndex = readNumber(snapshot, "slideIndex");
+  const previousSlideFeedback = readString(snapshot, "previousSlideFeedback");
+  const cueKeywords = Array.isArray(snapshot.cueKeywords)
+    ? snapshot.cueKeywords.filter((item): item is string => typeof item === "string")
+    : [];
+
   return [
     "你是一位严谨但支持式的模拟答辩老师。",
     `老师角色：${session.teacherRole}。`,
     `训练难度：${session.difficulty}。`,
-    slideTitle ? `当前页：第 ${slideIndex ?? "?"} 页《${slideTitle}》。` : null,
-    `请围绕当前页面内容进行追问，优先追问证据链、设计取舍和个人负责范围。`,
+    `当前阶段：${session.currentPhase}。`,
+    slideTitle ? `当前页：第 ${slideIndex ?? session.currentSlideIndex ?? "?"} 页《${slideTitle}》。` : null,
+    slideGoal ? `本页目标：${slideGoal}` : null,
+    previousSlideFeedback ? `上一页提醒：${previousSlideFeedback}` : null,
+    cueKeywords.length ? `优先围绕这些关键词追问：${cueKeywords.join(" / ")}` : null,
+    session.currentPhase === "user_presenting"
+      ? "用户正在讲这一页。请在收到输入后只追问 1 个最关键的问题，聚焦设计取舍、项目材料支撑或个人负责范围。"
+      : null,
+    session.currentPhase === "user_answering"
+      ? "用户正在回答追问。请在收到输入后给出简短本页反馈，指出讲清楚了什么、风险点和下一页提醒，不要再追加新问题。"
+      : null,
+    session.currentPhase === "final_questions"
+      ? "当前进入综合追问阶段。请在收到用户回答后继续提出下一个全局追问，保持简洁和压力感。"
+      : null,
+    "不要输出参考答案，不要离开当前阶段，不要把自己变成普通聊天机器人。",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function appendUserTranscript(state: SessionState, transcriptText: string) {
+  const event = makeLocalTurnEvent("user.transcript.final", { transcriptText });
+  state.currentTurnEvents.push(event);
 }
 
 function makeLocalTurnEvent(eventType: string, payload: Record<string, unknown>) {
@@ -392,6 +750,60 @@ function collapseAssistantDelta(events: Array<{ eventType: string; payload: Reco
     .map((event) => readString(event.payload, "delta"))
     .filter((value): value is string => Boolean(value))
     .join("");
+}
+
+function buildOpeningMessage(session: StoredRealtimeSession) {
+  const snapshot = session.contextSnapshot ?? {};
+  const projectName = readString(snapshot, "projectName") ?? "当前项目";
+  const focusNodeCount = Array.isArray(snapshot.focusKnowledgeNodes) ? snapshot.focusKnowledgeNodes.length : 0;
+  return [
+    `我是本轮《${projectName}》模拟答辩老师。`,
+    "接下来我们会按 PPT 顺序完成一轮连续讲练。",
+    `本轮难度为${session.difficulty}，老师风格为${session.teacherRole}。`,
+    focusNodeCount ? `我会重点盯住 ${focusNodeCount} 个讲练重点和你的个人负责范围。` : null,
+    "请先从当前页开始介绍，讲完后我会追问。",
+  ]
+    .filter(Boolean)
+    .join("");
+}
+
+function buildSlideIntroMessage(session: StoredRealtimeSession) {
+  const snapshot = session.contextSnapshot ?? {};
+  const slideTitle = readString(snapshot, "slideTitle") ?? "当前页";
+  const slideGoal = readString(snapshot, "slideGoal");
+  const slideIndex = readNumber(snapshot, "slideIndex") ?? session.currentSlideIndex;
+  return [
+    `现在进入第 ${slideIndex || "?"} 页《${slideTitle}》。`,
+    slideGoal ? `请你围绕“${slideGoal}”来讲，先讲主结论，再补材料支撑和个人负责范围。` : "请开始讲这一页。",
+  ].join("");
+}
+
+function buildFinalQuestionPrompt(index: number, session: StoredRealtimeSession) {
+  const memberScope = readString(session.contextSnapshot ?? {}, "memberScope");
+  const prompts = [
+    "如果老师质疑这个项目只是套壳 AI，你会怎么证明它有真正的系统设计和工程价值？",
+    memberScope
+      ? `如果老师追问“你的个人贡献到底是什么”，你会怎么围绕“${memberScope}”回答？`
+      : "如果老师追问你的个人贡献到底是什么，你会怎么回答？",
+    "如果让你用一句话概括 Presento 和普通 AI PPT 工具的差异，你会怎么讲？",
+  ];
+  return prompts[index] ?? prompts[prompts.length - 1];
+}
+
+function inferTurnTypeFromPhase(phase: DefensePhase): TurnType {
+  if (phase === "final_questions") return "final_question";
+  if (phase === "teacher_followup" || phase === "user_answering") return "followup_answer";
+  return "presentation";
+}
+
+function readFollowupBudget(contextSnapshot: Record<string, unknown>) {
+  const value = contextSnapshot.followUpBudget;
+  return typeof value === "number" && Number.isFinite(value) ? value : 1;
+}
+
+function readFinalQuestionIndex(contextSnapshot: Record<string, unknown>) {
+  const value = contextSnapshot.finalQuestionIndex;
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function readString(record: Record<string, unknown>, key: string) {
@@ -413,4 +825,8 @@ function readNestedString(
 function readNumber(record: Record<string, unknown>, key: string) {
   const value = record[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

@@ -12,6 +12,7 @@ CREATE TABLE "Project" (
     "category" TEXT NOT NULL,
     "ownerScope" TEXT NOT NULL,
     "teammateScope" TEXT NOT NULL,
+    "deadlineAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -235,6 +236,19 @@ CREATE TABLE "Slide" (
 );
 
 -- CreateTable
+CREATE TABLE "SlideDrillState" (
+    "id" TEXT NOT NULL,
+    "projectId" TEXT NOT NULL,
+    "slideId" TEXT NOT NULL,
+    "questions" JSONB NOT NULL,
+    "messages" JSONB NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "SlideDrillState_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "ProcessingTask" (
     "id" TEXT NOT NULL,
     "projectId" TEXT NOT NULL,
@@ -321,8 +335,14 @@ CREATE TABLE "TrainingSession" (
     "title" TEXT NOT NULL,
     "teacherRole" TEXT NOT NULL,
     "difficulty" TEXT NOT NULL,
+    "currentPhase" TEXT NOT NULL DEFAULT 'idle',
     "currentSlideId" TEXT,
+    "currentSlideIndex" INTEGER NOT NULL DEFAULT 0,
     "currentKnowledgeNodeId" TEXT,
+    "focusKnowledgeNodeIds" JSONB NOT NULL DEFAULT '[]'::jsonb,
+    "completedSlideIds" JSONB NOT NULL DEFAULT '[]'::jsonb,
+    "currentFollowupCount" INTEGER NOT NULL DEFAULT 0,
+    "finalQuestionIndex" INTEGER NOT NULL DEFAULT 0,
     "status" TEXT NOT NULL,
     "voiceState" TEXT NOT NULL,
     "hintCount" INTEGER NOT NULL DEFAULT 0,
@@ -330,6 +350,7 @@ CREATE TABLE "TrainingSession" (
     "detectedWeaknesses" JSONB NOT NULL,
     "lastRetrievedSources" JSONB NOT NULL,
     "shouldFinish" BOOLEAN NOT NULL DEFAULT false,
+    "lastPhaseAt" TIMESTAMP(3) NOT NULL,
     "startedAt" TIMESTAMP(3) NOT NULL,
     "finishedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL,
@@ -348,6 +369,8 @@ CREATE TABLE "RealtimeSession" (
     "status" TEXT NOT NULL,
     "currentSlideId" TEXT,
     "currentKnowledgeNodeId" TEXT,
+    "currentPhase" TEXT NOT NULL DEFAULT 'idle',
+    "currentSlideIndex" INTEGER NOT NULL DEFAULT 0,
     "teacherRole" TEXT NOT NULL,
     "difficulty" TEXT NOT NULL,
     "contextSnapshot" JSONB NOT NULL,
@@ -368,6 +391,9 @@ CREATE TABLE "TrainingTurn" (
     "projectId" TEXT NOT NULL,
     "realtimeSessionId" TEXT,
     "turnIndex" INTEGER,
+    "turnType" TEXT,
+    "phaseBefore" TEXT,
+    "phaseAfter" TEXT,
     "slideId" TEXT,
     "slideIndex" INTEGER,
     "slideTitle" TEXT,
@@ -386,6 +412,7 @@ CREATE TABLE "TrainingTurn" (
     "risks" JSONB NOT NULL,
     "improvedAnswer" TEXT,
     "followUps" JSONB NOT NULL,
+    "slideFeedbackSummary" TEXT,
     "citations" JSONB NOT NULL,
     "retrievedSourceIds" JSONB NOT NULL,
     "speech" JSONB NOT NULL,
@@ -617,6 +644,12 @@ CREATE INDEX "Slide_projectId_page_idx" ON "Slide"("projectId", "page");
 CREATE INDEX "Slide_deckId_idx" ON "Slide"("deckId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "SlideDrillState_projectId_slideId_key" ON "SlideDrillState"("projectId", "slideId");
+
+-- CreateIndex
+CREATE INDEX "SlideDrillState_projectId_idx" ON "SlideDrillState"("projectId");
+
+-- CreateIndex
 CREATE INDEX "ProcessingTask_projectId_status_idx" ON "ProcessingTask"("projectId", "status");
 
 -- CreateIndex
@@ -819,6 +852,12 @@ ALTER TABLE "Slide" ADD CONSTRAINT "Slide_projectId_fkey" FOREIGN KEY ("projectI
 
 -- AddForeignKey
 ALTER TABLE "Slide" ADD CONSTRAINT "Slide_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "FileAsset"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SlideDrillState" ADD CONSTRAINT "SlideDrillState_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SlideDrillState" ADD CONSTRAINT "SlideDrillState_slideId_fkey" FOREIGN KEY ("slideId") REFERENCES "Slide"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ProcessingTask" ADD CONSTRAINT "ProcessingTask_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;

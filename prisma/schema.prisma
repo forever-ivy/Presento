@@ -12,6 +12,7 @@ model Project {
   category         String
   ownerScope       String
   teammateScope    String
+  deadlineAt       DateTime?
   createdAt        DateTime
   updatedAt        DateTime             @updatedAt
   members          ProjectMember[]
@@ -22,6 +23,8 @@ model Project {
   sources          ProjectSource[]
   slideDecks       SlideDeck[]
   slides           Slide[]
+  slideScriptDrafts SlideScriptDraft[]
+  slideDrillStates SlideDrillState[]
   knowledgeChunks  KnowledgeChunk[]
   knowledgeNodes   KnowledgeNode[]
   knowledgeEdges   KnowledgeEdge[]
@@ -284,9 +287,41 @@ model Slide {
   deck          SlideDeck  @relation(fields: [deckId], references: [id], onDelete: Cascade)
   project       Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
   file          FileAsset? @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  scriptDrafts  SlideScriptDraft[]
+  drillStates   SlideDrillState[]
 
   @@index([projectId, page])
   @@index([deckId])
+}
+
+model SlideScriptDraft {
+  id          String   @id
+  projectId   String
+  slideId     String
+  version     String
+  contentHtml String
+  createdAt   DateTime
+  updatedAt   DateTime
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  slide       Slide    @relation(fields: [slideId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, slideId, version])
+  @@index([projectId])
+}
+
+model SlideDrillState {
+  id        String   @id
+  projectId String
+  slideId   String
+  questions Json
+  messages  Json
+  createdAt DateTime
+  updatedAt DateTime
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  slide     Slide    @relation(fields: [slideId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, slideId])
+  @@index([projectId])
 }
 
 model ProcessingTask {
@@ -400,9 +435,14 @@ model TrainingSession {
   title                  String
   teacherRole            String
   difficulty             String
+  currentPhase           String   @default("idle")
   currentSlideId         String?
+  currentSlideIndex      Int      @default(0)
   currentKnowledgeNodeId String?
   focusKnowledgeNodeIds  Json     @default("[]")
+  completedSlideIds      Json     @default("[]")
+  currentFollowupCount   Int      @default(0)
+  finalQuestionIndex     Int      @default(0)
   status                 String
   voiceState             String
   hintCount              Int      @default(0)
@@ -410,6 +450,7 @@ model TrainingSession {
   detectedWeaknesses     Json
   lastRetrievedSources   Json
   shouldFinish           Boolean  @default(false)
+  lastPhaseAt            DateTime @default(now())
   startedAt              DateTime
   finishedAt             DateTime?
   createdAt              DateTime
@@ -432,6 +473,9 @@ model TrainingTurn {
   projectId       String
   realtimeSessionId String?
   turnIndex       Int?
+  turnType        String?
+  phaseBefore     String?
+  phaseAfter      String?
   slideId         String?
   slideIndex      Int?
   slideTitle      String?
@@ -450,6 +494,7 @@ model TrainingTurn {
   risks           Json
   improvedAnswer  String?
   followUps       Json
+  slideFeedbackSummary String?
   citations       Json
   retrievedSourceIds Json
   speech          Json
@@ -473,6 +518,8 @@ model RealtimeSession {
   status                 String
   currentSlideId         String?
   currentKnowledgeNodeId String?
+  currentPhase           String   @default("idle")
+  currentSlideIndex      Int      @default(0)
   teacherRole            String
   difficulty             String
   contextSnapshot        Json

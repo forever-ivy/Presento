@@ -18,6 +18,11 @@ import {
   readFileKnowledgeChunks,
   retrieveRelevantFileKnowledgeChunks,
 } from "./knowledge-db";
+import {
+  normalizeSelectedContexts,
+  selectedContextsToPrompt,
+  type FileExplanationSelectedContext,
+} from "./file-explanation-context";
 import { createFileExplanationUIMessageStream } from "./file-explanation-stream";
 
 type FocusNodeContext = {
@@ -150,25 +155,51 @@ export async function createFileExplanationSession({
   return repository.readSession(projectId, session.id);
 }
 
+export async function readReusableFileExplanationSession({
+  focusNodeId,
+  projectId,
+  nodeId,
+  mode,
+}: {
+  focusNodeId?: string;
+  projectId: string;
+  nodeId: string;
+  mode: NotebookExplanationMode;
+}) {
+  const node = await readExplainableFileNode(projectId, nodeId);
+  const focus = await readFocusNodeContext(projectId, focusNodeId);
+  return createFileExplanationRepository().readReusableSession({
+    projectId,
+    nodeId,
+    fileId: String(node.metadata.fileId),
+    mode,
+    focusNodeId: focus?.node.id,
+  });
+}
+
 export async function addFileExplanationTurn({
   projectId,
   sessionId,
   question,
+  selectedContext,
 }: {
   projectId: string;
   sessionId: string;
   question: string;
+  selectedContext?: FileExplanationSelectedContext[];
 }) {
   const repository = createFileExplanationRepository();
   const session = await repository.readSession(projectId, sessionId);
   if (!session) return null;
+  const normalizedSelectedContext = normalizeSelectedContexts(selectedContext);
+  const retrievalQuestion = questionWithSelectedContext(question, normalizedSelectedContext);
 
   const chunks = await readExplanationCandidateChunks({
     projectId,
     fileId: session.fileId,
     fileName: readFileNameFromSession(session),
     mode: session.mode,
-    question,
+    question: retrievalQuestion,
   });
   const now = new Date().toISOString();
   const userTurn: FileExplanationTurnRecord = {
@@ -178,7 +209,7 @@ export async function addFileExplanationTurn({
     role: "user",
     content: question,
     citations: [],
-    metadata: {},
+    metadata: selectedContextMetadata(normalizedSelectedContext),
     createdAt: now,
   };
   const answer = await chatWithSidecarOrFallback({
@@ -187,6 +218,7 @@ export async function addFileExplanationTurn({
     mode: session.mode,
     chunks,
     question,
+    selectedContext: normalizedSelectedContext,
     conversationContext: session.turns.map((turn) => ({
       role: turn.role,
       content: turn.content,
@@ -334,14 +366,18 @@ export async function addFileExplanationTurnStream({
   projectId,
   sessionId,
   question,
+  selectedContext,
 }: {
   projectId: string;
   sessionId: string;
   question: string;
+  selectedContext?: FileExplanationSelectedContext[];
 }) {
   const repository = createFileExplanationRepository();
   const session = await repository.readSession(projectId, sessionId);
   if (!session) return null;
+  const normalizedSelectedContext = normalizeSelectedContexts(selectedContext);
+  const retrievalQuestion = questionWithSelectedContext(question, normalizedSelectedContext);
 
   const now = new Date().toISOString();
   const userTurn: FileExplanationTurnRecord = {
@@ -351,7 +387,7 @@ export async function addFileExplanationTurnStream({
     role: "user",
     content: question,
     citations: [],
-    metadata: {},
+    metadata: selectedContextMetadata(normalizedSelectedContext),
     createdAt: now,
   };
   await repository.addTurn(userTurn);
@@ -366,7 +402,7 @@ export async function addFileExplanationTurnStream({
     fileId: session.fileId,
     fileName: readFileNameFromSession(session),
     mode: session.mode,
-    question,
+    question: retrievalQuestion,
   });
   const turnId = `file-turn-${crypto.randomUUID()}`;
   const stream = createFileExplanationUIMessageStream({
@@ -380,6 +416,7 @@ export async function addFileExplanationTurnStream({
         mode: session.mode,
         chunks,
         question,
+        selectedContext: normalizedSelectedContext,
         conversationContext: session.turns.map((turn) => ({
           role: turn.role,
           content: turn.content,
@@ -657,6 +694,7 @@ async function chatWithSidecarOrFallback({
   mode,
   chunks,
   question,
+  selectedContext,
   conversationContext,
 }: {
   fileId: string;
@@ -664,6 +702,7 @@ async function chatWithSidecarOrFallback({
   mode: NotebookExplanationMode;
   chunks: KnowledgeChunkRecord[];
   question: string;
+  selectedContext?: FileExplanationSelectedContext[];
   conversationContext: Array<{ role: "user" | "assistant"; content: string }>;
 }): Promise<ExplainFileResponse> {
   const client = createNotebookRagClient();
@@ -681,13 +720,14 @@ async function chatWithSidecarOrFallback({
           metadata: chunk.metadata,
         })),
         question,
+        selectedContext: selectedContext?.map(({ text, fileName }) => ({ text, fileName })),
       });
     } catch {
       // Keep follow-up Q&A available even when Notebook RAG is down.
     }
   }
 
-  return fallbackChat(fileName, chunks, question);
+  return fallbackChat(fileName, chunks, question, selectedContext);
 }
 
 async function chatWithSidecarStreamOrFallback({
@@ -696,6 +736,7 @@ async function chatWithSidecarStreamOrFallback({
   mode,
   chunks,
   question,
+  selectedContext,
   conversationContext,
 }: {
   fileId: string;
@@ -703,6 +744,7 @@ async function chatWithSidecarStreamOrFallback({
   mode: NotebookExplanationMode;
   chunks: KnowledgeChunkRecord[];
   question: string;
+  selectedContext?: FileExplanationSelectedContext[];
   conversationContext: Array<{ role: "user" | "assistant"; content: string }>;
 }) {
   const client = createNotebookRagClient();
@@ -720,13 +762,14 @@ async function chatWithSidecarStreamOrFallback({
           metadata: chunk.metadata,
         })),
         question,
+        selectedContext: selectedContext?.map(({ text, fileName }) => ({ text, fileName })),
       });
     } catch {
       // Fall back to local deterministic streaming below.
     }
   }
 
-  return streamFallbackChat(fileName, chunks, question);
+  return streamFallbackChat(fileName, chunks, question, selectedContext);
 }
 
 function fallbackExplain(
@@ -795,12 +838,14 @@ function fallbackChat(
   fileName: string,
   chunks: KnowledgeChunkRecord[],
   question: string,
+  selectedContext?: FileExplanationSelectedContext[],
 ): ExplainFileResponse {
+  const normalizedSelectedContext = normalizeSelectedContexts(selectedContext);
   const matched = chunks
     .filter((chunk) => chunk.content.includes(question.slice(0, 12)) || question.length < 8)
     .slice(0, 4);
   const evidence = matched.length ? matched : chunks.slice(0, 3);
-  if (evidence.length === 0) {
+  if (evidence.length === 0 && normalizedSelectedContext.length === 0) {
     return {
       summary: "依据不足",
       outline: [],
@@ -815,11 +860,16 @@ function fallbackChat(
       },
     };
   }
+  const selectedLines = normalizedSelectedContext.map((context) => context.text);
+  const answerEvidence = [
+    ...selectedLines,
+    ...evidence.map((chunk) => firstLine(chunk.content)),
+  ].slice(0, 5);
 
   return {
     summary: `${fileName} 的追问回答`,
-    outline: evidence.map((chunk) => firstLine(chunk.content)),
-    answer: `基于当前文件片段，可以这样答：${evidence.map((chunk) => firstLine(chunk.content)).join("；")}。`,
+    outline: answerEvidence,
+    answer: `基于你添加的上下文和当前文件片段，可以这样答：${answerEvidence.join("；")}。`,
     citations: evidence.map((chunk) => citationFromChunk(chunk)),
     grounded: true,
     insufficientEvidence: false,
@@ -864,8 +914,9 @@ async function* streamFallbackChat(
   fileName: string,
   chunks: KnowledgeChunkRecord[],
   question: string,
+  selectedContext?: FileExplanationSelectedContext[],
 ) {
-  const result = fallbackChat(fileName, chunks, question);
+  const result = fallbackChat(fileName, chunks, question, selectedContext);
   yield {
     type: "retrieval",
     retrievalCount: readRetrievalCount(result.metadata, chunks.length),
@@ -962,6 +1013,15 @@ function buildTurnMetadata({
     followUps: explanation.followUps ?? [],
     weaknessCandidates: explanation.weaknessCandidates ?? [],
   };
+}
+
+function selectedContextMetadata(selectedContext: FileExplanationSelectedContext[]) {
+  return selectedContext.length ? { selectedContext } : {};
+}
+
+function questionWithSelectedContext(question: string, selectedContext: FileExplanationSelectedContext[]) {
+  const contextPrompt = selectedContextsToPrompt(selectedContext);
+  return contextPrompt ? `${question}\n${contextPrompt}` : question;
 }
 
 function focusMetadata(focus: FocusNodeContext | undefined) {

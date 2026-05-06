@@ -49,8 +49,9 @@ function writeRealtimeSessionSql(session: RealtimeSessionRecord) {
   return `
 INSERT INTO "RealtimeSession" (
   "id", "projectId", "trainingSessionId", "provider", "providerSessionId", "status",
-  "currentSlideId", "currentKnowledgeNodeId", "teacherRole", "difficulty", "contextSnapshot",
-  "clientTokenHash", "tokenExpiresAt", "startedAt", "endedAt", "createdAt", "updatedAt"
+  "currentSlideId", "currentKnowledgeNodeId", "currentPhase", "currentSlideIndex", "teacherRole",
+  "difficulty", "contextSnapshot", "clientTokenHash", "tokenExpiresAt", "startedAt", "endedAt",
+  "createdAt", "updatedAt"
 ) VALUES (
   ${sqlText(session.id)},
   ${sqlText(session.projectId)},
@@ -60,6 +61,8 @@ INSERT INTO "RealtimeSession" (
   ${sqlText(session.status)},
   ${sqlText(session.currentSlideId)},
   ${sqlText(session.currentKnowledgeNodeId)},
+  ${sqlText(session.currentPhase)},
+  ${sqlNumber(session.currentSlideIndex)},
   ${sqlText(session.teacherRole)},
   ${sqlText(session.difficulty)},
   ${sqlJson(session.contextSnapshot)},
@@ -75,6 +78,8 @@ ON CONFLICT ("id") DO UPDATE SET
   "status" = EXCLUDED."status",
   "currentSlideId" = EXCLUDED."currentSlideId",
   "currentKnowledgeNodeId" = EXCLUDED."currentKnowledgeNodeId",
+  "currentPhase" = EXCLUDED."currentPhase",
+  "currentSlideIndex" = EXCLUDED."currentSlideIndex",
   "teacherRole" = EXCLUDED."teacherRole",
   "difficulty" = EXCLUDED."difficulty",
   "contextSnapshot" = EXCLUDED."contextSnapshot",
@@ -97,6 +102,8 @@ function updateRealtimeSessionSql(sessionId: string, patch: Partial<RealtimeSess
     patch.currentKnowledgeNodeId !== undefined
       ? `"currentKnowledgeNodeId" = ${sqlText(patch.currentKnowledgeNodeId ?? null)}`
       : null,
+    patch.currentPhase !== undefined ? `"currentPhase" = ${sqlText(patch.currentPhase)}` : null,
+    patch.currentSlideIndex !== undefined ? `"currentSlideIndex" = ${sqlNumber(patch.currentSlideIndex)}` : null,
     patch.teacherRole !== undefined ? `"teacherRole" = ${sqlText(patch.teacherRole)}` : null,
     patch.difficulty !== undefined ? `"difficulty" = ${sqlText(patch.difficulty)}` : null,
     patch.contextSnapshot !== undefined ? `"contextSnapshot" = ${sqlJson(patch.contextSnapshot)}` : null,

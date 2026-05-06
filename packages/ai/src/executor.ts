@@ -248,8 +248,11 @@ async function invokeSlideScript(context: SkillHandlerContext): Promise<SkillExe
       fileId: readOptionalString(parsed.fileId),
       slideId: readOptionalString(parsed.slideId),
       extractedText: readOptionalString(parsed.extractedText),
+      selectedText: readOptionalString(parsed.selectedText),
+      currentDraft: readOptionalString(parsed.currentDraft),
       instruction: readOptionalString(parsed.instruction),
       action,
+      messages: readRecordArray(parsed.messages),
       chunks,
     });
 
@@ -266,6 +269,7 @@ async function invokeSlideScript(context: SkillHandlerContext): Promise<SkillExe
       slideTitle,
       slideIndex,
       extractedText: readOptionalString(parsed.extractedText),
+      selectedText: readOptionalString(parsed.selectedText),
       instruction: readOptionalString(parsed.instruction),
       action,
       chunks,
@@ -285,6 +289,7 @@ function generateSlideScriptFallback({
   slideTitle,
   slideIndex,
   extractedText,
+  selectedText,
   instruction,
   action,
   chunks,
@@ -293,6 +298,7 @@ function generateSlideScriptFallback({
   slideTitle: string;
   slideIndex: number;
   extractedText?: string | null;
+  selectedText?: string | null;
   instruction?: string | null;
   action: SlideAssistantAction;
   chunks: KnowledgeChunkRecord[];
@@ -333,7 +339,13 @@ function generateSlideScriptFallback({
     ...chunks.map((chunk) => chunk.source).filter(Boolean),
   ])).slice(0, 5);
   const rewrite = action === "rewrite"
-    ? `${instruction ? `${instruction}：` : ""}${short}`
+    ? rewriteSelectedTextFallback(selectedText?.trim() || short, instruction)
+    : undefined;
+  const drillAnswer = action === "drill_answer"
+    ? buildDrillAnswerFallback(instruction, slideTitle, keyLines, basisMaterials)
+    : undefined;
+  const suggestedQuestions = action === "drill_answer"
+    ? buildSuggestedDrillQuestions(slideTitle, keywords, risks)
     : undefined;
 
   return {
@@ -353,8 +365,57 @@ function generateSlideScriptFallback({
       materials: basisMaterials,
     },
     rewrite,
+    drillAnswer,
+    suggestedQuestions,
     generatedAt: new Date().toISOString(),
   };
+}
+
+function buildDrillAnswerFallback(
+  question: string | null | undefined,
+  slideTitle: string,
+  keyLines: string[],
+  basisMaterials: string[],
+) {
+  const normalizedQuestion = question?.trim() || `请解释 ${slideTitle} 这一页的高危问题。`;
+  const basis = keyLines[0] ?? basisMaterials[0] ?? slideTitle;
+  const boundary = keyLines[1] ?? "需要结合当前页材料、实现过程和个人负责范围来回答";
+  return [
+    `这个问题可以先正面回应：${normalizedQuestion}`,
+    `我的回答是，这一页的关键依据是「${basis}」。`,
+    `答辩时我会补充说明：${boundary}。`,
+    "最后落到个人贡献上，我会强调自己负责讲清输入、处理、输出和验证结果，避免只复述 PPT。",
+  ].join("\n");
+}
+
+function buildSuggestedDrillQuestions(
+  slideTitle: string,
+  keywords: string[],
+  risks: string[],
+) {
+  return Array.from(new Set([
+    ...risks,
+    `如果老师继续追问「${slideTitle}」的边界条件，应该怎么回答？`,
+    keywords[0] ? `${keywords[0]} 这部分和我的个人贡献有什么关系？` : null,
+    "这里有没有可以用一句话讲清楚的验证结果？",
+  ].filter((item): item is string => Boolean(item)))).slice(0, 4);
+}
+
+function rewriteSelectedTextFallback(selectedText: string, instruction?: string | null) {
+  const normalizedInstruction = instruction?.trim() ?? "";
+  const base = selectedText.replace(/\s+/gu, " ").trim();
+  if (!normalizedInstruction) return base;
+  if (/口语|自然/u.test(normalizedInstruction)) {
+    return base.replace(/^这(个|一)?页/u, "这一页").replace(/。?$/u, "。");
+  }
+  if (/个人|贡献|负责/u.test(normalizedInstruction)) {
+    return `${base} 这部分我主要负责把实现思路和可验证结果讲清楚。`;
+  }
+  if (/压缩|简短|短/u.test(normalizedInstruction)) {
+    const firstSentence = base.split(/[。！？!?]/u).map((item) => item.trim()).find(Boolean);
+    return firstSentence ? `${firstSentence}。` : base.slice(0, 80);
+  }
+  return base;
 }
 
 async function invokeRiskQuestions(context: SkillHandlerContext): Promise<SkillExecutionResult> {
@@ -876,6 +937,11 @@ function readOptionalNumber(value: unknown) {
   return typeof value === "number" ? value : null;
 }
 
+function readRecordArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord);
+}
+
 function readSlideAssistantAction(value: unknown): SlideAssistantAction {
   const action = typeof value === "string" ? value : "overview";
   if (
@@ -888,6 +954,7 @@ function readSlideAssistantAction(value: unknown): SlideAssistantAction {
     || action === "answer_card"
     || action === "keywords"
     || action === "rewrite"
+    || action === "drill_answer"
   ) {
     return action;
   }

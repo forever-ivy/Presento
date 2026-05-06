@@ -9,10 +9,10 @@ import type {
 } from "@ingest/notebook-rag-client";
 
 type FileExplanationStreamMetadata = {
-  sessionId: string;
-  turnId: string;
-  mode: NotebookExplanationMode;
-  status: "streaming" | "completed" | "failed" | "fallback";
+  sessionId?: string;
+  turnId?: string;
+  mode?: NotebookExplanationMode;
+  status?: "streaming" | "completed" | "failed" | "fallback";
   engine?: string;
   grounded?: boolean;
   insufficientEvidence?: boolean;

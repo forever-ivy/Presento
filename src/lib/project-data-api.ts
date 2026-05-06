@@ -1,4 +1,10 @@
 import { readApiErrorMessage } from "./api-error";
+import type { ProjectOverviewDto } from "./project-overview";
+import type {
+  DefensePhase,
+  RealtimeSessionRecord,
+  TrainingSessionProgress,
+} from "@shared/domain";
 
 export type ProjectSlide = {
   id: string;
@@ -33,7 +39,8 @@ export type SlideAssistantAction =
   | "teacher_question"
   | "answer_card"
   | "keywords"
-  | "rewrite";
+  | "rewrite"
+  | "drill_answer";
 
 export type SlideAssistantOverview = {
   projectName: string;
@@ -72,6 +79,45 @@ export type SlideAssistantResponse =
       skillStatus?: string;
       usedFallback?: boolean;
     };
+
+export type SlideScriptVersion = "normal" | "short" | "keywords";
+
+export type SlideScriptDraft = {
+  contentHtml: string;
+  id: string;
+  updatedAt: string;
+  version: SlideScriptVersion;
+};
+
+export type SlideDrillQuestion = {
+  id: string;
+  text: string;
+  source: "ai" | "user";
+  createdAt: string;
+};
+
+export type SlideDrillMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  suggestedQuestions?: string[];
+  createdAt: string;
+};
+
+export type SlideDrillState = {
+  id?: string;
+  questions: SlideDrillQuestion[];
+  messages: SlideDrillMessage[];
+  updatedAt?: string;
+};
+
+export type SlideDrillAnswerResponse = {
+  answer: string;
+  suggestedQuestions: string[];
+  skillInvocationId?: string;
+  skillStatus?: string;
+  usedFallback?: boolean;
+};
 
 export type WeaknessItem = {
   id: string;
@@ -137,6 +183,53 @@ export type TrainingFocusItem = {
   updatedAt: string;
 };
 
+export type TrainingSessionSummary = {
+  id: string;
+  title: string;
+  status: string;
+  currentPhase: DefensePhase;
+  currentSlideId?: string | null;
+  currentSlideIndex: number;
+  currentKnowledgeNodeId?: string | null;
+  completedSlideIds: string[];
+  currentFollowupCount: number;
+  finalQuestionIndex: number;
+  lastPhaseAt: string;
+};
+
+export type TrainingSessionAggregate = {
+  session?: TrainingSessionSummary | null;
+  activeRealtimeSession?: RealtimeSessionRecord | null;
+  finalizedTurns?: unknown[];
+  latestReview?: unknown;
+  detectedWeaknesses?: unknown[];
+  deepDiveRefs?: unknown[];
+};
+
+export type RealtimeSessionCreatePayload = {
+  currentPhase?: DefensePhase;
+  currentSlideId?: string | null;
+  currentSlideIndex?: number;
+  currentKnowledgeNodeId?: string | null;
+  focusKnowledgeNodeIds?: string[];
+  slideTitle?: string;
+  slideGoal?: string;
+  cueKeywords?: string[];
+  previousSlideFeedback?: string | null;
+  followUpBudget?: number;
+  memberScope?: string;
+};
+
+export type RealtimeSessionCreateResponse = {
+  realtimeSessionId: string;
+  wsUrl: string;
+  sessionToken: string;
+  expiresAt: string;
+  contextSnapshot: Record<string, unknown>;
+  activeRealtimeSession: RealtimeSessionRecord;
+  progress?: TrainingSessionProgress | null;
+};
+
 export async function fetchProjectSlides(projectId: string) {
   return fetchProjectJson<{
     slideDecks?: ProjectSlideDeck[];
@@ -144,10 +237,19 @@ export async function fetchProjectSlides(projectId: string) {
   }>(projectId, "slides");
 }
 
+export async function fetchProjectOverview(projectId: string) {
+  return fetchProjectJson<{ overview: ProjectOverviewDto }>(projectId, "overview");
+}
+
 export async function runSlideAssistantAction(
   projectId: string,
   slideId: string,
-  payload: { action: SlideAssistantAction; instruction?: string },
+  payload: {
+    action: SlideAssistantAction;
+    currentDraft?: string;
+    instruction?: string;
+    selectedText?: string;
+  },
 ) {
   const response = await fetch(
     `/api/projects/${encodeURIComponent(projectId)}/slides/${encodeURIComponent(slideId)}/assistant`,
@@ -161,6 +263,94 @@ export async function runSlideAssistantAction(
     throw new Error(await readApiErrorMessage(response));
   }
   return response.json() as Promise<SlideAssistantResponse>;
+}
+
+export async function fetchSlideScriptDraft(
+  projectId: string,
+  slideId: string,
+  version: SlideScriptVersion,
+) {
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/slides/${encodeURIComponent(slideId)}/script-drafts?version=${encodeURIComponent(version)}`,
+  );
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<{ draft: SlideScriptDraft | null }>;
+}
+
+export async function saveSlideScriptDraft(
+  projectId: string,
+  slideId: string,
+  payload: {
+    contentHtml: string;
+    version: SlideScriptVersion;
+  },
+) {
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/slides/${encodeURIComponent(slideId)}/script-drafts`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<{ draft: SlideScriptDraft }>;
+}
+
+export async function fetchSlideDrillState(projectId: string, slideId: string) {
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/slides/${encodeURIComponent(slideId)}/drill`,
+  );
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<{ state: SlideDrillState | null }>;
+}
+
+export async function saveSlideDrillState(
+  projectId: string,
+  slideId: string,
+  payload: Pick<SlideDrillState, "messages" | "questions">,
+) {
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/slides/${encodeURIComponent(slideId)}/drill`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<{ state: SlideDrillState }>;
+}
+
+export async function answerSlideDrillQuestion(
+  projectId: string,
+  slideId: string,
+  payload: {
+    currentDraft?: string;
+    messages: SlideDrillMessage[];
+    question: string;
+  },
+) {
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/slides/${encodeURIComponent(slideId)}/drill/answer`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<SlideDrillAnswerResponse>;
 }
 
 export async function fetchProjectDeepDives(projectId: string) {
@@ -215,6 +405,7 @@ export async function removeProjectTrainingFocus(projectId: string, knowledgeNod
 export async function createProjectTrainingSession(
   projectId: string,
   currentSlideId?: string,
+  currentSlideIndex?: number,
   focusKnowledgeNodeIds?: string[],
 ) {
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/training-sessions`, {
@@ -225,6 +416,7 @@ export async function createProjectTrainingSession(
       teacherRole: "strict",
       difficulty: "normal",
       currentSlideId,
+      currentSlideIndex,
       focusKnowledgeNodeIds,
     }),
   });
@@ -232,8 +424,78 @@ export async function createProjectTrainingSession(
     throw new Error(await readApiErrorMessage(response));
   }
   return response.json() as Promise<{
-    session?: { id: string; title: string; status: string };
+    session?: TrainingSessionSummary;
+    progress?: TrainingSessionProgress | null;
     nextStep?: { createRealtimeSessionPath?: string };
+  }>;
+}
+
+export async function fetchTrainingSessionAggregate(projectId: string, sessionId: string) {
+  return fetchProjectJson<TrainingSessionAggregate>(
+    projectId,
+    `training-sessions/${encodeURIComponent(sessionId)}`,
+  );
+}
+
+export async function createRealtimeTrainingSession(
+  projectId: string,
+  sessionId: string,
+  payload: RealtimeSessionCreatePayload,
+) {
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/training-sessions/${encodeURIComponent(sessionId)}/realtime-sessions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<RealtimeSessionCreateResponse>;
+}
+
+export async function updateRealtimeTrainingContext(
+  projectId: string,
+  sessionId: string,
+  realtimeSessionId: string,
+  payload: RealtimeSessionCreatePayload,
+) {
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/training-sessions/${encodeURIComponent(sessionId)}/realtime-sessions/${encodeURIComponent(realtimeSessionId)}/context`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<{
+    sessionPatch?: { session?: TrainingSessionSummary | null };
+    realtimeSessionPatch?: RealtimeSessionRecord | null;
+    contextSnapshot: Record<string, unknown>;
+  }>;
+}
+
+export async function finishRealtimeTrainingSession(projectId: string, sessionId: string) {
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/training-sessions/${encodeURIComponent(sessionId)}/finish`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<{
+    review?: unknown;
+    weaknesses?: unknown[];
+    deepDives?: unknown[];
+    sessionPatch?: unknown;
   }>;
 }
 

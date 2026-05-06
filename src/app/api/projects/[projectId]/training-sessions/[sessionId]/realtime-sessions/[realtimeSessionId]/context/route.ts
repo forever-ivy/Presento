@@ -6,12 +6,35 @@ import { apiError, apiOk, notFound } from "../../../../../../../_utils";
 
 export const runtime = "nodejs";
 
+const defensePhaseValues = [
+  "idle",
+  "initializing",
+  "opening",
+  "slide_intro",
+  "user_presenting",
+  "teacher_followup",
+  "user_answering",
+  "slide_feedback",
+  "slide_transition",
+  "final_questions",
+  "finishing",
+  "review_ready",
+  "finished",
+  "failed",
+] as const;
+
 const updateContextSchema = z.object({
+  currentPhase: z.enum(defensePhaseValues).optional(),
   currentSlideId: z.string().nullable().optional(),
+  currentSlideIndex: z.number().int().nonnegative().optional(),
   currentKnowledgeNodeId: z.string().nullable().optional(),
   focusKnowledgeNodeIds: z.array(z.string().min(1)).optional(),
   slideTitle: z.string().optional(),
   slideIndex: z.number().int().positive().optional(),
+  slideGoal: z.string().optional(),
+  cueKeywords: z.array(z.string().min(1)).optional(),
+  previousSlideFeedback: z.string().optional(),
+  followUpBudget: z.number().int().positive().optional(),
   memberScope: z.string().optional(),
 });
 
@@ -37,27 +60,38 @@ export async function PATCH(
     }
 
     const currentSlideId = payload.currentSlideId ?? realtimeSession.currentSlideId ?? null;
+    const currentSlideIndex = payload.currentSlideIndex ?? realtimeSession.currentSlideIndex ?? 0;
     const currentKnowledgeNodeId =
       payload.currentKnowledgeNodeId ?? realtimeSession.currentKnowledgeNodeId ?? null;
     const focusKnowledgeNodeIds = payload.focusKnowledgeNodeIds ?? sessionResult.session.focusKnowledgeNodeIds ?? [];
     const contextSnapshot = await buildRealtimeContextSnapshot({
       projectId,
+      currentPhase: payload.currentPhase ?? realtimeSession.currentPhase,
       currentSlideId,
+      currentSlideIndex,
       currentKnowledgeNodeId,
       focusKnowledgeNodeIds,
       slideTitle: payload.slideTitle ?? null,
       slideIndex: payload.slideIndex ?? null,
+      slideGoal: payload.slideGoal ?? null,
+      cueKeywords: payload.cueKeywords ?? [],
+      previousSlideFeedback: payload.previousSlideFeedback ?? null,
+      followUpBudget: payload.followUpBudget ?? null,
       memberScope: payload.memberScope ?? null,
     });
 
     const [sessionPatch, realtimeSessionPatch] = await Promise.all([
       trainingRepository.updateSession(sessionId, {
+        currentPhase: payload.currentPhase ?? realtimeSession.currentPhase,
         currentSlideId,
+        currentSlideIndex,
         currentKnowledgeNodeId,
         focusKnowledgeNodeIds,
       }),
       realtimeRepository.updateSession(realtimeSessionId, {
+        currentPhase: payload.currentPhase ?? realtimeSession.currentPhase,
         currentSlideId,
+        currentSlideIndex,
         currentKnowledgeNodeId,
         contextSnapshot,
       }),

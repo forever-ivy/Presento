@@ -18,9 +18,9 @@ STREAMING_SYSTEM_PROMPT = (
 )
 
 
-def generate_grounded_answer(prompt: str) -> dict[str, Any] | None:
+def generate_grounded_answer(prompt: str, mode: str = "quick") -> dict[str, Any] | None:
     try:
-        raw = request_chat_completion(prompt=prompt, system_prompt=STRUCTURED_SYSTEM_PROMPT)
+        raw = request_chat_completion(prompt=prompt, system_prompt=STRUCTURED_SYSTEM_PROMPT, mode=mode)
     except Exception:
         return None
 
@@ -32,11 +32,12 @@ def generate_grounded_answer(prompt: str) -> dict[str, Any] | None:
     return extract_json(content)
 
 
-def stream_grounded_answer(prompt: str) -> Iterator[str] | None:
+def stream_grounded_answer(prompt: str, mode: str = "quick") -> Iterator[str] | None:
     try:
         response = request_chat_completion(
             prompt=prompt,
             system_prompt=STREAMING_SYSTEM_PROMPT,
+            mode=mode,
             stream=True,
         )
     except Exception:
@@ -49,10 +50,11 @@ def request_chat_completion(
     *,
     prompt: str,
     system_prompt: str,
+    mode: str = "quick",
     stream: bool = False,
 ) -> Any:
     api_key = os.getenv("LLM_API_KEY")
-    model = os.getenv("LLM_MODEL")
+    model = select_model_for_mode(mode)
     base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     if not api_key or not model:
         raise ValueError("LLM configuration is incomplete.")
@@ -83,6 +85,14 @@ def request_chat_completion(
         if stream:
             return response
         return json.loads(response.read().decode("utf-8"))
+
+
+def select_model_for_mode(mode: str) -> str | None:
+    if mode == "quick":
+        return os.getenv("LLM_QUICK_MODEL", "deepseek-v4-flash")
+    if mode == "mastery":
+        return os.getenv("LLM_MASTERY_MODEL", "deepseek-v4-pro")
+    return os.getenv("LLM_MODEL")
 
 
 def iter_chat_completion_stream(response: Any) -> Iterator[str]:

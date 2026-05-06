@@ -4,17 +4,18 @@ import CharacterCount from "@tiptap/extension-character-count";
 import Highlight from "@tiptap/extension-highlight";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
+import { Extension } from "@tiptap/core";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
   Bold,
-  BookmarkPlus,
   Clock3,
   Code2,
   Heading1,
   Heading2,
   Heading3,
-  HelpCircle,
   Highlighter,
   Italic,
   Link2,
@@ -27,9 +28,11 @@ import {
 import {
   forwardRef,
   type FormEvent,
+  type MouseEvent,
   useEffect,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { cn } from "@/components/presento-ui";
@@ -46,11 +49,14 @@ import { Input } from "@/components/ui/input";
 
 export type RichScriptEditorHandle = {
   appendContent: (html: string) => void;
+  captureRewriteSelection: () => { selectedText: string } | null;
+  clearRewriteSelection: () => void;
   getHTML: () => string;
   insertAnswerCard: () => void;
   insertPause: () => void;
   insertTeacherQuestion: () => void;
   replaceContent: (html: string) => void;
+  replaceSelection: (text: string) => void;
 };
 
 type RichScriptEditorProps = {
@@ -62,6 +68,12 @@ type RichScriptEditorProps = {
   showScriptTools?: boolean;
   statusLabel?: string;
   title?: string;
+  onContentChange?: (html: string) => void;
+  onRewriteSelectionRequest?: (selection: {
+    selectedText: string;
+    x: number;
+    y: number;
+  }) => void;
   variant?: "script" | "answer" | "review";
 };
 
@@ -85,6 +97,42 @@ type ToolbarItem = {
   label: string;
   type: ToolbarCommand;
 };
+
+const rewriteSelectionPluginKey = new PluginKey<{ from: number; to: number } | null>("presentoRewriteSelection");
+const AI_REWRITE_MARK_COLOR = "#d1fae5";
+
+const RewriteSelectionHighlight = Extension.create({
+  name: "rewriteSelectionHighlight",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin<{ from: number; to: number } | null>({
+        key: rewriteSelectionPluginKey,
+        state: {
+          init: () => null,
+          apply(transaction, previous) {
+            const meta = transaction.getMeta(rewriteSelectionPluginKey) as { from: number; to: number } | null | undefined;
+            if (meta !== undefined) return meta;
+            if (!previous || !transaction.docChanged) return previous;
+            const from = transaction.mapping.map(previous.from);
+            const to = transaction.mapping.map(previous.to);
+            return from < to ? { from, to } : null;
+          },
+        },
+        props: {
+          decorations(state) {
+            const range = rewriteSelectionPluginKey.getState(state);
+            if (!range || range.from >= range.to) return null;
+            return DecorationSet.create(state.doc, [
+              Decoration.inline(range.from, range.to, {
+                class: "presento-rich-rewrite-selection",
+              }),
+            ]);
+          },
+        },
+      }),
+    ];
+  },
+});
 
 const toolbarGroups: ToolbarItem[][] = [
   [
@@ -121,10 +169,6 @@ const scriptToolbarGroups: ToolbarItem[][] = [
     { icon: Bold, label: "加粗", type: "bold" },
   ],
   [
-    { icon: List, label: "列表", type: "bulletList" },
-    { icon: ListOrdered, label: "编号", type: "orderedList" },
-  ],
-  [
     { icon: Undo2, label: "撤销", type: "undo" },
     { icon: Redo2, label: "重做", type: "redo" },
   ],
@@ -136,6 +180,23 @@ function formatSavedTime(date: Date) {
     minute: "2-digit",
     second: "2-digit",
   });
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function normalizeSelectedText(value: string) {
+  return value
+    .replace(/\s+/gu, " ")
+    .replace(/(?:^|\s)[•·*-]\s*/gu, " ")
+    .replace(/(?:^|\s)\d+[.)、]\s*/gu, " ")
+    .trim();
 }
 
 function runToolbarCommand(
@@ -193,6 +254,20 @@ function insertToken(editor: Editor, label: string, tone: "pause" | "question" |
     .run();
 }
 
+function setRewriteSelectionHighlight(editor: Editor, range: { from: number; to: number } | null) {
+  editor.view.dispatch(editor.state.tr.setMeta(rewriteSelectionPluginKey, range));
+}
+
+function captureEditorRewriteSelection(editor: Editor, rewriteRangeRef: { current: { from: number; to: number } | null }) {
+  const { from, to } = editor.state.selection;
+  if (from === to) return null;
+  const selectedText = normalizeSelectedText(editor.state.doc.textBetween(from, to, " "));
+  if (!selectedText) return null;
+  rewriteRangeRef.current = { from, to };
+  setRewriteSelectionHighlight(editor, { from, to });
+  return { selectedText };
+}
+
 export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEditorProps>(
   function RichScriptEditor({
     className,
@@ -203,11 +278,15 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
     showScriptTools = true,
     statusLabel = "本地草稿",
     title,
+    onContentChange,
+    onRewriteSelectionRequest,
     variant = "script",
   }, ref) {
     const [lastSavedAt, setLastSavedAt] = useState("刚刚");
     const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
     const [linkUrl, setLinkUrl] = useState("https://");
+    const onContentChangeRef = useRef(onContentChange);
+    const rewriteRangeRef = useRef<{ from: number; to: number } | null>(null);
     const toolbarConfig = variant === "script" ? scriptToolbarGroups : toolbarGroups;
     const editor = useEditor({
       content: initialContent,
@@ -224,6 +303,7 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
           link: false,
         }),
         Highlight.configure({ multicolor: true }),
+        RewriteSelectionHighlight,
         Link.configure({
           autolink: true,
           defaultProtocol: "https",
@@ -233,7 +313,10 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
         CharacterCount,
       ],
       immediatelyRender: false,
-      onUpdate: () => setLastSavedAt(formatSavedTime(new Date())),
+      onUpdate: ({ editor: nextEditor }) => {
+        setLastSavedAt(formatSavedTime(new Date()));
+        onContentChangeRef.current?.(nextEditor.getHTML());
+      },
     });
     const characterCount = editor?.storage.characterCount.characters() ?? 0;
     const wordLabel = useMemo(() => `${characterCount} 字`, [characterCount]);
@@ -241,6 +324,10 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
     useEffect(() => {
       setLastSavedAt(formatSavedTime(new Date()));
     }, []);
+
+    useEffect(() => {
+      onContentChangeRef.current = onContentChange;
+    }, [onContentChange]);
 
     function openLinkDialog() {
       if (!editor) return;
@@ -265,15 +352,38 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
       setIsLinkDialogOpen(false);
     }
 
+    function handleContextMenu(event: MouseEvent<HTMLElement>) {
+      if (!editor || !onRewriteSelectionRequest) return;
+      const selection = captureEditorRewriteSelection(editor, rewriteRangeRef);
+      if (!selection) return;
+      event.preventDefault();
+      onRewriteSelectionRequest({
+        selectedText: selection.selectedText,
+        x: event.clientX + 10,
+        y: event.clientY + 10,
+      });
+    }
+
     useEffect(() => {
       if (!editor || editor.getHTML() === initialContent) return;
+      rewriteRangeRef.current = null;
       editor.commands.setContent(initialContent, { emitUpdate: false });
+      setRewriteSelectionHighlight(editor, null);
       setLastSavedAt(formatSavedTime(new Date()));
     }, [editor, initialContent]);
 
     useImperativeHandle(ref, () => ({
       appendContent(html) {
         editor?.chain().focus().insertContent(html).run();
+      },
+      captureRewriteSelection() {
+        if (!editor) return null;
+        return captureEditorRewriteSelection(editor, rewriteRangeRef);
+      },
+      clearRewriteSelection() {
+        if (!editor) return;
+        rewriteRangeRef.current = null;
+        setRewriteSelectionHighlight(editor, null);
       },
       getHTML() {
         return editor?.getHTML() ?? "";
@@ -293,6 +403,29 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
       replaceContent(html) {
         editor?.commands.setContent(html, { emitUpdate: true });
         setLastSavedAt(formatSavedTime(new Date()));
+      },
+      replaceSelection(text) {
+        if (!editor) return;
+        const range = rewriteRangeRef.current;
+        const content = escapeHtml(text).replace(/\n+/gu, "<br />");
+        if (!range) {
+          editor.chain().focus().insertContent(content).run();
+          return;
+        }
+        editor.chain().focus().setTextSelection(range).insertContent(content).run();
+        const insertedFrom = range.from;
+        const insertedTo = Math.min(editor.state.doc.content.size, insertedFrom + text.length);
+        if (insertedFrom < insertedTo) {
+          editor
+            .chain()
+            .focus()
+            .setTextSelection({ from: insertedFrom, to: insertedTo })
+            .setHighlight({ color: AI_REWRITE_MARK_COLOR })
+            .setTextSelection(insertedTo)
+            .run();
+        }
+        rewriteRangeRef.current = null;
+        setRewriteSelectionHighlight(editor, null);
       },
     }), [editor]);
 
@@ -322,6 +455,7 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
                     disabled={!editor}
                     key={item.type}
                     onClick={() => editor && runToolbarCommand(editor, item.type, openLinkDialog)}
+                    onMouseDown={(event) => event.preventDefault()}
                     title={item.label}
                     type="button"
                   >
@@ -338,6 +472,7 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
                 className="presento-rich-tool presento-rich-tool-labeled"
                 disabled={!editor}
                 onClick={() => editor?.chain().focus().setHighlight({ color: "#dcfce7" }).run()}
+                onMouseDown={(event) => event.preventDefault()}
                 type="button"
               >
                 <Highlighter aria-hidden="true" />
@@ -347,6 +482,7 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
                 className="presento-rich-tool presento-rich-tool-labeled"
                 disabled={!editor}
                 onClick={() => editor?.chain().focus().setHighlight({ color: "#e0f2fe" }).run()}
+                onMouseDown={(event) => event.preventDefault()}
                 type="button"
               >
                 <Highlighter aria-hidden="true" />
@@ -356,28 +492,11 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
                 className="presento-rich-tool presento-rich-tool-labeled"
                 disabled={!editor}
                 onClick={() => editor && insertToken(editor, "这里停顿 2 秒，等老师看完图。", "pause")}
+                onMouseDown={(event) => event.preventDefault()}
                 type="button"
               >
                 <Clock3 aria-hidden="true" />
                 停顿
-              </button>
-              <button
-                className="presento-rich-tool presento-rich-tool-labeled"
-                disabled={!editor}
-                onClick={() => editor && insertToken(editor, "老师可能会问：这部分证据来自哪里？", "question")}
-                type="button"
-              >
-                <HelpCircle aria-hidden="true" />
-                追问
-              </button>
-              <button
-                className="presento-rich-tool presento-rich-tool-labeled"
-                disabled={!editor}
-                onClick={() => editor && insertToken(editor, "把这段整理成我的最终答辩卡片。", "card")}
-                type="button"
-              >
-                <BookmarkPlus aria-hidden="true" />
-                答辩卡
               </button>
             </div>
           ) : null}
@@ -386,6 +505,7 @@ export const RichScriptEditor = forwardRef<RichScriptEditorHandle, RichScriptEdi
         <EditorContent
           className="presento-rich-editor-surface"
           editor={editor}
+          onContextMenu={handleContextMenu}
           style={{ minHeight }}
         />
 

@@ -1,3 +1,4 @@
+import type { DefensePhase, TurnType } from "@shared/domain";
 import type { TrainingTurnRecord } from "@db/repositories/training-sessions";
 
 type RealtimeEventLike = {
@@ -12,6 +13,9 @@ type FinalizerInput = {
   trainingSessionId: string;
   realtimeSessionId: string;
   turnIndex: number;
+  turnType: TurnType;
+  phaseBefore: DefensePhase;
+  phaseAfter: DefensePhase;
   teacherRole: string;
   currentSlideId?: string | null;
   currentKnowledgeNodeId?: string | null;
@@ -49,6 +53,9 @@ export function buildFinalizedTurn(input: FinalizerInput): TrainingTurnRecord {
     projectId: input.projectId,
     realtimeSessionId: input.realtimeSessionId,
     turnIndex: input.turnIndex,
+    turnType: input.turnType,
+    phaseBefore: input.phaseBefore,
+    phaseAfter: input.phaseAfter,
     slideId: input.currentSlideId ?? null,
     slideIndex,
     slideTitle,
@@ -67,6 +74,7 @@ export function buildFinalizedTurn(input: FinalizerInput): TrainingTurnRecord {
     risks: [],
     improvedAnswer: null,
     followUps: [],
+    slideFeedbackSummary: null,
     citations: [],
     retrievedSourceIds,
     speech: null,

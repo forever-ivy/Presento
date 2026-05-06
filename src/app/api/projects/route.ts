@@ -2,11 +2,12 @@ import { createFileRepository } from "@db/repositories/files";
 import { createProjectRepository } from "@db/repositories/projects";
 import { z } from "zod";
 import { apiError, apiOk } from "../_utils";
-import { buildPersistedFileBatch, createProjectRecord, projectPayloadSchema, uploadedFileSchema } from "./helpers";
+import { buildPersistedFileBatch, createProjectRecord, projectPayloadSchema, requiredDeadlineSchema, uploadedFileSchema } from "./helpers";
 
 export const runtime = "nodejs";
 
 const createProjectPayloadSchema = projectPayloadSchema.extend({
+  deadlineAt: requiredDeadlineSchema,
   uploadedFiles: z.array(uploadedFileSchema).optional(),
 });
 

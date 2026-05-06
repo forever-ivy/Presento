@@ -46,6 +46,7 @@ SELECT COALESCE(
       'category', "category",
       'ownerScope', "ownerScope",
       'teammateScope', "teammateScope",
+      'deadlineAt', row_to_json("Project")->'deadlineAt',
       'createdAt', to_json("createdAt"),
       'updatedAt', to_json("updatedAt"),
       'fileCount', COALESCE((
@@ -76,6 +77,7 @@ SELECT COALESCE((
     'category', "category",
     'ownerScope', "ownerScope",
     'teammateScope', "teammateScope",
+    'deadlineAt', row_to_json("Project")->'deadlineAt',
     'createdAt', to_json("createdAt"),
     'updatedAt', to_json("updatedAt")
   )
@@ -88,13 +90,14 @@ SELECT COALESCE((
 function writeProjectSql(project: ProjectRecord) {
   return `
 INSERT INTO "Project" (
-  "id", "name", "category", "ownerScope", "teammateScope", "createdAt", "updatedAt"
+  "id", "name", "category", "ownerScope", "teammateScope", "deadlineAt", "createdAt", "updatedAt"
 ) VALUES (
   ${sqlText(project.id)},
   ${sqlText(project.name)},
   ${sqlText(project.category)},
   ${sqlText(project.ownerScope)},
   ${sqlText(project.teammateScope)},
+  ${sqlTimestamp(project.deadlineAt)},
   ${sqlTimestamp(project.createdAt)},
   ${sqlTimestamp(project.updatedAt ?? project.createdAt)}
 )
@@ -103,6 +106,7 @@ ON CONFLICT ("id") DO UPDATE SET
   "category" = EXCLUDED."category",
   "ownerScope" = EXCLUDED."ownerScope",
   "teammateScope" = EXCLUDED."teammateScope",
+  "deadlineAt" = EXCLUDED."deadlineAt",
   "updatedAt" = EXCLUDED."updatedAt";`;
 }
 
@@ -112,6 +116,7 @@ function updateProjectSql(projectId: string, patch: Partial<Omit<ProjectRecord, 
     patch.category !== undefined ? `"category" = ${sqlText(patch.category)}` : null,
     patch.ownerScope !== undefined ? `"ownerScope" = ${sqlText(patch.ownerScope)}` : null,
     patch.teammateScope !== undefined ? `"teammateScope" = ${sqlText(patch.teammateScope)}` : null,
+    patch.deadlineAt !== undefined ? `"deadlineAt" = ${sqlTimestamp(patch.deadlineAt)}` : null,
     `"updatedAt" = now()`,
   ].filter(Boolean);
 
@@ -137,6 +142,7 @@ SELECT COALESCE((
       'category', target_project."category",
       'ownerScope', target_project."ownerScope",
       'teammateScope', target_project."teammateScope",
+      'deadlineAt', row_to_json(target_project)->'deadlineAt',
       'createdAt', to_json(target_project."createdAt"),
       'updatedAt', to_json(target_project."updatedAt")
     ),
