@@ -338,8 +338,11 @@ function generateSlideScriptFallback({
     `Slide ${String(slideIndex).padStart(2, "0")} · ${slideTitle}`,
     ...chunks.map((chunk) => chunk.source).filter(Boolean),
   ])).slice(0, 5);
-  const rewrite = action === "rewrite"
-    ? rewriteSelectedTextFallback(selectedText?.trim() || short, instruction)
+  const rewrite = action === "rewrite" || action === "rewrite_draft"
+    ? rewriteSelectedTextFallback(
+      action === "rewrite_draft" ? normal : selectedText?.trim() || short,
+      instruction,
+    )
     : undefined;
   const drillAnswer = action === "drill_answer"
     ? buildDrillAnswerFallback(instruction, slideTitle, keyLines, basisMaterials)
@@ -954,6 +957,7 @@ function readSlideAssistantAction(value: unknown): SlideAssistantAction {
     || action === "answer_card"
     || action === "keywords"
     || action === "rewrite"
+    || action === "rewrite_draft"
     || action === "drill_answer"
   ) {
     return action;

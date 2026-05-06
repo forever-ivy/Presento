@@ -11,9 +11,13 @@ import {
   type TrainingTurnRecord,
 } from "@db/repositories/training-sessions";
 import type { RealtimeSessionRecord } from "@shared/domain";
+import type { SlideDrillMessage, SlideDrillQuestion } from "./project-data-api.ts";
 import type { DefensePracticeTurn } from "./defense-review.ts";
+import { mergeSlideDrillQuestion } from "./slide-drill-chat-ui.ts";
+import { saveSlideDrillStatePayload } from "./slide-drill-state-persistence.ts";
 import { buildRetrievedSources, buildSessionStatePatch } from "./training-session.ts";
 import { readProjectKnowledgeChunks, retrieveRelevantKnowledgeChunks } from "./knowledge-db.ts";
+import { readSlideDrillState } from "../app/api/projects/[projectId]/slides/[slideId]/drill/_shared.ts";
 
 export type RealtimeContextInput = {
   projectId: string;
@@ -29,6 +33,11 @@ export type RealtimeContextInput = {
   previousSlideFeedback?: string | null;
   followUpBudget?: number | null;
   memberScope?: string | null;
+  seedQuestions?: Array<{
+    slideId: string;
+    source: "ai" | "user";
+    text: string;
+  }>;
 };
 
 export async function readTrainingSessionAggregate(projectId: string, sessionId: string) {
@@ -110,6 +119,7 @@ export async function buildRealtimeContextSnapshot(input: RealtimeContextInput) 
     currentKnowledgeNodeId: input.currentKnowledgeNodeId ?? null,
     focusKnowledgeNodeIds: focusKnowledgeNodes.map((node) => node.id),
     focusKnowledgeNodes,
+    seedQuestions: normalizeSeedQuestions(input.seedQuestions ?? [], input.currentSlideId ?? null),
     knowledgeSummary: chunks
       .slice(0, 6)
       .map((chunk) => chunk.content.trim())
@@ -123,6 +133,26 @@ export async function buildRealtimeContextSnapshot(input: RealtimeContextInput) 
     ],
     generatedAt: new Date().toISOString(),
   };
+}
+
+function normalizeSeedQuestions(
+  questions: Array<{ slideId: string; source: "ai" | "user"; text: string }>,
+  currentSlideId: string | null,
+) {
+  const seen = new Set<string>();
+  return questions
+    .filter((question) => !currentSlideId || question.slideId === currentSlideId)
+    .map((question) => ({
+      slideId: question.slideId,
+      source: question.source,
+      text: question.text.replace(/\s+/gu, " ").trim(),
+    }))
+    .filter((question) => {
+      if (!question.text || seen.has(question.text)) return false;
+      seen.add(question.text);
+      return true;
+    })
+    .slice(0, 8);
 }
 
 async function readFocusKnowledgeNodes(projectId: string, focusKnowledgeNodeIds: string[]) {
@@ -380,6 +410,13 @@ export async function finalizeRealtimeTurnAndAnalyze(turnDraft: TrainingTurnReco
     lastPhaseAt: finalizedTurn.createdAt,
   };
   await trainingRepository.updateSession(turnDraft.sessionId, sessionPatch);
+  if (turnDraft.slideId && mergedFollowUps.length) {
+    await mergeFollowUpsIntoSlideDrillState({
+      followUps: mergedFollowUps,
+      projectId: turnDraft.projectId,
+      slideId: turnDraft.slideId,
+    }).catch(() => undefined);
+  }
 
   return {
     turn: finalizedTurn,
@@ -393,6 +430,69 @@ export async function finalizeRealtimeTurnAndAnalyze(turnDraft: TrainingTurnReco
     ],
     retrievedSources,
   };
+}
+
+async function mergeFollowUpsIntoSlideDrillState({
+  followUps,
+  projectId,
+  slideId,
+}: {
+  followUps: string[];
+  projectId: string;
+  slideId: string;
+}) {
+  const state = await readSlideDrillState(projectId, slideId);
+  const now = new Date().toISOString();
+  const questions = followUps.reduce<SlideDrillQuestion[]>(
+    (current, followUp) => mergeSlideDrillQuestion(current, followUp, "ai", {
+      createdAt: now,
+      id: `drill-${crypto.randomUUID()}`,
+    }),
+    normalizeStoredQuestions(state?.questions),
+  );
+  await saveSlideDrillStatePayload(projectId, slideId, {
+    messages: normalizeStoredMessages(state?.messages),
+    questions,
+  });
+}
+
+function normalizeStoredQuestions(value: unknown): SlideDrillQuestion[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.text !== "string") return [];
+    if (record.source !== "ai" && record.source !== "user") return [];
+    const source = record.source;
+    return [{
+      createdAt: typeof record.createdAt === "string" ? record.createdAt : new Date().toISOString(),
+      id: record.id,
+      queuedAt: typeof record.queuedAt === "string" ? record.queuedAt : undefined,
+      queuedForTraining: typeof record.queuedForTraining === "boolean" ? record.queuedForTraining : undefined,
+      source,
+      text: record.text,
+    }];
+  });
+}
+
+function normalizeStoredMessages(value: unknown): SlideDrillMessage[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.content !== "string") return [];
+    if (record.role !== "assistant" && record.role !== "user") return [];
+    const role = record.role;
+    return [{
+      content: record.content,
+      createdAt: typeof record.createdAt === "string" ? record.createdAt : new Date().toISOString(),
+      id: record.id,
+      role,
+      suggestedQuestions: Array.isArray(record.suggestedQuestions)
+        ? record.suggestedQuestions.filter((question): question is string => typeof question === "string")
+        : undefined,
+    }];
+  });
 }
 
 function buildSlideFeedbackSummary({

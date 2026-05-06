@@ -73,6 +73,7 @@ type SessionState = {
 };
 
 type FinalizedTurnWithPatch = ReturnType<typeof buildFinalizedTurn> & {
+  followUps?: unknown;
   sessionPatch?: Record<string, unknown>;
   slideFeedbackSummary?: string | null;
 };
@@ -179,22 +180,51 @@ async function initializeSession(
       status: "connecting",
       startedAt,
     });
-    sendProviderInstructions(state);
   });
 
   provider.on("message", async (raw: RawData) => {
-    await handleProviderEvent(state, raw, deps);
+    try {
+      await handleProviderEvent(state, raw, deps);
+    } catch (error) {
+      await recordEvent(state, deps, "system", "realtime.server_error", {
+        message: error instanceof Error ? error.message : "Unknown realtime server error.",
+      }).catch(() => undefined);
+      sendToClient(client, {
+        type: "error",
+        code: "realtime_server_error",
+        message: error instanceof Error ? error.message : "Unknown realtime server error.",
+      });
+      await updatePersistedSession(state, deps, {
+        status: "failed",
+        currentPhase: "failed",
+        endedAt: new Date().toISOString(),
+      }).catch(() => undefined);
+      sendSessionState(state);
+    }
   });
 
-  provider.on("close", async () => {
+  provider.on("close", async (code: number, reason: Buffer) => {
     if (!state.closingIntent) {
+      await recordEvent(state, deps, "provider", "provider.close", {
+        code,
+        reason: reason.toString("utf8"),
+      });
       await updatePersistedSession(state, deps, {
-        status: "ended",
+        status: "failed",
+        currentPhase: "failed",
         endedAt: new Date().toISOString(),
+      });
+      sendToClient(client, {
+        type: "error",
+        code: "provider_connection_closed",
+        message: "Realtime provider closed the session.",
       });
     }
     if (client.readyState === WebSocket.OPEN) {
       sendSessionState(state);
+      if (!state.closingIntent) {
+        client.close(1011, "provider_closed");
+      }
     }
   });
 
@@ -348,11 +378,23 @@ async function handleProviderEvent(state: SessionState, raw: RawData, deps: Serv
   const payload = JSON.parse(String(raw)) as Record<string, unknown>;
   await recordEvent(state, deps, "provider", String(payload.type ?? "provider.event"), payload);
 
+  if (payload.type === "error") {
+    const errorPayload = isRecord(payload.error) ? payload.error : payload;
+    sendToClient(state.client, {
+      type: "error",
+      code: readString(errorPayload, "code") ?? "provider_error",
+      message: readString(errorPayload, "message") ?? "Realtime provider returned an error.",
+    });
+    sendSessionState(state);
+    return;
+  }
+
   if (payload.type === "session.created") {
     await updatePersistedSession(state, deps, {
       providerSessionId: readNestedString(payload, "session", "id"),
       status: "active",
     });
+    sendProviderInstructions(state);
     sendToClient(state.client, {
       type: "session.ready",
       realtimeSessionId: state.persisted.id,
@@ -373,7 +415,7 @@ async function handleProviderEvent(state: SessionState, raw: RawData, deps: Serv
     return;
   }
 
-  if (payload.type === "response.audio_transcript.delta") {
+  if (payload.type === "response.text.delta" || payload.type === "response.audio_transcript.delta") {
     const delta = readString(payload, "delta");
     if (!delta) return;
     state.assistantResponding = true;
@@ -387,100 +429,34 @@ async function handleProviderEvent(state: SessionState, raw: RawData, deps: Serv
     return;
   }
 
+  if (payload.type === "response.text.done" || payload.type === "response.audio_transcript.done") {
+    const finalText = readString(payload, "text") ?? readString(payload, "transcript");
+    if (!finalText || hasAssistantTextDelta(state)) return;
+    state.currentTurnEvents.push(makeLocalTurnEvent("assistant.text.delta", { delta: finalText }));
+    sendToClient(state.client, {
+      type: "assistant.text.delta",
+      delta: finalText,
+    });
+    sendSessionState(state);
+    return;
+  }
+
   if (payload.type === "response.done") {
     state.assistantResponding = false;
-    const transcriptText =
+    const providerTranscript =
       readNestedString(payload, "response", "output_text") ??
       collapseAssistantDelta(state.currentTurnEvents);
+    const transcriptText = providerTranscript || buildFallbackAssistantTranscript(state);
     const responseId = readNestedString(payload, "response", "id");
     const traceId = readNestedString(payload, "response", "trace_id");
     const latencyMs = readNumber(payload, "latency_ms");
 
-    const finalAssistantEvent = makeLocalTurnEvent("assistant.response.final", {
+    await finalizeCurrentTurn(state, deps, {
       transcriptText,
       responseId,
       traceId,
       latencyMs,
     });
-    state.currentTurnEvents.push(finalAssistantEvent);
-
-    sendToClient(state.client, {
-      type: "assistant.response.final",
-      transcriptText,
-      responseId,
-      traceId,
-      latencyMs,
-    });
-
-    const turnType = state.pendingTurnType ?? inferTurnTypeFromPhase(state.persisted.currentPhase);
-    const phaseBefore = state.pendingPhaseBefore ?? state.persisted.currentPhase;
-    const phaseAfter = state.pendingPhaseAfter ?? getNextPhaseAfterTurn({
-      currentPhase: state.persisted.currentPhase,
-      turnType,
-      finalQuestionIndex: readFinalQuestionIndex(state.persisted.contextSnapshot),
-      finalQuestionLimit: state.finalQuestionLimit,
-    });
-
-    const finalizedPayload = buildFinalizedTurn({
-      projectId: state.persisted.projectId,
-      trainingSessionId: state.persisted.trainingSessionId,
-      realtimeSessionId: state.persisted.id,
-      turnIndex: state.turnIndex,
-      turnType,
-      phaseBefore,
-      phaseAfter,
-      teacherRole: state.persisted.teacherRole,
-      currentSlideId: state.persisted.currentSlideId,
-      currentKnowledgeNodeId: state.persisted.currentKnowledgeNodeId,
-      contextSnapshot: state.persisted.contextSnapshot,
-      events: state.currentTurnEvents,
-    });
-
-    const finalizedTurn = deps.finalizeTurn
-      ? await deps.finalizeTurn(finalizedPayload)
-      : finalizedPayload;
-    const finalizedWithPatch = finalizedTurn as FinalizedTurnWithPatch;
-
-    if (isRecord(finalizedWithPatch.sessionPatch)) {
-      await updatePersistedSession(state, deps, finalizedWithPatch.sessionPatch as Partial<StoredRealtimeSession>);
-    } else {
-      await updatePersistedSession(state, deps, {
-        currentPhase: phaseAfter,
-      });
-    }
-
-    if (turnType === "final_question") {
-      await updatePersistedSession(state, deps, {
-        contextSnapshot: {
-          ...state.persisted.contextSnapshot,
-          finalQuestionIndex: readFinalQuestionIndex(state.persisted.contextSnapshot) + 1,
-        },
-      });
-    }
-
-    sendToClient(state.client, {
-      type: "turn.finalized",
-      turn: {
-        ...finalizedWithPatch,
-        turnType,
-        phaseBefore,
-        phaseAfter,
-      },
-    });
-
-    await emitPostTurnCoachEvent(state, deps, {
-      transcriptText,
-      turnType,
-      phaseAfter,
-      slideFeedbackSummary: finalizedWithPatch.slideFeedbackSummary ?? null,
-    });
-
-    state.turnIndex += 1;
-    state.currentTurnEvents = [];
-    state.pendingTurnType = null;
-    state.pendingPhaseBefore = null;
-    state.pendingPhaseAfter = null;
-    sendSessionState(state);
   }
 }
 
@@ -491,15 +467,122 @@ async function submitCommitPayload(
 ) {
   if (text && text.trim()) {
     appendUserTranscript(state, text);
-    state.provider.send(JSON.stringify({
-      type: "input_text.submit",
-      text,
-    }));
+    await recordEvent(state, deps, "system", "input_text.fallback", {
+      reason: "glm_realtime_text_input_empty_response",
+    });
+    await finalizeCurrentTurn(state, deps, {
+      transcriptText: buildFallbackAssistantTranscript(state),
+      responseId: `text-fallback-${state.turnIndex}`,
+      traceId: null,
+      latencyMs: null,
+    });
     return;
   }
 
   await recordEvent(state, deps, "system", "input_audio.commit.forwarded", {});
   state.provider.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+  state.provider.send(JSON.stringify({ type: "response.create" }));
+}
+
+async function finalizeCurrentTurn(
+  state: SessionState,
+  deps: ServerDependencies,
+  input: {
+    transcriptText: string;
+    responseId?: string | null;
+    traceId?: string | null;
+    latencyMs?: number | null;
+  },
+) {
+  state.assistantResponding = false;
+  const finalAssistantEvent = makeLocalTurnEvent("assistant.response.final", {
+    transcriptText: input.transcriptText,
+    responseId: input.responseId,
+    traceId: input.traceId,
+    latencyMs: input.latencyMs,
+  });
+  state.currentTurnEvents.push(finalAssistantEvent);
+
+  sendToClient(state.client, {
+    type: "assistant.response.final",
+    transcriptText: input.transcriptText,
+    responseId: input.responseId,
+    traceId: input.traceId,
+    latencyMs: input.latencyMs,
+  });
+
+  const turnType = state.pendingTurnType ?? inferTurnTypeFromPhase(state.persisted.currentPhase);
+  const phaseBefore = state.pendingPhaseBefore ?? state.persisted.currentPhase;
+  const phaseAfter = state.pendingPhaseAfter ?? getNextPhaseAfterTurn({
+    currentPhase: state.persisted.currentPhase,
+    turnType,
+    finalQuestionIndex: readFinalQuestionIndex(state.persisted.contextSnapshot),
+    finalQuestionLimit: state.finalQuestionLimit,
+  });
+
+  const finalizedPayload = buildFinalizedTurn({
+    projectId: state.persisted.projectId,
+    trainingSessionId: state.persisted.trainingSessionId,
+    realtimeSessionId: state.persisted.id,
+    turnIndex: state.turnIndex,
+    turnType,
+    phaseBefore,
+    phaseAfter,
+    teacherRole: state.persisted.teacherRole,
+    currentSlideId: state.persisted.currentSlideId,
+    currentKnowledgeNodeId: state.persisted.currentKnowledgeNodeId,
+    contextSnapshot: state.persisted.contextSnapshot,
+    events: state.currentTurnEvents,
+  });
+
+  const finalizedTurn = deps.finalizeTurn
+    ? await deps.finalizeTurn(finalizedPayload)
+    : finalizedPayload;
+  const finalizedWithPatch = finalizedTurn as FinalizedTurnWithPatch;
+
+  if (isRecord(finalizedWithPatch.sessionPatch)) {
+    await updatePersistedSession(state, deps, finalizedWithPatch.sessionPatch as Partial<StoredRealtimeSession>);
+  } else {
+    await updatePersistedSession(state, deps, {
+      currentPhase: phaseAfter,
+    });
+  }
+
+  if (turnType === "final_question") {
+    await updatePersistedSession(state, deps, {
+      contextSnapshot: {
+        ...state.persisted.contextSnapshot,
+        finalQuestionIndex: readFinalQuestionIndex(state.persisted.contextSnapshot) + 1,
+      },
+    });
+  }
+
+  sendToClient(state.client, {
+    type: "turn.finalized",
+    turn: {
+      ...finalizedWithPatch,
+      turnType,
+      phaseBefore,
+      phaseAfter,
+    },
+  });
+
+  await emitPostTurnCoachEvent(state, deps, {
+    transcriptText: input.transcriptText,
+    turnType,
+    phaseAfter,
+    followUps: Array.isArray(finalizedWithPatch.followUps)
+      ? finalizedWithPatch.followUps.filter((item): item is string => typeof item === "string")
+      : [],
+    slideFeedbackSummary: finalizedWithPatch.slideFeedbackSummary ?? null,
+  });
+
+  state.turnIndex += 1;
+  state.currentTurnEvents = [];
+  state.pendingTurnType = null;
+  state.pendingPhaseBefore = null;
+  state.pendingPhaseAfter = null;
+  sendSessionState(state);
 }
 
 async function preparePendingTurn(
@@ -556,6 +639,7 @@ async function emitPostTurnCoachEvent(
     transcriptText: string | null;
     turnType: TurnType;
     phaseAfter: DefensePhase;
+    followUps: string[];
     slideFeedbackSummary: string | null;
   },
 ) {
@@ -565,7 +649,7 @@ async function emitPostTurnCoachEvent(
       phase: "teacher_followup",
       turnType: "presentation",
       followupCount: readFollowupBudget(state.persisted.contextSnapshot),
-      message: input.transcriptText ?? "继续解释你刚才提到的关键实现和材料支撑。",
+      message: input.followUps[0] ?? input.transcriptText ?? "继续解释你刚才提到的关键实现和材料支撑。",
     });
     return;
   }
@@ -690,8 +774,25 @@ function sendProviderInstructions(state: SessionState) {
   if (state.provider.readyState !== WebSocket.OPEN) return;
   state.provider.send(JSON.stringify({
     type: "session.update",
+    event_id: `session-update-${crypto.randomUUID()}`,
+    client_timestamp: Date.now(),
     session: {
+      model: "glm-realtime-flash",
+      modalities: ["audio", "text"],
       instructions: buildProviderInstructions(state.persisted),
+      voice: "tongtong",
+      input_audio_format: "pcm16",
+      output_audio_format: "pcm",
+      input_audio_noise_reduction: {
+        type: "near_field",
+      },
+      temperature: 0.2,
+      max_response_output_tokens: "512",
+      beta_fields: {
+        chat_mode: "audio",
+        tts_source: "e2e",
+        auto_search: false,
+      },
     },
   }));
 }
@@ -705,6 +806,12 @@ function buildProviderInstructions(session: StoredRealtimeSession) {
   const cueKeywords = Array.isArray(snapshot.cueKeywords)
     ? snapshot.cueKeywords.filter((item): item is string => typeof item === "string")
     : [];
+  const seedQuestions = Array.isArray(snapshot.seedQuestions)
+    ? snapshot.seedQuestions
+        .map((item) => isRecord(item) && typeof item.text === "string" ? item.text.trim() : "")
+        .filter(Boolean)
+        .slice(0, 6)
+    : [];
 
   return [
     "你是一位严谨但支持式的模拟答辩老师。",
@@ -715,8 +822,9 @@ function buildProviderInstructions(session: StoredRealtimeSession) {
     slideGoal ? `本页目标：${slideGoal}` : null,
     previousSlideFeedback ? `上一页提醒：${previousSlideFeedback}` : null,
     cueKeywords.length ? `优先围绕这些关键词追问：${cueKeywords.join(" / ")}` : null,
+    seedQuestions.length ? `用户已加入本轮训练的高危追问：${seedQuestions.join(" / ")}` : null,
     session.currentPhase === "user_presenting"
-      ? "用户正在讲这一页。请在收到输入后只追问 1 个最关键的问题，聚焦设计取舍、项目材料支撑或个人负责范围。"
+      ? "用户正在讲这一页。请在收到输入后只追问 1 个最关键的问题，优先使用用户已加入训练的高危追问；如果没有合适问题，再聚焦设计取舍、项目材料支撑或个人负责范围。"
       : null,
     session.currentPhase === "user_answering"
       ? "用户正在回答追问。请在收到输入后给出简短本页反馈，指出讲清楚了什么、风险点和下一页提醒，不要再追加新问题。"
@@ -750,6 +858,37 @@ function collapseAssistantDelta(events: Array<{ eventType: string; payload: Reco
     .map((event) => readString(event.payload, "delta"))
     .filter((value): value is string => Boolean(value))
     .join("");
+}
+
+function hasAssistantTextDelta(state: SessionState) {
+  return state.currentTurnEvents.some((event) => event.eventType === "assistant.text.delta");
+}
+
+function buildFallbackAssistantTranscript(state: SessionState) {
+  const snapshot = state.persisted.contextSnapshot ?? {};
+  const slideTitle = readString(snapshot, "slideTitle") ?? "当前页";
+  const cueKeywords = Array.isArray(snapshot.cueKeywords)
+    ? snapshot.cueKeywords.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  const seedQuestion = Array.isArray(snapshot.seedQuestions)
+    ? snapshot.seedQuestions
+        .map((item) => isRecord(item) && typeof item.text === "string" ? item.text.trim() : "")
+        .find(Boolean)
+    : null;
+  const turnType = state.pendingTurnType ?? inferTurnTypeFromPhase(state.persisted.currentPhase);
+
+  if (turnType === "final_question") {
+    return buildFinalQuestionPrompt(readFinalQuestionIndex(snapshot) + 1, state.persisted);
+  }
+
+  if (turnType === "followup_answer") {
+    return `这一页先收住。请把《${slideTitle}》对应的资料依据、实现边界和个人负责范围再压实，下一页继续按“结论、证据、职责”来讲。`;
+  }
+
+  if (seedQuestion) return seedQuestion;
+
+  const focus = cueKeywords[0] ?? slideTitle;
+  return `你刚才提到了“${focus}”。请继续说明它在项目材料或代码里对应哪一处，以及这部分是不是你本人负责。`;
 }
 
 function buildOpeningMessage(session: StoredRealtimeSession) {

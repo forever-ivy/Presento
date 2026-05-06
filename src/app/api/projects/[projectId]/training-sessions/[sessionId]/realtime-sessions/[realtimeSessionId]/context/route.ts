@@ -33,9 +33,14 @@ const updateContextSchema = z.object({
   slideIndex: z.number().int().positive().optional(),
   slideGoal: z.string().optional(),
   cueKeywords: z.array(z.string().min(1)).optional(),
-  previousSlideFeedback: z.string().optional(),
+  previousSlideFeedback: z.string().nullable().optional(),
   followUpBudget: z.number().int().positive().optional(),
   memberScope: z.string().optional(),
+  seedQuestions: z.array(z.object({
+    slideId: z.string(),
+    source: z.enum(["ai", "user"]),
+    text: z.string().min(1).max(2_000),
+  })).max(80).optional(),
 });
 
 export async function PATCH(
@@ -78,6 +83,7 @@ export async function PATCH(
       previousSlideFeedback: payload.previousSlideFeedback ?? null,
       followUpBudget: payload.followUpBudget ?? null,
       memberScope: payload.memberScope ?? null,
+      seedQuestions: payload.seedQuestions ?? [],
     });
 
     const [sessionPatch, realtimeSessionPatch] = await Promise.all([

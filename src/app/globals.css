@@ -4566,24 +4566,6 @@ svg {
   gap: 0;
 }
 
-.presento-defense-ai-header {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-}
-
-.presento-defense-ai-icon {
-  display: grid;
-  flex: 0 0 auto;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  border-radius: 16px;
-  background: var(--presento-navy);
-  color: #ffffff;
-}
-
-.presento-defense-ai-header span,
 .presento-defense-evidence span,
 .presento-defense-ai-question span {
   display: block;
@@ -4591,13 +4573,6 @@ svg {
   font-size: 0.76rem;
   font-weight: 900;
   letter-spacing: 0.02em;
-}
-
-.presento-defense-ai-header h2 {
-  color: var(--presento-ink);
-  font-size: clamp(1.15rem, 2vw, 1.55rem);
-  font-weight: 950;
-  line-height: 1.1;
 }
 
 .presento-defense-resizable {
@@ -4852,6 +4827,19 @@ svg {
   min-height: 62px;
 }
 
+.presento-defense-input-switch,
+.presento-defense-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.presento-defense-input-switch > button,
+.presento-defense-feedback-actions > button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .presento-defense-submit-button {
   min-height: 48px;
   border-radius: 18px;
@@ -4860,12 +4848,28 @@ svg {
   font-weight: 950;
 }
 
+.presento-defense-voice-submit-button {
+  min-height: 54px;
+  border-radius: 22px;
+}
+
 .presento-defense-console-ai .presento-defense-submit-button {
   width: 100%;
 }
 
 .presento-defense-submit-button:hover {
   background: #1f2937;
+}
+
+.presento-defense-complete-summary {
+  border: 1px solid rgba(16, 185, 129, 0.16);
+  border-radius: 18px;
+  background: rgba(231, 247, 239, 0.56);
+  padding: 0.8rem;
+  color: var(--presento-ink);
+  font-size: 0.86rem;
+  font-weight: 850;
+  line-height: 1.55;
 }
 
 .presento-defense-gallery-shell {
@@ -4927,6 +4931,7 @@ svg {
 }
 
 .presento-defense-thumbnail {
+  position: relative;
   display: flex;
   min-width: clamp(146px, 11vw, 168px);
   flex: 1 0 clamp(146px, 11vw, 168px);
@@ -4934,11 +4939,11 @@ svg {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  gap: 0.38rem;
-  border: 0;
-  border-radius: 0;
+  gap: 0.42rem;
+  border: 1px solid transparent;
+  border-radius: 14px;
   background: transparent;
-  padding: 0;
+  padding: 0.35rem;
   color: var(--presento-muted);
   text-align: left;
   box-shadow: none;
@@ -4946,8 +4951,24 @@ svg {
 
 .presento-defense-thumbnail:hover,
 .presento-defense-thumbnail-active {
-  background: transparent;
+  border-color: rgba(16, 185, 129, 0.34);
+  background: rgba(231, 247, 239, 0.68);
   color: var(--presento-blue-active);
+}
+
+.presento-defense-thumbnail-active::after {
+  position: absolute;
+  top: 0.58rem;
+  left: 0.58rem;
+  z-index: 2;
+  border-radius: 999px;
+  background: var(--presento-blue-active);
+  color: #ffffff;
+  content: "当前页";
+  padding: 0.18rem 0.42rem;
+  font-size: 0.52rem;
+  font-weight: 950;
+  line-height: 1;
 }
 
 .presento-defense-thumbnail-image {
@@ -4956,7 +4977,8 @@ svg {
   max-width: none;
   height: auto;
   aspect-ratio: 16 / 9;
-  border: 1px solid rgba(31, 35, 41, 0.08);
+  border: 1px solid rgba(31, 35, 41, 0.1);
+  border-radius: 10px;
   background: #ffffff;
   object-fit: cover;
 }
@@ -5032,19 +5054,27 @@ svg {
 
 .presento-defense-thumbnail-active .presento-defense-thumbnail-image,
 .presento-defense-thumbnail:hover .presento-defense-thumbnail-image {
-  border-color: rgba(16, 185, 129, 0.45);
+  border-color: rgba(16, 185, 129, 0.78);
+  box-shadow: 0 10px 24px rgba(16, 185, 129, 0.14);
 }
 
 .presento-defense-thumbnail-label {
-  display: block;
+  display: -webkit-box;
+  min-height: 2.3em;
   overflow: hidden;
   color: currentColor;
-  font-size: 0.58rem;
-  font-weight: 850;
-  line-height: 1.15;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 0.64rem;
+  font-weight: 900;
+  line-height: 1.18;
+  text-align: left;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.presento-defense-thumbnail-active .presento-defense-thumbnail-label {
+  color: var(--presento-ink);
+  font-weight: 950;
 }
 
 .presento-defense-ai-pane {
@@ -5098,28 +5128,40 @@ svg {
   padding: 0.15rem 0 0.15rem 0.75rem;
 }
 
+.presento-defense-message[data-role="user"] {
+  border-left-color: rgba(16, 185, 129, 0.46);
+}
+
 .presento-defense-message-user {
   border-left-color: rgba(16, 185, 129, 0.46);
   background: transparent;
 }
 
-.presento-defense-message strong,
+.presento-defense-message-title,
 .presento-defense-message span {
   display: block;
 }
 
-.presento-defense-message strong {
+.presento-defense-message-title {
   margin-bottom: 0.3rem;
   color: var(--presento-ink);
   font-size: 0.78rem;
   font-weight: 950;
 }
 
+.presento-defense-message [class*="prose"],
 .presento-defense-message span {
   color: var(--presento-muted);
   font-size: 0.88rem;
   font-weight: 750;
   line-height: 1.6;
+}
+
+.presento-defense-stream-loader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--presento-muted);
 }
 
 .presento-defense-ai-actions {
@@ -6461,6 +6503,18 @@ svg {
   width: 100%;
   margin: 0;
   text-align: left;
+}
+
+.presento-scripts-drill-question-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  align-items: stretch;
+}
+
+.presento-scripts-drill-question-row > button:last-child {
+  min-width: 5.6rem;
+  white-space: nowrap;
 }
 
 .presento-scripts-ai-risk-list p {

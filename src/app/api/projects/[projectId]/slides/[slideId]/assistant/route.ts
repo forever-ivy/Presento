@@ -18,6 +18,7 @@ const slideAssistantActionSchema = z.enum([
   "answer_card",
   "keywords",
   "rewrite",
+  "rewrite_draft",
   "drill_answer",
 ]);
 
@@ -171,6 +172,7 @@ function toAssistantResult(action: SlideAssistantAction, output: SlideAssistantS
   if (action === "answer_card") return createInsertResult("答辩卡", overview.answerCard, "card");
   if (action === "keywords") return createInsertResult("关键词", overview.keywords.join(" / "), "card");
   if (action === "drill_answer") return createInsertResult("深挖回答", output.drillAnswer || overview.answerCard, "question");
+  if (action === "rewrite_draft") return createInsertResult("整稿改写", output.rewrite || overview.normal, "card");
   return createInsertResult("AI改稿", output.rewrite || overview.normal, "card");
 }
 

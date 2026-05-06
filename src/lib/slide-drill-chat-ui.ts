@@ -6,6 +6,8 @@ import type {
 export type DrillItemMeta = {
   createdAt: string;
   id: string;
+  queuedAt?: string;
+  queuedForTraining?: boolean;
 };
 
 export function normalizeSlideDrillQuestionText(value: string) {
@@ -27,6 +29,8 @@ export function mergeSlideDrillQuestion(
   return [...questions, {
     createdAt: meta.createdAt,
     id: meta.id,
+    queuedAt: meta.queuedAt,
+    queuedForTraining: meta.queuedForTraining,
     source,
     text: normalized,
   }];

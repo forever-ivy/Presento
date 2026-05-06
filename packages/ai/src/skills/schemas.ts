@@ -50,6 +50,7 @@ export const slideAssistantActionSchema = z.enum([
   "answer_card",
   "keywords",
   "rewrite",
+  "rewrite_draft",
   "drill_answer",
 ]);
 

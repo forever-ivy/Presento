@@ -35,6 +35,18 @@ test("adds user and suggested questions to the drill list", () => {
   assert.deepEqual(questions.map((question) => question.text), ["老师会追问什么？", "还能怎么验证？"]);
 });
 
+test("preserves queued training metadata on slide drill questions", () => {
+  const questions = mergeSlideDrillQuestion([], "加入本轮训练的问题", "ai", {
+    createdAt: "2026-05-06T00:00:00.000Z",
+    id: "q-queued",
+    queuedAt: "2026-05-06T00:00:01.000Z",
+    queuedForTraining: true,
+  });
+
+  assert.equal(questions[0]?.queuedForTraining, true);
+  assert.equal(questions[0]?.queuedAt, "2026-05-06T00:00:01.000Z");
+});
+
 test("appends assistant messages with recommended follow-up questions", () => {
   const messages = appendSlideDrillMessage([], "assistant", "可以这样回答。", {
     createdAt: "2026-05-06T00:00:00.000Z",

@@ -12,24 +12,28 @@ test("realtime server drives continuous defense phases and emits coach events ar
 
   const providerWss = new WebSocketServer({ port: providerPort });
   providerWss.on("connection", (socket: WebSocket) => {
+    socket.send(JSON.stringify({
+      type: "session.created",
+      session: { id: "glm-session-1" },
+    }));
     socket.on("message", (raw: WebSocket.RawData) => {
       const payload = JSON.parse(String(raw));
       providerEvents.push(payload);
 
       if (payload.type === "session.update") {
         socket.send(JSON.stringify({
-          type: "session.created",
+          type: "session.updated",
           session: { id: "glm-session-1" },
         }));
       }
 
-      if (payload.type === "input_text.submit") {
+      if (payload.type === "response.create") {
         socket.send(JSON.stringify({
           type: "conversation.item.input_audio_transcription.completed",
           transcript: "我负责订单接口和数据库状态流转。",
         }));
         socket.send(JSON.stringify({
-          type: "response.audio_transcript.delta",
+          type: "response.text.delta",
           delta: "继续说明为什么 orders 和 order_items 要拆表。",
         }));
         socket.send(JSON.stringify({
@@ -137,14 +141,20 @@ test("realtime server drives continuous defense phases and emits coach events ar
   await waitFor(() => messages.some((item) => item.type === "coach.followup"));
   await waitFor(() => messages.some((item) => item.type === "turn.finalized"));
 
-  assert.equal(messages.some((item) => item.type === "assistant.text.delta"), true);
   assert.equal(messages.some((item) => item.type === "assistant.response.final"), true);
   assert.equal(messages.some((item) => item.type === "coach.opening"), true);
   assert.equal(messages.some((item) => item.type === "coach.slide_intro"), true);
   assert.equal(messages.some((item) => item.type === "coach.followup"), true);
+  assert.equal(
+    storedEvents.some((item) =>
+      isRecord(item)
+      && item.eventType === "input_text.fallback"
+    ),
+    true,
+  );
   assert.equal(Array.isArray(providerEvents), true);
   assert.equal(storedEvents.length > 0, true);
-  assert.equal((finalizedTurn as { providerResponseId?: string } | null)?.providerResponseId, "resp-1");
+  assert.equal((finalizedTurn as { providerResponseId?: string } | null)?.providerResponseId, "text-fallback-1");
   assert.equal((finalizedTurn as { turnType?: string } | null)?.turnType, "presentation");
   assert.equal((finalizedTurn as { phaseBefore?: string } | null)?.phaseBefore, "user_presenting");
   assert.equal((finalizedTurn as { phaseAfter?: string } | null)?.phaseAfter, "teacher_followup");
@@ -181,4 +191,8 @@ async function waitFor(assertion: () => boolean, timeoutMs = 2_000) {
     await delay(20);
   }
   throw new Error("Condition timed out.");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

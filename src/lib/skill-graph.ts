@@ -84,6 +84,7 @@ export type SlideAssistantAction =
   | "answer_card"
   | "keywords"
   | "rewrite"
+  | "rewrite_draft"
   | "drill_answer";
 
 export type SlideScriptGraphOutput = {
@@ -210,6 +211,7 @@ export async function runSlideScriptGraph({
       "normal 是完整讲稿；short 是 30 秒稿；conversational 更口语；contribution 突出个人贡献；transition 是承上启下的一句话；answerCard 是可插入编辑器的答辩卡建议。",
       "risks 是老师最可能追问的本页问题；basis.topics 是本页依据主题；basis.materials 是可引用的资料或页名。",
       "如果 action 是 rewrite，请只在用户选中的待改文字原文基础上做替换式改稿，并结合当前讲稿上下文、当前页提取文本和资料片段输出 rewrite。rewrite 必须是可直接替换选中原文的正文，不要加标题、解释、标签、Markdown 或额外引导语；否则 rewrite 可以省略。",
+      "如果 action 是 rewrite_draft，请基于当前讲稿上下文、当前页提取文本、最近深挖对话和用户改稿要求，输出 rewrite 作为整页讲稿正文。rewrite 要保留原稿主线，但补强答辩回答、证据和个人贡献，不要输出 Markdown。",
       "如果 action 是 drill_answer，请围绕用户改稿要求里的高危提问输出 drillAnswer 和 suggestedQuestions。drillAnswer 要像答辩现场可直接说出的回答：先正面回答，再给依据，再指出边界或个人贡献；suggestedQuestions 给 2-4 个老师可能继续追问的问题。",
       "资料片段：",
       formatKnowledgeChunks(chunks),

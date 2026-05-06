@@ -27,11 +27,13 @@ export type SlideDrillChatState = {
   error: string | null;
   input: string;
   isReady: boolean;
+  hasStoredState: boolean;
   messages: SlideDrillStreamMessage[];
   questions: SlideDrillQuestion[];
   setInput: (value: string) => void;
   status: SlideDrillChatStatus;
   submit: (question: string) => Promise<void>;
+  toggleQuestionTraining: (questionId: string) => void;
 };
 
 export function useSlideDrillChat({
@@ -167,9 +169,25 @@ export function useSlideDrillChat({
     }
   }, [hasStoredState, initialQuestions, isBusy, sendMessage]);
 
+  const toggleQuestionTraining = useCallback((questionId: string) => {
+    setQuestions((current) => {
+      const base = current.length || hasStoredState ? current : initialQuestions;
+      return base.map((question) => {
+        if (question.id !== questionId) return question;
+        const queuedForTraining = !question.queuedForTraining;
+        return {
+          ...question,
+          queuedAt: queuedForTraining ? new Date().toISOString() : undefined,
+          queuedForTraining,
+        };
+      });
+    });
+  }, [hasStoredState, initialQuestions]);
+
   return {
     addQuestion,
     error: initialError ?? (chatError ? chatError.message : null),
+    hasStoredState,
     input,
     isReady: busyStatus === "ready",
     messages,
@@ -177,6 +195,7 @@ export function useSlideDrillChat({
     setInput,
     status: busyStatus,
     submit,
+    toggleQuestionTraining,
   };
 }
 

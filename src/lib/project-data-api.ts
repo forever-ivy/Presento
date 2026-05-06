@@ -40,6 +40,7 @@ export type SlideAssistantAction =
   | "answer_card"
   | "keywords"
   | "rewrite"
+  | "rewrite_draft"
   | "drill_answer";
 
 export type SlideAssistantOverview = {
@@ -94,6 +95,8 @@ export type SlideDrillQuestion = {
   text: string;
   source: "ai" | "user";
   createdAt: string;
+  queuedAt?: string;
+  queuedForTraining?: boolean;
 };
 
 export type SlideDrillMessage = {
@@ -147,17 +150,56 @@ export type SkillPackItem = {
   name: string;
   description?: string;
   enabled?: boolean;
+  defaultEnabled?: boolean;
+  recommendedFor?: string[];
   reason?: string | null;
+  skills?: string[];
+  source?: string;
 };
 
 export type SkillInvocationItem = {
   id: string;
-  skillName: string;
-  trigger: string;
-  status: string;
-  outputSummary?: unknown;
-  startedAt: string;
   durationMs?: number;
+  feedbackStatus?: string;
+  outputSummary?: unknown;
+  resolvedBy?: string;
+  skillName: string;
+  skillVersion?: string;
+  startedAt: string;
+  status: string;
+  trigger: string;
+  usedFallback?: boolean;
+};
+
+export type SkillCatalogItem = {
+  id: string;
+  version: string;
+  name: string;
+  description: string;
+  trigger: {
+    mode: string;
+    event: string;
+  };
+  output: {
+    type: string;
+  };
+  projectTypes: string[];
+  allowedTools: string[];
+  packIds: string[];
+  fallbackPolicy: "required" | "optional" | "none";
+  traceTags: string[];
+  inputSchemaName: string;
+  outputSchemaName: string;
+};
+
+export type SkillPackCatalogItem = {
+  id: string;
+  name: string;
+  description: string;
+  scope: "system";
+  skills: string[];
+  defaultEnabled: boolean;
+  recommendedFor: string[];
 };
 
 export type ContentExportItem = {
@@ -218,6 +260,13 @@ export type RealtimeSessionCreatePayload = {
   previousSlideFeedback?: string | null;
   followUpBudget?: number;
   memberScope?: string;
+  seedQuestions?: RealtimeSeedQuestion[];
+};
+
+export type RealtimeSeedQuestion = {
+  slideId: string;
+  source: "ai" | "user";
+  text: string;
 };
 
 export type RealtimeSessionCreateResponse = {
@@ -371,6 +420,22 @@ export async function fetchProjectSkillInvocations(projectId: string) {
   );
 }
 
+export async function fetchSkillCatalog() {
+  const response = await fetch("/api/skills");
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<{ skills?: SkillCatalogItem[] }>;
+}
+
+export async function fetchSkillPackCatalog() {
+  const response = await fetch("/api/skill-packs");
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response));
+  }
+  return response.json() as Promise<{ skillPacks?: SkillPackCatalogItem[] }>;
+}
+
 export async function fetchProjectContentExports(projectId: string) {
   return fetchProjectJson<{ exports?: ContentExportItem[] }>(projectId, "content-exports");
 }
@@ -480,18 +545,24 @@ export async function updateRealtimeTrainingContext(
   }>;
 }
 
-export async function finishRealtimeTrainingSession(projectId: string, sessionId: string) {
+export async function finishRealtimeTrainingSession(
+  projectId: string,
+  sessionId: string,
+  payload: { reviewMode?: "none" | "full" } = {},
+) {
   const response = await fetch(
     `/api/projects/${encodeURIComponent(projectId)}/training-sessions/${encodeURIComponent(sessionId)}/finish`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     },
   );
   if (!response.ok) {
     throw new Error(await readApiErrorMessage(response));
   }
   return response.json() as Promise<{
+    finalizedTurns?: unknown[];
     review?: unknown;
     weaknesses?: unknown[];
     deepDives?: unknown[];
